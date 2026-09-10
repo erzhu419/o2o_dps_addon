@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "kind": "fury_policy_candidate_grid_v1",
+  "selection_basis": {
+    "single_target": "hs50 selected on held-out clean-dual seeds",
+    "multi_target_level_60": "cleave40 and bloodthirst-first selected on 2 Chronicle waves with 16 train and 32 validation seeds",
+    "multi_target_level_61_to_63": "cleave55 and whirlwind-first selected by 20-branch worst-margin search",
+    "armor": "explicit sensitivity range 1721,1961,2861,3761,4211; not Chronicle-observed",
+    "status": "CANDIDATE_ONLY"
+  },
+  "candidates": [
+    {
+      "heroic_strike_threshold": 50.0,
+      "cleave_threshold": 55.0,
+      "low_level_cutoff": 60,
+      "low_level_cleave_threshold": 40.0,
+      "low_level_multi_target_priority": "BLOODTHIRST_FIRST",
+      "queue_cancel_margin": 8.0,
+      "reserve_window_s": 1.3,
+      "multi_target_priority": "WHIRLWIND_FIRST",
+      "filler": "WAIT",
+      "execute_mode": "BLOODTHIRST_RESERVE",
+      "bloodrage_below": 30.0,
+      "use_death_wish": false,
+      "wait_ms": 100
+    }
+  ]
+}

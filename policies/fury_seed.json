@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "policy_id": "fury_warrior_compiled_seed_v1",
+  "policy_kind": "compiled_seed_not_trained_or_validated",
+  "activate": false,
+  "guards": [
+    {"field": "classFile", "op": "eq", "value": "WARRIOR"},
+    {"field": "targetExists", "op": "eq", "value": true},
+    {"field": "targetCanAttack", "op": "eq", "value": true},
+    {"field": "targetIsDead", "op": "eq", "value": false}
+  ],
+  "rules": [
+    {
+      "when": [
+        {"field": "targetPercentHealth", "op": "lt", "value": 19.9},
+        {"field": "rage", "op": "ge", "value": 50}
+      ],
+      "queue": ["warrior_heroic_strike"],
+      "gcd": ["warrior_execute", "warrior_bloodthirst", "warrior_whirlwind"]
+    },
+    {
+      "when": [
+        {"field": "targetPercentHealth", "op": "lt", "value": 19.9},
+        {"field": "rage", "op": "ge", "value": 15}
+      ],
+      "gcd": ["warrior_execute", "warrior_bloodthirst", "warrior_whirlwind"]
+    },
+    {
+      "when": [
+        {"field": "nearbyEnemiesKnown", "op": "eq", "value": true},
+        {"field": "nearbyEnemies", "op": "ge", "value": 2},
+        {"field": "rage", "op": "ge", "value": 50}
+      ],
+      "queue": ["warrior_cleave"],
+      "gcd": ["warrior_bloodthirst", "warrior_whirlwind"]
+    },
+    {
+      "when": [{"field": "rage", "op": "ge", "value": 50}],
+      "queue": ["warrior_heroic_strike"],
+      "gcd": ["warrior_bloodthirst", "warrior_whirlwind"]
+    },
+    {
+      "when": [{"field": "rage", "op": "ge", "value": 30}],
+      "gcd": ["warrior_bloodthirst", "warrior_whirlwind"]
+    },
+    {
+      "when": [{"field": "rage", "op": "ge", "value": 20}],
+      "gcd": ["warrior_whirlwind"]
+    }
+  ],
+  "default": {"queue": [], "gcd": []}
+}

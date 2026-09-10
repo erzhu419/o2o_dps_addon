@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "kind": "brainofcat_wowsims_profile_metadata",
+  "created_at": "2026-09-01T00:17:29Z",
+  "source": {
+    "calibration_jsonl": "offline_data\\calibration\\BrainOfCat__20260831T165938427836Z.jsonl",
+    "line_number": 10084,
+    "event": "STATIC_PROFILE_CAPTURED",
+    "sequence": 19364,
+    "selection_mode": "latest_static_profile",
+    "imported_at": "2026-08-31T16:59:38.427836Z"
+  },
+  "observed_character": {
+    "identity": {
+      "raceFile": "Gnome",
+      "factionFile": "联盟",
+      "raceName": "侏儒",
+      "name": "FuryResearchCharacter",
+      "className": "战士",
+      "factionName": "Alliance",
+      "level": 60,
+      "sex": 3,
+      "classFile": "WARRIOR"
+    },
+    "level": 60,
+    "static_counts": {
+      "equipment": 15,
+      "talents": 16,
+      "spellbook": 88,
+      "actionBarSpells": 89,
+      "skillLines": 36,
+      "bagItems": 87
+    }
+  },
+  "mapped": {
+    "name": "FuryResearchCharacter",
+    "race": "RaceGnome",
+    "class": "ClassWarrior",
+    "equipment_slots": 17,
+    "talents_string": "30205020332-05050005025010051",
+    "talent_trees": {
+      "arms": "30205020332",
+      "fury": "05050005025010051",
+      "protection": ""
+    }
+  },
+  "unmapped_talents": [],
+  "talent_option_mappings": [
+    {
+      "tab": 2,
+      "index": 11,
+      "tier": 5,
+      "column": 1,
+      "name": "碾碎",
+      "rank": 2,
+      "maxRank": 3,
+      "semantic": "ravager",
+      "target": "warrior.options.ravagerRank",
+      "value": 2,
+      "status": "applied_outside_talents_string",
+      "reason": "Turtle Ravager has no position in the legacy WarriorTalents string and is carried by the Turtle simulator option"
+    }
+  ],
+  "simulator_semantic_defaults": [
+    {
+      "field": "WarriorTalents.improvedSlam",
+      "value": 0,
+      "reason": "Value reflects only the observed Improved Slam semantic; Turtle Ravager is mapped separately to warrior.options.ravagerRank"
+    }
+  ],
+  "unsupported_identity": [],
+  "ignored_inventory_slots": [],
+  "preserved_template_fields": [],
+  "preserved_template_scope": "encounter, raid/party buffs and debuffs, player rotation, consumes, cooldowns, and existing Warrior options; ravagerRank is added from the observed Turtle talent",
+  "level_mapping": {
+    "observed": 60,
+    "status": "metadata_only_player_proto_has_no_level_field"
+  },
+  "template": "configs\\wowsims\\fury_warrior_phase1.json",
+  "output_request": "configs\\wowsims\\fury_warrior_live.json"
+}

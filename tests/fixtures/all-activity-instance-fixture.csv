@@ -1,0 +1,4 @@
+#,Type,Time,Source,Source GUID,Action / Ability,Spell ID,Target,Target GUID,Value,Outcome / Detail,Flags,Activity,Encounter,Event Index,Offset (ms),Synthetic
+0,cast,12:00:00.000,Ada,Player-1-0001,Wrath,5176,Training Dummy,Creature-0-0001,,Success,,combat: Molten Core (enc-boss),enc-boss,10,0,false
+1,damage,12:00:01.500,Ada,Player-1-0001,Wrath,5176,Training Dummy,Creature-0-0001,642,Critical,critical | spell,combat: Molten Core (enc-boss),enc-boss,11,1500,false
+2,aura,-0:00.5,Ada,Player-1-0001,Moonkin Form,24858,Ada,Player-1-0001,1,Applied,buff,,enc-trash,12,-500,true

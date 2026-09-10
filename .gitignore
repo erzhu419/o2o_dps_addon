@@ -1,0 +1,32 @@
+# Python/editor/build byproducts.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.idea/
+.vscode/
+node_modules/
+.venv/
+venv/
+*.exe
+*.log
+*.pid
+*.tmp
+.o2obridge-build-*.exe
+.o2ofixture-build-*.json
+Thumbs.db
+.DS_Store
+
+# Local credentials and machine-specific environment files.
+.env
+.env.*
+!.env.example
+
+# Generated/private research corpora and third-party simulator binaries are
+# intentionally not published from this source-only repository.
+offline_data/
+bin/

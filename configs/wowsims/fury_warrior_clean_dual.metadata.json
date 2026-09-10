@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "kind": "brainofcat_wowsims_clean_dual_probe_metadata",
+  "created_on": "2026-09-01",
+  "status": "mechanics_search_probe_not_live_loadout",
+  "purpose": "A reproducible single-target interactive simulator probe for Fury mechanics and bounded search. It is not the character's current in-game equipment and is not evidence of policy superiority.",
+  "source_profile": "configs\\wowsims\\fury_warrior_live.json",
+  "output_request": "configs\\wowsims\\fury_warrior_clean_dual.json",
+  "preserved_from_source": [
+    "character identity",
+    "all non-weapon equipment",
+    "talentsString and ravagerRank",
+    "startingRage and stance",
+    "reaction time and distance",
+    "raid buffs and debuffs",
+    "encounter and its single target",
+    "interactive simulator options"
+  ],
+  "weapon_override": {
+    "main_hand_slot_index": 14,
+    "main_hand": {
+      "item_id": 18832,
+      "name": "Brutality Blade",
+      "enchant": null,
+      "item_triggered_effect": false
+    },
+    "off_hand_slot_index": 15,
+    "off_hand": {
+      "item_id": 19866,
+      "name": "Warblade of the Hakkari",
+      "enchant": null,
+      "item_triggered_effect": false
+    },
+    "weapon_set_bonus_active": false,
+    "scope": "The weapon pair has no weapon enchant and no item-level triggered proc. This does not claim that talents or non-weapon equipment contain no effects."
+  },
+  "excluded_weapon": {
+    "item_id": 17076,
+    "name": "Bonereaver's Edge",
+    "effect_spell_id": 21153,
+    "reason": "Its triggered armor-reduction effect changes the target-armor state and would confound the first queue, swing-timer, rage, and short-horizon search probe."
+  },
+  "calibration_links": {
+    "live_timer_summary": "offline_data\\timer_calibration_summaries\\fury_timer_source_recovery_summary_v1.json",
+    "timer_stage": "B_dual_wield_intervals",
+    "locked_main_hand_item_id": 18832,
+    "locked_off_hand_item_id": 19866,
+    "observed_main_hand_speed_seconds": 2.3790001129964,
+    "observed_off_hand_speed_seconds": 1.6170000768034,
+    "flurry_stage": "C_flurry_haste_boundaries",
+    "heroic_strike_cancel_stage": "D_heroic_strike_cancel_and_loadout"
+  },
+  "simulator_blockers": [
+    "The current white-swing rage formula failed its external holdout and is not globally calibrated.",
+    "Dual-wield miss penalty and queued-next-swing effects on off-hand outcomes are not live identified.",
+    "Multi-target eligibility, Whirlwind range, incoming rage, genuine target-switch queue behavior, extra attacks, parry haste, and non-Flurry haste transitions remain incomplete.",
+    "Most item, set-bonus, raid-buff, and encounter-specific effects are not covered by one complete live contract.",
+    "Cat, Cat2, and Contra do not yet provide non-empty same-state callable expert traces for this profile."
+  ],
+  "gates": {
+    "mechanics_probe_allowed": true,
+    "search_smoke_test_allowed": true,
+    "simulator_teacher_candidate_allowed": true,
+    "live_loadout_claim_allowed": false,
+    "expert_superiority_claim_allowed": false,
+    "policy_deployment_allowed": false
+  }
+}

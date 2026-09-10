@@ -1,0 +1,158 @@
+{
+  "raid": {
+    "parties": [
+      {
+        "players": [
+          {
+            "name": "FuryResearchCharacter",
+            "race": "RaceGnome",
+            "class": "ClassWarrior",
+            "equipment": {
+              "items": [
+                {
+                  "id": 21329
+                },
+                {
+                  "id": 18404
+                },
+                {
+                  "id": 21330,
+                  "enchant": 3038
+                },
+                {
+                  "id": 21394,
+                  "enchant": 849
+                },
+                {
+                  "id": 23226,
+                  "enchant": 1891
+                },
+                {
+                  "id": 22936,
+                  "enchant": 1885
+                },
+                {
+                  "id": 19143
+                },
+                {
+                  "id": 19137,
+                  "enchant": 92
+                },
+                {
+                  "id": 61365,
+                  "enchant": 2543
+                },
+                {
+                  "id": 19387,
+                  "enchant": 1887
+                },
+                {
+                  "id": 19384
+                },
+                {
+                  "id": 17063
+                },
+                {
+                  "id": 19406
+                },
+                {
+                  "id": 60501
+                },
+                {
+                  "id": 18832
+                },
+                {
+                  "id": 19866
+                },
+                {}
+              ]
+            },
+            "talentsString": "30205020332-05050005025010051",
+            "rotation": {},
+            "reactionTimeMs": 150,
+            "distanceFromTarget": 5,
+            "warrior": {
+              "options": {
+                "startingRage": 100,
+                "stance": "WarriorStanceBerserker",
+                "ravagerRank": 2
+              }
+            }
+          }
+        ],
+        "buffs": {}
+      }
+    ],
+    "buffs": {},
+    "debuffs": {}
+  },
+  "encounter": {
+    "duration": 300,
+    "executeProportion20": 0.2,
+    "executeProportion25": 0.25,
+    "executeProportion35": 0.35,
+    "targets": [
+      {
+        "level": 63,
+        "mobType": "MobTypeDemon",
+        "stats": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          320,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1104,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "minBaseDamage": 4192.05,
+        "damageSpread": 0.3333,
+        "swingSpeed": 2,
+        "parryHaste": true
+      }
+    ]
+  },
+  "simOptions": {
+    "iterations": 1,
+    "randomSeed": "20260828",
+    "interactive": true
+  }
+}

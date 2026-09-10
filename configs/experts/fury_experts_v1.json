@@ -1,0 +1,187 @@
+{
+  "schema": "fury_expert_manifest/v1",
+  "policy_contract": "expert_policy/v1",
+  "decision_lanes": [
+    "gcd_or_wait",
+    "swing_queue",
+    "off_gcd_ordered",
+    "stance",
+    "target",
+    "cast_control"
+  ],
+  "raw_sink_order_required": true,
+  "claims": {
+    "lua_executed_offline": false,
+    "exact_runtime_labels_available": false,
+    "source_derived_is_exact_runtime": false
+  },
+  "experts": [
+    {
+      "expert_id": "cat.fury.profile1",
+      "role": "DEPLOYED",
+      "provenance_kind": "SOURCE_DERIVED",
+      "availability": "BOUNDED_SOURCE_TRANSLATION",
+      "eligible_for_independent_vote": true,
+      "authority": {
+        "toc": "%WOW_ADDONS_ROOT%\\Cat\\Cat.toc",
+        "loaded_policy": "%WOW_ADDONS_ROOT%\\Cat\\WarriorFury.lua",
+        "entry": "MPFuryDPS",
+        "saved_variables": "%WOW_CHARACTER_SAVEDVARIABLES%\\Cat.lua"
+      },
+      "frozen_profile": {
+        "index": 1,
+        "HeroicStrike": 0,
+        "HeroicStrike_Value": 50,
+        "Whirlwind": 1,
+        "UseExecute": 1,
+        "ExecuteWithoutMonster": 1,
+        "NearbyEnemies": 1,
+        "NearbyEnemies_Value": 8,
+        "Slam_Value": 1.500000014901161,
+        "Hamstring": 1,
+        "BattleShout": 1,
+        "BerserkerStance": 1,
+        "BerserkerRage": 1,
+        "Target": 0
+      },
+      "source_refs": [
+        "WarriorFury.lua:47",
+        "WarriorFury.lua:338-388",
+        "WarriorFury.lua:397-618",
+        "SavedVariables/Cat.lua:619-668"
+      ],
+      "bounded_scope": "profile1 core Fury target, shout, stance, Bloodrage, dynamic next-swing queue, two-hand and dual-wield GCD rules",
+      "known_boundary": "effective rage costs and reconstructed cooldown/swing state are inputs; commented MPWarriorCancelHeroic calls are not treated as deployed actions"
+    },
+    {
+      "expert_id": "contra.deployed.fury.raid_a",
+      "role": "DEPLOYED",
+      "provenance_kind": "SOURCE_DERIVED",
+      "availability": "BOUNDED_SOURCE_TRANSLATION",
+      "eligible_for_independent_vote": true,
+      "authority": {
+        "toc": "%WOW_ADDONS_ROOT%\\Contra\\Contra.toc",
+        "loaded_policy": "%WOW_ADDONS_ROOT%\\Contra\\Contra_ALL.lua",
+        "unloaded_neighbor": "%WOW_ADDONS_ROOT%\\Contra\\Contra.lua",
+        "entry": "Contra_MacroHandler -> Contra_SSKBZ_A or Contra_SCKBZ_A",
+        "saved_variables": "%WOW_CHARACTER_SAVEDVARIABLES%\\Contra.lua",
+        "version": "202510170223"
+      },
+      "frozen_profile": {
+        "mode": "副本模式",
+        "xuanfeng": false,
+        "baofa": true,
+        "autoselect": false
+      },
+      "source_refs": [
+        "Contra_ALL.lua:31277-31346",
+        "Contra_ALL.lua:31612-31674",
+        "Contra_ALL.lua:32049-32074",
+        "Contra_ALL.lua:36383-36431"
+      ],
+      "bounded_scope": "current adapter implements raid-A two-hand boss/dummy and dual-wield bodies with supplied prelude-helper outputs; source also has three non-boss max-health branches pending state reconstruction",
+      "known_boundary": "Contra remains a required strong baseline. UnitHealthMax, true health percent, classification, and loadout-derived ZSSDW must be reconstructed before the non-boss branches can be ranked; the LastCastName disjunction is preserved as written"
+    },
+    {
+      "expert_id": "contra_new.fury.candidate",
+      "role": "CANDIDATE",
+      "provenance_kind": "SOURCE_DERIVED",
+      "availability": "NON_RUNNABLE_CANDIDATE_SOURCE",
+      "eligible_for_independent_vote": false,
+      "authority": {
+        "toc": "%BRAIN_OF_CAT_ROOT%\\Contra_new\\Contra.toc",
+        "macro_source": "%BRAIN_OF_CAT_ROOT%\\Contra_new\\Contra_Macro.lua",
+        "warrior_source": "%BRAIN_OF_CAT_ROOT%\\Contra_new\\Contra_Scrip_Warrior.lua",
+        "version": "20251017022403"
+      },
+      "source_refs": [
+        "Contra_new/Contra_Macro.lua:101-158",
+        "Contra_new/Contra_Scrip_Warrior.lua:586-651",
+        "Contra_new/Contra_Scrip_Warrior.lua:1257-1288"
+      ],
+      "known_boundary": "TOC members Contra_Debuff.lua and Contra_UI_DB.lua are missing and Contra_TrinketManager.lua is empty; this source must not become an independent ensemble vote"
+    },
+    {
+      "expert_id": "cat2.fury.brainofcat_shadow.saved_profile_source_v1",
+      "role": "DEPLOYED",
+      "provenance_kind": "SOURCE_DERIVED",
+      "availability": "CURRENT_UNSEALED_SOURCE_PROFILE",
+      "authority_state": "CURRENT_UNSEALED_SOURCE_PROFILE",
+      "eligible_for_independent_vote": false,
+      "source_execution": false,
+      "exact_runtime": false,
+      "authority": {
+        "toc": "%WOW_ADDONS_ROOT%\\Cat2\\Cat2.toc",
+        "runner": "%WOW_ADDONS_ROOT%\\Cat2\\Core\\ConfigurationRunner.lua",
+        "saved_variables": "%WOW_CHARACTER_SAVEDVARIABLES%\\Cat2.lua",
+        "entry": "Cat2.ExecuteConfiguration",
+        "snapshot": "%PROJECT_ROOT%\\offline_data\\reports\\cat2_saved_profile_v1.json"
+      },
+      "snapshot": {
+        "artifact_type": "cat2_saved_profile_v1",
+        "schema_version": 1,
+        "file_sha256": "e5c17c343a46f14565a413920e635e455ad161654fb3c9aab6d9db8efff8875a",
+        "raw_savedvariables_sha256": "25c3359de03361567a4a4e4bb9f88c711af6f9bebd550b5ac72bb18358c197a0",
+        "profile_semantic_sha256": "891b2ffda747f0c4202c8de874f18e599206c78df1608bcf1eb06c5aa49d0625",
+        "source_bundle_sha256": "1d591e5ef60222a0f6eb1e081b4f43feb4cfa1576103558689dc6fda2aa84970",
+        "source_bundle_scope": "DIRECT_RUNTIME_DEPENDENCY_PINNED",
+        "transitive_dependency_closure_claimed": false
+      },
+      "profile": {
+        "id": 1,
+        "name": "BrainOfCat Shadow",
+        "step_order": [
+          "warrior_o2o_policy_brain",
+          "common_auto_attack",
+          "warrior_berserker_stance",
+          "warrior_bloodrage",
+          "warrior_execute",
+          "warrior_bloodthirst",
+          "warrior_whirlwind",
+          "warrior_heroic_strike_alt"
+        ]
+      },
+      "source_refs": [
+        "addon/O2OPolicyBrainCard.lua:49-81",
+        "ConfigurationRunner.lua:260-389",
+        "Cards/Common/AutoAttack.lua:30-54",
+        "Cards/Warrior/BerserkerStance.lua:29-47",
+        "Cards/Warrior/Bloodrage.lua:35-51",
+        "Cards/Warrior/Execute.lua:40-48",
+        "Cards/Warrior/Bloodthirst.lua:24-36",
+        "Cards/Warrior/Whirlwind.lua:35-62",
+        "Cards/Warrior/HeroicStrikeAlt.lua:35-57"
+      ],
+      "known_boundary": "the current deployed Cat2 profile is source-derived from an exact snapshot of mutable SavedVariables and pinned direct runtime dependencies; it is not Lua execution, is not a sealed capture, and cannot vote independently"
+    },
+    {
+      "expert_id": "cat2.fury.curated_candidate",
+      "role": "CANDIDATE",
+      "provenance_kind": "SOURCE_DERIVED",
+      "availability": "EXPLICIT_CURATED_CARD_STACK",
+      "eligible_for_independent_vote": false,
+      "authority": {
+        "toc": "%WOW_ADDONS_ROOT%\\Cat2\\Cat2.toc",
+        "runner": "%WOW_ADDONS_ROOT%\\Cat2\\Core\\ConfigurationRunner.lua",
+        "profile_name": "curated_fury_rotation_probe_v1"
+      },
+      "card_stack": [
+        "warrior_heroic_strike",
+        "warrior_execute",
+        "warrior_bloodthirst",
+        "warrior_whirlwind",
+        "warrior_slam"
+      ],
+      "source_refs": [
+        "ConfigurationRunner.lua:260-389",
+        "ConfigurationRunner.lua:436-448",
+        "Cards/Warrior/HeroicStrike.lua",
+        "Cards/Warrior/Execute.lua",
+        "Cards/Warrior/Bloodthirst.lua",
+        "Cards/Warrior/Whirlwind.lua",
+        "Cards/Warrior/Slam.lua"
+      ],
+      "known_boundary": "research candidate assembled explicitly for simulator proposal coverage; it is not present in live SavedVariables and must never be reported as a deployed Cat2 expert"
+    }
+  ]
+}

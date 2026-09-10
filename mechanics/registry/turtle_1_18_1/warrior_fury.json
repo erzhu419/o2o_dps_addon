@@ -1,0 +1,944 @@
+{
+  "schema_version": 2,
+  "game_patch": "Turtle WoW 1.18.1",
+  "scope": "fury warrior simulator bootstrap",
+  "overall_status": "partially_game_calibrated",
+  "mechanics": [
+    {
+      "key": "warrior.heroic_strike.queue",
+      "status": "partially_game_calibrated",
+      "implementation": {
+        "spell_ids": [
+          11567,
+          25286
+        ],
+        "queue_tag": 1,
+        "rage_cost": "15 minus Improved Heroic Strike rank",
+        "miss_refund_fraction": 0,
+        "consumes_gcd": false,
+        "replaces_next_main_hand_swing": true
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/heroic_strike_cleave.go",
+        "wowsims-turtle/sim/o2o/environment_test.go: TestWarriorQueueThenGCD",
+        "wowsims-turtle/sim/o2o/environment_test.go: TestHeroicStrikeAvoidanceConsumesFullBaseRage",
+        "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json"
+      ],
+      "calibration": {
+        "parameters": {
+          "replaces_next_main_hand_swing": {
+            "observed_value": true,
+            "simulator_value": true,
+            "unit": "boolean",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_heroic_strike_queue_swing",
+              "task_run_id": "task-REDACTED_CHARACTER-11633366-4",
+              "comparison": "CONSISTENT"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 10,
+            "confidence": "high",
+            "last_verified": "2026-08-29T12:10:39.331933Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T114628840079Z.json",
+            "decision_id": "warrior.heroic_strike.queue.replaces_next_main_hand_swing"
+          }
+        },
+        "status": "partially_game_calibrated",
+        "source_summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+        "unresolved": [
+          {
+            "mechanic": "warrior.heroic_strike.queue",
+            "field": "miss_refund_fraction",
+            "status": "simulator_aligned_awaiting_repeat",
+            "observed_value": 0,
+            "simulator_value": 0,
+            "sample_count": 1,
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_heroic_strike_queue_swing",
+              "task_run_id": "task-REDACTED_CHARACTER-11633366-4",
+              "comparison": "OBSERVED_DIFFERS_SINGLE_TRIAL"
+            },
+            "current_alignment": "simulator_matches_observed_value",
+            "reason": "The simulator now consumes the full effective base cost on avoidance, matching the one clean current-character trial. A repeated clean miss is still required before promotion to verified."
+          }
+        ]
+      }
+    },
+    {
+      "key": "warrior.cleave.queue",
+      "status": "partially_game_calibrated",
+      "implementation": {
+        "spell_id": 20569,
+        "queue_tag": 1,
+        "base_rage_cost": 20,
+        "rage_cost": "20 minus Ravager rank",
+        "current_character_ravager_rank": 2,
+        "current_character_rage_cost": 18,
+        "consumes_gcd": false,
+        "replaces_next_main_hand_swing": true
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/heroic_strike_cleave.go",
+        "wowsims-turtle/sim/o2o/ravager_test.go: TestTurtleRavagerAdjustsWhirlwindAndCleave",
+        "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json"
+      ],
+      "calibration": {
+        "status": "current_character_rank2_queue_game_calibrated",
+        "source_summary": "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json",
+        "parameters": {
+          "replaces_next_main_hand_swing": {
+            "observed_value": true,
+            "simulator_value": true,
+            "unit": "boolean",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json",
+              "task_id": "warrior_cleave_queue_swing",
+              "task_run_id": "task-REDACTED_CHARACTER-29034723-3",
+              "comparison": "CONSISTENT"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 4,
+            "confidence": "high",
+            "comparison": "CONSISTENT",
+            "evidence_role": "same-run on-swing acceptance (castType=2 or explicit queue/pop), GO/result, and next main-hand chain",
+            "last_verified": "2026-08-29T17:41:03.014771Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T162450387299Z.json",
+            "decision_id": "warrior.cleave.queue.replaces_next_main_hand_swing"
+          },
+          "current_character_rage_cost": {
+            "observed_value": 18,
+            "simulator_value": 18,
+            "unit": "rage",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json",
+              "task_id": "warrior_cleave_queue_swing",
+              "task_run_id": "task-REDACTED_CHARACTER-29034723-3",
+              "comparison": "CONSISTENT"
+            },
+            "status": "observed_multiple_clean_transitions",
+            "sample_count": 4,
+            "confidence": "medium",
+            "comparison": "CONSISTENT",
+            "evidence_role": "unconfounded task-bounded net rage transition",
+            "last_verified": "2026-08-29T17:41:03.014771Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T162450387299Z.json",
+            "decision_id": "warrior.cleave.queue.current_character_rage_cost"
+          }
+        },
+        "unresolved": [
+          {
+            "field": "other_ravager_ranks",
+            "status": "not_game_calibrated"
+          }
+        ]
+      }
+    },
+    {
+      "key": "warrior.bloodthirst",
+      "status": "partially_game_calibrated",
+      "implementation": {
+        "spell_id": 23894,
+        "rage_cost": 30,
+        "miss_refund_fraction": 0,
+        "cooldown_seconds": 6,
+        "gcd_seconds": 1.5,
+        "damage_model": "rank 4: 200 base damage plus 0.35 times melee attack power",
+        "two_handed_weapon_specialization_applies": false,
+        "movement_speed_multiplier": 1.1,
+        "movement_speed_duration_seconds": 6,
+        "movement_speed_trigger": "successful cast effect regardless of landed outcome"
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/bloodthirst.go",
+        "wowsims-turtle/sim/o2o/environment_test.go: TestBloodthirstAvoidanceConsumesFullBaseRage",
+        "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+        "offline_data/calibration/BrainOfCat__20260829T162450387299Z.jsonl:1 learned Bloodthirst rank 4 tooltip: damage formula and 10 percent movement speed for 6 seconds",
+        "offline_data/calibration_acceptance/bloodthirst_rank4_damage_model__20260830.json",
+        "wowsims-turtle/sim/warrior/bloodthirst_test.go: TestTurtleBloodthirstRankFourUsesLiveFormula",
+        "offline_data/calibration_summaries/BrainOfCat__20260829T183555926397Z.json",
+        "offline_data/sim_validation/bloodthirst_phase4_matched_replay.json",
+        "offline_data/calibration_acceptance/bloodthirst_phase4_matched_replay__20260830.json",
+        "wowsims-turtle/sim/o2o/slam_test.go: TestTurtleBloodthirstMatchedPhase4Damage",
+        "offline_data/calibration_summaries/BrainOfCat__20260830T000926939831Z.json",
+        "offline_data/sim_validation/bloodthirst_phase5_armor_matched_replay.json",
+        "offline_data/calibration_acceptance/bloodthirst_phase5_armor_matched_replay__20260830.json",
+        "wowsims-turtle/sim/o2o/armor_phase5_test.go: TestTurtleSunderMatchesPhase5ArmorStrata",
+        "offline_data/calibration/BrainOfCat__20260829T114628840079Z.jsonl:7505-7510 landed Bloodthirst GO, damage, and 6000ms self buff duration",
+        "offline_data/calibration/BrainOfCat__20260829T114628840079Z.jsonl:7553-7558 missed Bloodthirst, GO, and 6000ms self buff duration",
+        "wowsims-turtle/sim/o2o/environment_test.go: TestBloodthirstMoveSpeedBuffActivatesOnHitAndMiss"
+      ],
+      "calibration": {
+        "parameters": {
+          "rage_cost": {
+            "observed_value": 30,
+            "simulator_value": 30,
+            "unit": "rage",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_bloodthirst_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-11521922-3",
+              "comparison": "CONSISTENT"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 10,
+            "confidence": "high",
+            "last_verified": "2026-08-29T12:10:39.331933Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T114628840079Z.json",
+            "decision_id": "warrior.bloodthirst.rage_cost"
+          },
+          "cooldown_seconds": {
+            "observed_value": 6,
+            "simulator_value": 6,
+            "unit": "seconds",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_bloodthirst_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-11521922-3",
+              "comparison": "CONSISTENT"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 10,
+            "confidence": "high",
+            "last_verified": "2026-08-29T12:10:39.331933Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T114628840079Z.json",
+            "decision_id": "warrior.bloodthirst.cooldown_seconds"
+          },
+          "gcd_seconds": {
+            "observed_value": 1.5,
+            "simulator_value": 1.5,
+            "unit": "seconds",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_bloodthirst_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-11521922-3",
+              "comparison": "CONSISTENT"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 10,
+            "confidence": "high",
+            "last_verified": "2026-08-29T12:10:39.331933Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T114628840079Z.json",
+            "decision_id": "warrior.bloodthirst.gcd_seconds"
+          },
+          "damage_model": {
+            "observed_value": "rank 4: 200 base damage plus 0.35 times melee attack power",
+            "simulator_value": "rank 4: 200 base damage plus 0.35 times melee attack power",
+            "unit": "raw_physical_damage",
+            "source": {
+              "learned_spell_tooltip": "offline_data/calibration/BrainOfCat__20260829T162450387299Z.jsonl:1",
+              "controlled_live_summary": "offline_data/calibration_summaries/BrainOfCat__20260829T183555926397Z.json",
+              "matched_replay": "offline_data/sim_validation/bloodthirst_phase4_matched_replay.json",
+              "comparison": "LIVE_MATCHES_SIMULATOR_TWO_AP_STRATA"
+            },
+            "status": "verified_two_strata_matched_replay",
+            "sample_count": 8,
+            "confidence": "high",
+            "last_verified": "2026-08-29T19:00:36Z",
+            "acceptance": "offline_data/calibration_acceptance/bloodthirst_phase4_matched_replay__20260830.json",
+            "decision_id": "warrior.bloodthirst.damage_model"
+          },
+          "two_handed_weapon_specialization_applies": {
+            "observed_value": false,
+            "simulator_value": false,
+            "unit": "boolean",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T183555926397Z.json",
+              "matched_replay": "offline_data/sim_validation/bloodthirst_phase4_matched_replay.json",
+              "comparison": "PREVIOUS_SIMULATOR_SCOPE_CORRECTED"
+            },
+            "status": "verified_current_character_two_strata",
+            "sample_count": 8,
+            "confidence": "high",
+            "last_verified": "2026-08-29T19:00:36Z",
+            "acceptance": "offline_data/calibration_acceptance/bloodthirst_phase4_matched_replay__20260830.json",
+            "decision_id": "warrior.bloodthirst.two_handed_weapon_specialization_applies"
+          },
+          "armor_response": {
+            "observed_value": {
+              "target_armor_strata": [
+                4211,
+                3761,
+                2861,
+                1961
+              ],
+              "normal_damage_strata": [
+                350,
+                367,
+                406,
+                456
+              ]
+            },
+            "simulator_value": {
+              "continuous_normal_damage": [
+                349.523118391043,
+                366.6267942584,
+                406.4006750241,
+                455.8545159546
+              ],
+              "all_live_values_in_prediction_floor_ceil_sets": true
+            },
+            "unit": "post_armor_normal_physical_damage",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260830T000926939831Z.json",
+              "matched_replay": "offline_data/sim_validation/bloodthirst_phase5_armor_matched_replay.json",
+              "comparison": "LIVE_MATCHES_SIMULATOR_FOUR_ARMOR_STRATA"
+            },
+            "status": "verified_four_armor_strata_matched_replay",
+            "sample_count": 16,
+            "confidence": "high",
+            "last_verified": "2026-08-30T00:17:42Z",
+            "acceptance": "offline_data/calibration_acceptance/bloodthirst_phase5_armor_matched_replay__20260830.json",
+            "decision_id": "warrior.bloodthirst.armor_response"
+          }
+        },
+        "status": "partially_game_calibrated",
+        "source_summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+        "unresolved": [
+          {
+            "mechanic": "warrior.bloodthirst",
+            "field": "critical_probability",
+            "status": "not_estimated",
+            "reason": "the until-crit task validates event encoding, not a probability"
+          },
+          {
+            "mechanic": "warrior.bloodthirst",
+            "field": "miss_refund_fraction",
+            "status": "simulator_aligned_awaiting_repeat",
+            "observed_value": 0,
+            "simulator_value": 0,
+            "sample_count": 1,
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_bloodthirst_until_crit",
+              "task_run_id": "task-REDACTED_CHARACTER-12427520-1",
+              "comparison": "OBSERVED_DIFFERS_SINGLE_TRIAL"
+            },
+            "current_alignment": "simulator_matches_observed_value",
+            "reason": "The simulator now consumes the full 30-rage base cost on avoidance, matching the one clean current-character trial. A repeated clean miss is still required before promotion to verified."
+          }
+        ]
+      }
+    },
+    {
+      "key": "warrior.two_handed_weapon_specialization",
+      "status": "partially_game_calibrated",
+      "implementation": {
+        "current_character_rank": 3,
+        "weapon_damage_multiplier": "1 plus 0.02 per rank",
+        "current_character_weapon_damage_multiplier": 1.06,
+        "two_handed_weapon_skill_bonus": "1 per rank for axes, swords, maces, polearms, and staves",
+        "current_character_weapon_skill_bonus": 3,
+        "ap_based_bloodthirst_affected": false,
+        "fixed_non_weapon_damage_affected": false
+      },
+      "evidence": [
+        "offline_data/calibration/BrainOfCat__20260829T183555926397Z.jsonl:1 learned rank-3 talent tooltip",
+        "offline_data/calibration_summaries/BrainOfCat__20260829T183555926397Z.json",
+        "offline_data/sim_validation/bloodthirst_phase4_matched_replay.json",
+        "offline_data/calibration_acceptance/bloodthirst_phase4_matched_replay__20260830.json",
+        "wowsims-turtle/sim/warrior/talents.go",
+        "wowsims-turtle/sim/warrior/talents_test.go: TestTurtleTwoHandedWeaponSpecializationUsesTooltipScope"
+      ],
+      "calibration": {
+        "status": "rank3_tooltip_parameters_and_bloodthirst_scope_calibrated",
+        "source_summary": "offline_data/calibration_summaries/BrainOfCat__20260829T183555926397Z.json",
+        "unresolved": [
+          {
+            "field": "weapon_based_action_damage_response",
+            "status": "not_live_isolated",
+            "reason": "The exact rank-3 tooltip parameters are implemented, but a separate live campaign has not isolated normal two-handed weapon hits with and without the talent."
+          }
+        ]
+      }
+    },
+    {
+      "key": "warrior.whirlwind",
+      "status": "partially_game_calibrated",
+      "implementation": {
+        "spell_id": 1680,
+        "rage_cost": 25,
+        "gcd_seconds": 1.5,
+        "base_cooldown_seconds": 10,
+        "cooldown_seconds": "10 minus Ravager reduction (rank 1: 1 second; rank 2: 1.5 seconds; rank 3: 2 seconds)",
+        "current_character_ravager_rank": 2,
+        "current_character_cooldown_seconds": 8.5
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/whirlwind.go",
+        "wowsims-turtle/sim/o2o/ravager_test.go: TestTurtleRavagerAdjustsWhirlwindAndCleave",
+        "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json"
+      ],
+      "calibration": {
+        "status": "current_character_rank2_cooldown_game_calibrated",
+        "source_summary": "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json",
+        "parameters": {
+          "current_character_cooldown_seconds": {
+            "observed_value": 8.5,
+            "simulator_value": 8.5,
+            "unit": "seconds",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json",
+              "task_id": "warrior_whirlwind_cooldown_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-29003814-2",
+              "comparison": "CONSISTENT"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 2,
+            "confidence": "high",
+            "comparison": "CONSISTENT",
+            "evidence_role": "GetSpellCooldown duration is the exact value; the successful GO interval is consistency evidence only",
+            "last_verified": "2026-08-29T17:41:03.014771Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T162450387299Z.json",
+            "decision_id": "warrior.whirlwind.current_character_cooldown_seconds"
+          }
+        },
+        "unresolved": [
+          {
+            "field": "other_ravager_ranks",
+            "status": "not_game_calibrated"
+          }
+        ]
+      }
+    },
+    {
+      "key": "warrior.execute",
+      "status": "partially_game_calibrated",
+      "implementation": {
+        "spell_id": 20662,
+        "wrapper_spell_id": 20662,
+        "result_spell_id": 20647,
+        "base_rage_cost": "15 minus Improved Execute reduction",
+        "miss_refund_fraction": 0,
+        "extra_rage_spent_only_when_landed": true,
+        "extra_rage_retained_on_miss": true,
+        "execute_phase": "configured by encounter execute proportion",
+        "gcd_seconds": 1.5
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/execute.go",
+        "wowsims-turtle/sim/o2o/environment_test.go: TestExecuteAvoidanceConsumesBaseRageAndRetainsExtraRage",
+        "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+        "offline_data/calibration/BrainOfCat__20260829T114628840079Z.jsonl: 10/10 Execute trials pair START and wrapper GO 20662 with triggered GO and damage/miss 20647",
+        "offline_data/derived/chronicle_fury_partial_trajectory/v1/043b4d65-9c58-4643-b601-62f1684af04a__000000000066ADAE.jsonl: all 104 successful wrapper GO 20662 events are followed within 0-2 ms by result GO 20647; three failed wrapper attempts emit no 20647 GO"
+      ],
+      "calibration": {
+        "parameters": {
+          "gcd_seconds": {
+            "observed_value": 1.5,
+            "simulator_value": 1.5,
+            "unit": "seconds",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_execute_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-11435088-2",
+              "comparison": "CONSISTENT"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 10,
+            "confidence": "high",
+            "last_verified": "2026-08-29T12:10:39.331933Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T114628840079Z.json",
+            "decision_id": "warrior.execute.gcd_seconds"
+          }
+        },
+        "status": "partially_game_calibrated",
+        "source_summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+        "unresolved": [
+          {
+            "mechanic": "warrior.execute",
+            "field": "generic_base_rage_cost_formula",
+            "status": "current_build_observed_generic_formula_not_identified",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_execute_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-11435088-2",
+              "comparison": "CONSISTENT_WITH_CURRENT_BUILD_DESCRIPTION"
+            },
+            "reason": "The task-start boundary captures Improved Execute rank through the talent API. A clean miss observes the current build's net base cost, but this campaign does not identify the generic cost formula at every rank."
+          },
+          {
+            "mechanic": "warrior.execute",
+            "field": "miss_refund_fraction",
+            "status": "simulator_aligned_awaiting_repeat",
+            "observed_value": 0,
+            "simulator_value": 0,
+            "sample_count": 1,
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_execute_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-11435088-2",
+              "comparison": "OBSERVED_DIFFERS_SINGLE_TRIAL"
+            },
+            "current_alignment": "simulator_matches_observed_value",
+            "reason": "The simulator now consumes the current build's full base cost on avoidance, matching the one clean current-character trial. A repeated clean miss is still required before promotion to verified."
+          },
+          {
+            "mechanic": "warrior.execute",
+            "field": "extra_rage_retained_on_miss",
+            "status": "simulator_aligned_awaiting_repeat",
+            "observed_value": true,
+            "simulator_value": true,
+            "sample_count": 1,
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T114628840079Z.json",
+              "task_id": "warrior_execute_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-11435088-2",
+              "comparison": "OBSERVED_DIFFERS_SINGLE_TRIAL"
+            },
+            "current_alignment": "simulator_matches_observed_value",
+            "reason": "The simulator now spends Execute's extra rage only after a landed result, so avoidance retains it as in the one clean current-character trial. A repeated clean miss is still required before promotion to verified."
+          }
+        ]
+      }
+    },
+    {
+      "key": "warrior.slam",
+      "status": "partially_game_calibrated",
+      "implementation": {
+        "rank": 5,
+        "wrapper_spell_id": 45961,
+        "result_spell_id": 45961,
+        "rage_cost": 15,
+        "base_cast_seconds": 2.5,
+        "cast_speed_model": "base cast time divided by current melee swing-speed multiplier, including Flurry",
+        "base_gcd_seconds": 1.5,
+        "improved_slam_adjustment": "minus 0.1 seconds per Improved Slam rank from base cast time and GCD",
+        "damage_model": "100 percent normalized main-hand weapon damage",
+        "can_cast_while_moving": true,
+        "main_hand_swing_deadline": "preserve the pre-cast deadline when it is after Slam GO; if it expires during the cast, release the pending swing at Slam GO"
+      },
+      "evidence": [
+        "https://forum.turtlecraft.gg/viewtopic.php?start=910&t=15157",
+        "https://forum.turtlecraft.gg/viewtopic.php?p=141159",
+        "wowsims-turtle/sim/warrior/slam.go",
+        "wowsims-turtle/sim/core/flags.go",
+        "wowsims-turtle/sim/core/cast.go",
+        "wowsims-turtle/sim/o2o/environment.go",
+        "wowsims-turtle/sim/o2o/slam_test.go: TestTurtleSlamUsesRankFiveAndKeepsSwingDeadline",
+        "wowsims-turtle/sim/o2o/slam_test.go: TestTurtleSlamCastTimeUsesFlurryMeleeSpeed",
+        "wowsims-turtle/sim/o2o/slam_test.go: TestTurtleSlamCanCastWhileMoving",
+        "addon/CalibrationTasks.lua",
+        "o2o-dps/o2o_dps/calibration_summary.py",
+        "offline_data/calibration_summaries/BrainOfCat__20260829T150810860973Z.json",
+        "wowsims-turtle/sim/o2o/slam_test.go: TestTurtleSlamPreservesMainHandDeadlineAfterServerGO",
+        "wowsims-turtle/sim/o2o/slam_test.go: TestTurtleSlamReleasesOverdueMainHandAtServerGO"
+      ],
+      "calibration": {
+        "status": "timing_and_cost_game_calibrated",
+        "source_summary": "offline_data/calibration_summaries/BrainOfCat__20260829T150810860973Z.json",
+        "parameters": {
+          "rage_cost": {
+            "observed_value": 15,
+            "simulator_value": 15,
+            "unit": "rage",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T150810860973Z.json",
+              "task_id": "warrior_slam_timing_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-23488794-2"
+            },
+            "status": "observed_single_clean_transition",
+            "sample_count": 1,
+            "confidence": "medium_static_and_simulator_support",
+            "comparison": "CONSISTENT_WITH_REGISTRY",
+            "last_verified": "2026-08-29T15:38:58.416680Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T150810860973Z.json",
+            "decision_id": "warrior.slam.rage_cost"
+          },
+          "cast_speed_model": {
+            "observed_value": {
+              "no_flurry_advertised_ms": [
+                2379,
+                2379
+              ],
+              "flurry_advertised_ms": [
+                1830,
+                1830,
+                1830
+              ],
+              "flurry_speed_ratio": 1.3
+            },
+            "simulator_value": "base cast time divided by current melee swing-speed multiplier, including Flurry",
+            "unit": "milliseconds_and_ratio",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T150810860973Z.json",
+              "task_id": "warrior_slam_timing_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-23488794-2"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 5,
+            "confidence": "high",
+            "comparison": "CONSISTENT_WITH_REGISTRY_MODEL",
+            "last_verified": "2026-08-29T15:38:58.416680Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T150810860973Z.json",
+            "decision_id": "warrior.slam.cast_speed_model"
+          },
+          "main_hand_swing_deadline": {
+            "observed_value": {
+              "preserved_precast_deadline_trials": 1,
+              "released_at_server_go_trials": 4
+            },
+            "simulator_value": "preserve the pre-cast deadline when it is after Slam GO; if it expires during the cast, release the pending swing at Slam GO",
+            "unit": "categorical_timing",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T150810860973Z.json",
+              "task_id": "warrior_slam_timing_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-23488794-2"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 5,
+            "confidence": "high",
+            "comparison": "LIVE_MATCHES_SIMULATOR_AND_REFINES_REGISTRY",
+            "last_verified": "2026-08-29T15:38:58.416680Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T150810860973Z.json",
+            "decision_id": "warrior.slam.main_hand_swing_deadline",
+            "previous_registry_value": "continues unchanged while Slam is cast; not paused and not reset"
+          },
+          "result_spell_id": {
+            "observed_value": 45961,
+            "simulator_value": 45961,
+            "unit": "spell_id",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T150810860973Z.json",
+              "task_id": "warrior_slam_timing_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-23488794-2"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 5,
+            "confidence": "high",
+            "comparison": "LIVE_MATCHES_SIMULATOR_AND_CORRECTS_REGISTRY",
+            "last_verified": "2026-08-29T15:38:58.416680Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T150810860973Z.json",
+            "decision_id": "warrior.slam.result_spell_id",
+            "previous_registry_value": 53214
+          }
+        },
+        "retention": {
+          "logical_completed_trials": 6,
+          "retained_evidence_trials": 5,
+          "missing_trial_numbers": [
+            1
+          ],
+          "coverage_sufficient": true
+        },
+        "unresolved": [
+          {
+            "mechanic": "warrior.slam",
+            "field": "damage_model",
+            "status": "not_adjudicated",
+            "reason": "weapon damage roll, armor, and outcome were not isolated"
+          },
+          {
+            "mechanic": "warrior.slam",
+            "field": "improved_slam_adjustment",
+            "status": "not_game_calibrated_for_current_character",
+            "reason": "the captured character has zero Improved Slam ranks"
+          },
+          {
+            "mechanic": "warrior.slam",
+            "field": "can_cast_while_moving",
+            "status": "simulator_only",
+            "reason": "the retained live trials were stationary"
+          }
+        ]
+      }
+    },
+    {
+      "key": "warrior.ravager",
+      "status": "partially_game_calibrated",
+      "implementation": {
+        "simulator_option": "warrior.options.ravagerRank",
+        "current_character_rank": 2,
+        "legacy_improved_slam_field": 0,
+        "rank_effects": [
+          {
+            "rank": 1,
+            "whirlwind_cooldown_reduction_seconds": 1,
+            "cleave_rage_cost_reduction": 1
+          },
+          {
+            "rank": 2,
+            "whirlwind_cooldown_reduction_seconds": 1.5,
+            "cleave_rage_cost_reduction": 2
+          },
+          {
+            "rank": 3,
+            "whirlwind_cooldown_reduction_seconds": 2,
+            "cleave_rage_cost_reduction": 3
+          }
+        ]
+      },
+      "evidence": [
+        "wowsims-turtle/proto/warrior.proto",
+        "wowsims-turtle/sim/warrior/warrior.go",
+        "wowsims-turtle/sim/warrior/dps_warrior/dps_warrior.go",
+        "wowsims-turtle/sim/warrior/whirlwind.go",
+        "wowsims-turtle/sim/warrior/heroic_strike_cleave.go",
+        "wowsims-turtle/sim/o2o/ravager_test.go: TestTurtleRavagerAdjustsWhirlwindAndCleave",
+        "addon/CalibrationLogger.lua",
+        "o2o-dps/o2o_dps/wowsims_profile.py",
+        "o2o-dps/tests/test_wowsims_profile.py",
+        "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json"
+      ],
+      "calibration": {
+        "status": "rank2_live_effects_game_calibrated",
+        "source_summary": "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json",
+        "observed_rank": 2,
+        "effects": {
+          "whirlwind_current_character_cooldown_seconds": {
+            "observed_value": 8.5,
+            "simulator_value": 8.5,
+            "unit": "seconds",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json",
+              "task_id": "warrior_whirlwind_cooldown_transition",
+              "task_run_id": "task-REDACTED_CHARACTER-29003814-2",
+              "comparison": "CONSISTENT"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 2,
+            "confidence": "high",
+            "comparison": "CONSISTENT",
+            "evidence_role": "GetSpellCooldown duration is the exact value; the successful GO interval is consistency evidence only",
+            "last_verified": "2026-08-29T17:41:03.014771Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T162450387299Z.json",
+            "decision_id": "warrior.whirlwind.current_character_cooldown_seconds"
+          },
+          "cleave_current_character_rage_cost": {
+            "observed_value": 18,
+            "simulator_value": 18,
+            "unit": "rage",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json",
+              "task_id": "warrior_cleave_queue_swing",
+              "task_run_id": "task-REDACTED_CHARACTER-29034723-3",
+              "comparison": "CONSISTENT"
+            },
+            "status": "observed_multiple_clean_transitions",
+            "sample_count": 4,
+            "confidence": "medium",
+            "comparison": "CONSISTENT",
+            "evidence_role": "unconfounded task-bounded net rage transition",
+            "last_verified": "2026-08-29T17:41:03.014771Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T162450387299Z.json",
+            "decision_id": "warrior.cleave.queue.current_character_rage_cost"
+          },
+          "cleave_replaces_next_main_hand_swing": {
+            "observed_value": true,
+            "simulator_value": true,
+            "unit": "boolean",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260829T162450387299Z.json",
+              "task_id": "warrior_cleave_queue_swing",
+              "task_run_id": "task-REDACTED_CHARACTER-29034723-3",
+              "comparison": "CONSISTENT"
+            },
+            "status": "verified_deterministic",
+            "sample_count": 4,
+            "confidence": "high",
+            "comparison": "CONSISTENT",
+            "evidence_role": "same-run on-swing acceptance (castType=2 or explicit queue/pop), GO/result, and next main-hand chain",
+            "last_verified": "2026-08-29T17:41:03.014771Z",
+            "acceptance": "offline_data/calibration_acceptance/BrainOfCat__20260829T162450387299Z.json",
+            "decision_id": "warrior.cleave.queue.replaces_next_main_hand_swing"
+          }
+        },
+        "unresolved": [
+          {
+            "field": "rank_1_and_rank_3_live_effects",
+            "status": "not_game_calibrated"
+          }
+        ]
+      }
+    },
+    {
+      "key": "warrior.sunder_armor",
+      "status": "current_character_rank5_game_calibrated",
+      "implementation": {
+        "spell_id": 11597,
+        "rank": 5,
+        "base_rage_cost": 10,
+        "current_character_improved_sunder_armor_rank": 0,
+        "current_character_rage_cost": 10,
+        "gcd_seconds": 1.5,
+        "armor_reduction_per_stack": 450,
+        "max_stacks": 5,
+        "duration_seconds": 30
+      },
+      "evidence": [
+        "offline_data/calibration/BrainOfCat__20260830T000926939831Z.jsonl:1 learned rank-5 tooltip",
+        "offline_data/calibration_summaries/BrainOfCat__20260830T000926939831Z.json",
+        "offline_data/sim_validation/bloodthirst_phase5_armor_matched_replay.json",
+        "offline_data/calibration_acceptance/bloodthirst_phase5_armor_matched_replay__20260830.json",
+        "wowsims-turtle/sim/warrior/sunder_armor.go: core.GCDDefault",
+        "wowsims-turtle/sim/o2o/armor_phase5_test.go: TestTurtleSunderMatchesPhase5ArmorStrata"
+      ],
+      "calibration": {
+        "status": "rank5_current_character_cost_and_four_armor_strata_calibrated",
+        "source_summary": "offline_data/calibration_summaries/BrainOfCat__20260830T000926939831Z.json",
+        "parameters": {
+          "current_character_rage_cost": {
+            "observed_value": 10,
+            "previous_simulator_value": 15,
+            "simulator_value": 10,
+            "unit": "rage",
+            "status": "learned_tooltip_and_clean_live_transition",
+            "confidence": "high_static_medium_live",
+            "source": {
+              "learned_spell_tooltip": "offline_data/calibration/BrainOfCat__20260830T000926939831Z.jsonl:1",
+              "clean_transition": "sequence 278 request at 100 rage to sequence 292 observed at 90 rage",
+              "supporting_action_request_count": 14,
+              "comparison": "PREVIOUS_SIMULATOR_COST_CORRECTED"
+            },
+            "last_verified": "2026-08-30T00:17:42Z",
+            "acceptance": "offline_data/calibration_acceptance/bloodthirst_phase5_armor_matched_replay__20260830.json",
+            "decision_id": "warrior.sunder_armor.current_character_rage_cost"
+          },
+          "armor_reduction_per_stack": {
+            "observed_value": 450,
+            "simulator_value": 450,
+            "unit": "armor_per_stack",
+            "status": "verified_four_live_strata",
+            "sample_count": 4,
+            "confidence": "high",
+            "source": {
+              "summary": "offline_data/calibration_summaries/BrainOfCat__20260830T000926939831Z.json",
+              "observed_stacks": [
+                0,
+                1,
+                3,
+                5
+              ],
+              "observed_target_armor": [
+                4211,
+                3761,
+                2861,
+                1961
+              ],
+              "comparison": "LIVE_MATCHES_SIMULATOR_FOUR_STACK_STRATA"
+            },
+            "last_verified": "2026-08-30T00:17:42Z",
+            "acceptance": "offline_data/calibration_acceptance/bloodthirst_phase5_armor_matched_replay__20260830.json",
+            "decision_id": "warrior.sunder_armor.armor_reduction_per_stack"
+          }
+        },
+        "unresolved": [
+          {
+            "field": "improved_sunder_armor_other_ranks",
+            "status": "not_game_calibrated"
+          },
+          {
+            "field": "target_armor_floor",
+            "status": "not_reached",
+            "minimum_observed_target_armor": 1961
+          }
+        ]
+      }
+    },
+    {
+      "key": "warrior.battle_shout",
+      "status": "simulator_only",
+      "implementation": {
+        "spell_id": 25289,
+        "rage_cost": 10,
+        "gcd_seconds": 1.5,
+        "duration_seconds": "120 * (1 + 0.1 * Booming Voice rank)",
+        "attack_power_bonus": "floor(rank 7 base 232 * (1 + 0.05 * Improved Battle Shout rank) + 30 with 3-piece Wrath)"
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/shouts.go",
+        "wowsims-turtle/sim/core/buffs.go"
+      ]
+    },
+    {
+      "key": "warrior.bloodrage",
+      "status": "simulator_only",
+      "implementation": {
+        "spell_id": 2687,
+        "consumes_gcd": false,
+        "cooldown_seconds": 60,
+        "instant_rage": "10 plus Improved Bloodrage bonus",
+        "periodic_rage": "1 rage per second for 10 seconds"
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/bloodrage.go"
+      ]
+    },
+    {
+      "key": "warrior.death_wish",
+      "status": "simulator_only",
+      "implementation": {
+        "spell_id": 12328,
+        "rage_cost": 10,
+        "gcd_seconds": 1.5,
+        "cooldown_seconds": 180,
+        "duration_seconds": 30,
+        "physical_damage_multiplier": 1.2,
+        "armor_multiplier": 0.8
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/talents.go"
+      ]
+    },
+    {
+      "key": "warrior.battle_stance",
+      "status": "simulator_only",
+      "implementation": {
+        "spell_id": 2457,
+        "consumes_gcd": false,
+        "cooldown_seconds": 1,
+        "shared_cooldown_group": "warrior.stances"
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/stances.go"
+      ]
+    },
+    {
+      "key": "warrior.defensive_stance",
+      "status": "simulator_only",
+      "implementation": {
+        "spell_id": 71,
+        "consumes_gcd": false,
+        "cooldown_seconds": 1,
+        "shared_cooldown_group": "warrior.stances"
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/stances.go"
+      ]
+    },
+    {
+      "key": "warrior.berserker_stance",
+      "status": "simulator_only",
+      "implementation": {
+        "spell_id": 2458,
+        "consumes_gcd": false,
+        "cooldown_seconds": 1,
+        "shared_cooldown_group": "warrior.stances"
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/stances.go"
+      ]
+    },
+    {
+      "key": "warrior.first_main_hand_swing_without_queue",
+      "status": "simulator_regression_tested",
+      "implementation": {
+        "behavior": "falls through to the normal white swing when no queue aura exists"
+      },
+      "evidence": [
+        "wowsims-turtle/sim/warrior/heroic_strike_cleave.go",
+        "wowsims-turtle/sim/o2o/environment_test.go: TestWarriorFirstSwingWithoutQueue"
+      ]
+    }
+  ],
+  "calibration_required": [
+    "rage generation and refunds",
+    "swing timing and queue timing window",
+    "Turtle-specific spell ranks and coefficients",
+    "hit, crit, glancing, dodge and parry distributions",
+    "items, set bonuses, buffs and encounter targets",
+    "client and operator execution latency"
+  ],
+  "last_calibration_acceptance": "offline_data/calibration_acceptance/bloodthirst_phase5_armor_matched_replay__20260830.json"
+}

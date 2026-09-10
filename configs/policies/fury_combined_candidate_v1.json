@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "fury_policy_candidate_grid_v1",
+  "selection_basis": {
+    "single_target": "hs50 selected on 16 training seeds",
+    "multi_target_stacked_upper": "cleave40 and whirlwind-first selected on Chronicle sample waves",
+    "status": "CANDIDATE_ONLY"
+  },
+  "candidates": [
+    {
+      "heroic_strike_threshold": 50.0,
+      "cleave_threshold": 40.0,
+      "queue_cancel_margin": 8.0,
+      "reserve_window_s": 1.3,
+      "multi_target_priority": "WHIRLWIND_FIRST",
+      "filler": "WAIT",
+      "execute_mode": "BLOODTHIRST_RESERVE",
+      "bloodrage_below": 30.0,
+      "use_death_wish": false,
+      "wait_ms": 100
+    }
+  ]
+}
