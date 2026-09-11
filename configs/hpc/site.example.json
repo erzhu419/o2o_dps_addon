@@ -1,0 +1,47 @@
+{
+  "schema": "o2o_hpc_site/v1",
+  "wsl_distribution": "Ubuntu-22.04",
+  "control_plane": {
+    "ssh_alias": "jtl110gpu2",
+    "remote_root": ".local/share/o2o-dps-hpc"
+  },
+  "node_transport": {
+    "kind": "scheduler_run_on",
+    "scheduler_skill_dir": "~/mine_code/scheduleurm/skill"
+  },
+  "nodes": [
+    {
+      "name": "node001",
+      "transport_name": "node001"
+    },
+    {
+      "name": "node002",
+      "transport_name": "node002"
+    },
+    {
+      "name": "node003",
+      "transport_name": "node003"
+    },
+    {
+      "name": "node004",
+      "transport_name": "node004"
+    },
+    {
+      "name": "node005",
+      "transport_name": "node005"
+    },
+    {
+      "name": "node006",
+      "transport_name": "node006"
+    }
+  ],
+  "node_shared_root": "scheduleurm_work/o2o-dps-hpc",
+  "node_python": "scheduleurm_work/conda_envs/csbapr-gpu-py310/bin/python",
+  "required_arch": "x86_64",
+  "minimum_control_python": [
+    3,
+    10
+  ],
+  "pilot_workers_per_node": 32,
+  "maximum_workers_per_node_before_benchmark": 160
+}

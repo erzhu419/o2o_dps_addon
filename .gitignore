@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.mypy_cache/
 .coverage
 htmlcov/
 build/
@@ -30,3 +31,20 @@ Thumbs.db
 # intentionally not published from this source-only repository.
 offline_data/
 bin/
+
+# Local review material and third-party source trees are inputs, never part of
+# the source-only o2o-dps publication.
+/GPT6_advice.md
+/Cat/
+/Cat2/
+/Cat2_new/
+/Contra/
+/Contra_new/
+/wowsims-turtle/
+/DPSSim/
+
+# Machine-local HPC topology and generated environment receipts.  The tracked
+# example contains aliases only; credentials remain in the external scheduler
+# transport and are never published from this repository.
+/configs/hpc/site.local.json
+/.hpc-local/

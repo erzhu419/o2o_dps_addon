@@ -1,0 +1,489 @@
+{
+  "schema": "cat2_capability_manifest/v1",
+  "manifest_id": "cat2.capabilities.2026-09-10.f7e659f9",
+  "audit_date": "2026-09-10",
+  "source": {
+    "source_id": "cat2.source_tree.2026-09-10.f7e659f9",
+    "declared_version": "2026-09-10",
+    "archive": {
+      "requested_name": "Cat2 2026-09-10.zip",
+      "status": "NOT_FOUND",
+      "sha256": null,
+      "identity_claim": "EXTRACTED_TREE_ONLY"
+    },
+    "location": {
+      "kind": "EXTERNAL_LOCAL_TREE",
+      "expected_directory_name": "Cat2_new",
+      "embedded_third_party_lua": false
+    },
+    "authority": {
+      "role": "CAPABILITY_SOURCE",
+      "provenance_kind": "SOURCE_DERIVED",
+      "deployed": false,
+      "source_execution": false,
+      "exact_runtime": false,
+      "eligible_for_independent_vote": false,
+      "policy_profile_included": false
+    }
+  },
+  "identity": {
+    "algorithm": {
+      "name": "sha256-canonical-file-list-v1",
+      "root_kind": "cat2",
+      "entry_fields": [
+        "root_kind",
+        "relative_path",
+        "sha256"
+      ],
+      "ordering": "relative_path_unicode_codepoint",
+      "serialization": "json_utf8_sort_keys_compact_ensure_ascii_false_allow_nan_false"
+    },
+    "tree": {
+      "relative_prefix": "",
+      "file_count": 613,
+      "byte_count": 1971335,
+      "sha256": "f7e659f9042d36b078d4c3ad6860742d9b2946bab455630c6db071c6ebaa6d81"
+    },
+    "cards": {
+      "relative_prefix": "Cards/",
+      "file_count": 570,
+      "byte_count": 1126774,
+      "sha256": "b57449fbd70b43040ed7e2291c6901cac3ef26a0a739036992ef0fc8c3cf3b77"
+    },
+    "warrior": {
+      "relative_prefix": "Cards/Warrior/",
+      "file_count": 55,
+      "byte_count": 92536,
+      "sha256": "820f893347db2a1fce6e4bef2f47ca03687b63045d8c10d1a7b2ec17568ee904"
+    },
+    "toc": {
+      "relative_path": "Cat2.toc",
+      "sha256": "29f9fce890b1225a3e64e7b72c91f5d0ea2f956a77dd08a117f0ce683d882da2",
+      "load_entry_count": 611,
+      "lua_file_count": 611,
+      "complete_lua_coverage": true,
+      "duplicate_entry_count": 0,
+      "missing_entry_count": 0,
+      "unlisted_lua_count": 0
+    },
+    "critical_files": {
+      "Cat2.lua": "980eebb7be7a6831e06d0417ed466873a39051acb7060e6639541771c7c63f6f",
+      "Cat2.toc": "29f9fce890b1225a3e64e7b72c91f5d0ea2f956a77dd08a117f0ce683d882da2",
+      "Core/CardRegistry.lua": "8104af5f3294daa1f29174c5504005aa2e04ce65c9d39bf88b49975102d31da7",
+      "Core/ConfigurationRunner.lua": "40e8bdcf525a6a7422d07c24d91b3549a5a6667b1307ed8d55e9fcfc0d9ab236",
+      "Core/CatLib.lua": "9102269c37a7d17442df556bab05e9f28774d9a365b52d70a181a227cecc951c",
+      "Core/CastInterruptMonitor.lua": "54689fbe90b80c86334d0dbee3ddfea2cc9e67f2f68bcd863f5f1998a3d4a9f1",
+      "Core/CatEvent.lua": "061e0b7b6e2922b026ba24c383d48b155b1d21fcf0775b6f7650caeaeef1f8b2",
+      "Core/CatImmuneLib.lua": "05f45fdc792bb7b52ff0e7bc98e35844d0f295f376ebd6413b5e9436ee006ab3",
+      "Core/Persistence.lua": "91b6e2d5b977fd21e3baaa271e64469a3e3c22804e2cbc72293e3220271cf4f4",
+      "Core/PlayerInformation.lua": "f3b1dcb5466d8c654e6f112429a75ca93fb358ba94a83408f4869dec8ca3b832",
+      "Cards/Common/AutoAttack.lua": "6e6247ff826e3e8b58c74300609cd3fedd1f2f3ce6a439b235c179f68fac5a1d",
+      "Cards/Common/FlowTerminate.lua": "354d27c4b9854f589804be5c2d31f19be418ef57feb0713b1550bed85daef9d3"
+    }
+  },
+  "warrior_inventory": {
+    "card_count": 55,
+    "active_count": 53,
+    "passive_count": 2,
+    "specializations": {
+      "arms": {
+        "index": 1,
+        "count": 16,
+        "card_ids": [
+          "warrior_battle_stance",
+          "warrior_charge",
+          "warrior_charge_auto_stance",
+          "warrior_hamstring",
+          "warrior_hamstring_flurry",
+          "warrior_mortal_strike",
+          "warrior_overpower",
+          "warrior_overpower_after_main_skill",
+          "warrior_rend",
+          "warrior_slam",
+          "warrior_slam_after_main_skills",
+          "warrior_slam_flurry",
+          "warrior_special_strike",
+          "warrior_sweeping_strikes",
+          "warrior_thunder_clap",
+          "warrior_thunder_clap_offensive"
+        ]
+      },
+      "fury": {
+        "index": 2,
+        "count": 22,
+        "card_ids": [
+          "warrior_battle_shout",
+          "warrior_berserker_stance",
+          "warrior_bloodthirst",
+          "warrior_cleave",
+          "warrior_cleave_front_only",
+          "warrior_death_wish",
+          "warrior_death_wish_boss",
+          "warrior_demoralizing_shout",
+          "warrior_execute",
+          "warrior_execute_high_rage",
+          "warrior_execute_nearby_target",
+          "warrior_heroic_strike",
+          "warrior_heroic_strike_alt",
+          "warrior_intercept",
+          "warrior_intercept_auto_stance",
+          "warrior_interrupt_cast_for_execute",
+          "warrior_pummel",
+          "warrior_pummel_flurry",
+          "warrior_recklessness",
+          "warrior_recklessness_boss",
+          "warrior_whirlwind",
+          "warrior_whirlwind_group"
+        ]
+      },
+      "protection": {
+        "index": 3,
+        "count": 17,
+        "card_ids": [
+          "warrior_bloodrage",
+          "warrior_concussion_blow",
+          "warrior_defensive_stance",
+          "warrior_intervene_auto_stance",
+          "warrior_last_stand",
+          "warrior_lifegiving_gem",
+          "warrior_revenge",
+          "warrior_shield_bash",
+          "warrior_shield_block",
+          "warrior_shield_slam",
+          "warrior_shield_wall",
+          "warrior_shield_wall_auto_stance",
+          "warrior_sunder_armor",
+          "warrior_sunder_armor_boss",
+          "warrior_sunder_armor_five",
+          "warrior_sunder_armor_five_boss",
+          "warrior_sunder_armor_one"
+        ]
+      }
+    },
+    "passive_card_ids": [
+      "warrior_cleave_front_only",
+      "warrior_interrupt_cast_for_execute"
+    ],
+    "exclusive_groups": {
+      "warrior_stance": [
+        "warrior_battle_stance",
+        "warrior_berserker_stance",
+        "warrior_defensive_stance"
+      ],
+      "warrior_heroic_strike_cleave": [
+        "warrior_cleave",
+        "warrior_heroic_strike",
+        "warrior_heroic_strike_alt"
+      ],
+      "warrior_sunder_armor": [
+        "warrior_sunder_armor",
+        "warrior_sunder_armor_boss",
+        "warrior_sunder_armor_five",
+        "warrior_sunder_armor_five_boss",
+        "warrior_sunder_armor_one"
+      ]
+    }
+  },
+  "reviewed_capabilities": [
+    {
+      "card_id": "warrior_cleave_front_only",
+      "relative_path": "Cards/Warrior/CleaveFrontOnly.lua",
+      "sha256": "5a2b9bfa8c3609b318d62e40b24d49bfe618059ddc8875bfa2bcbd4f58fcf81f",
+      "specialization": "fury",
+      "behavior": "passive",
+      "option_keys": [],
+      "capability": "filter cleave candidates to nearby enemies in front",
+      "traversal_semantics": "PASSIVE_APPLY_THEN_VALIDATE"
+    },
+    {
+      "card_id": "warrior_overpower_after_main_skill",
+      "relative_path": "Cards/Warrior/OverpowerAfterMainSkill.lua",
+      "sha256": "53228c0ced4cf0a492e5ff5a981b7e2ea14feedea2250ad9ad4f2340d2418f2d",
+      "specialization": "arms",
+      "behavior": "active",
+      "option_keys": [
+        "maximumRage",
+        "mainSkillCooldownThreshold"
+      ],
+      "capability": "gate Overpower and stance transition on learned main-skill independent cooldown",
+      "traversal_semantics": "STOP_ON_TRUE_INTENT"
+    },
+    {
+      "card_id": "warrior_pummel_flurry",
+      "relative_path": "Cards/Warrior/PummelFlurry.lua",
+      "sha256": "3f57a26897ab6e6134ac2498f21ae2e19b537c02de137e15721be8d17408a65e",
+      "specialization": "fury",
+      "behavior": "active",
+      "option_keys": [
+        "rageThreshold"
+      ],
+      "capability": "use Pummel as a crit opportunity while Flurry is absent without requiring an interruptible cast",
+      "traversal_semantics": "STOP_ON_TRUE_INTENT"
+    },
+    {
+      "card_id": "warrior_slam_after_main_skills",
+      "relative_path": "Cards/Warrior/SlamAfterMainSkills.lua",
+      "sha256": "1b3c529ccc56bc82a02e3cc5fe949b30c0ae6c431e0b3207fddc2846c75f2a2f",
+      "specialization": "arms",
+      "behavior": "active",
+      "option_keys": [
+        "mainSkillCooldownThreshold",
+        "minimumSwingTime",
+        "rageThreshold"
+      ],
+      "capability": "gate Slam on swing time, rage, and learned Whirlwind/Bloodthirst/Mortal Strike independent cooldowns",
+      "traversal_semantics": "STOP_ON_TRUE_INTENT"
+    },
+    {
+      "card_id": "warrior_sunder_armor_boss",
+      "relative_path": "Cards/Warrior/SunderArmorBoss.lua",
+      "sha256": "faadadd501fd49652526ec40324b9d72f388d3082fc49766eae545d8141c7bf6",
+      "specialization": "protection",
+      "behavior": "active",
+      "option_keys": [
+        "rageThreshold"
+      ],
+      "capability": "apply Sunder Armor repeatedly only when Cat2.IsBossTarget returns true",
+      "traversal_semantics": "STOP_ON_TRUE_INTENT"
+    },
+    {
+      "card_id": "warrior_sunder_armor_five_boss",
+      "relative_path": "Cards/Warrior/SunderArmorFiveBoss.lua",
+      "sha256": "3d22fa83215ba77955d66de9324107c5d417eedecb41855a3fceff186dca4a3a",
+      "specialization": "protection",
+      "behavior": "active",
+      "option_keys": [
+        "rageThreshold"
+      ],
+      "capability": "build or refresh five Sunder Armor applications only when Cat2.IsBossTarget returns true",
+      "traversal_semantics": "STOP_ON_TRUE_INTENT"
+    },
+    {
+      "card_id": "warrior_thunder_clap_offensive",
+      "relative_path": "Cards/Warrior/ThunderClapOffensive.lua",
+      "sha256": "05ba593408e0020bb34ab4d476329fcf15e3225ba3962ed1699956a12ac34f3a",
+      "specialization": "arms",
+      "behavior": "active",
+      "option_keys": [
+        "rageThreshold",
+        "minimumEnemies"
+      ],
+      "capability": "gate Thunder Clap on talent-adjusted rage and a configurable nearby-enemy count",
+      "traversal_semantics": "STOP_ON_TRUE_INTENT"
+    }
+  ],
+  "execution_contract": {
+    "entry": "Cat2.ExecuteConfiguration",
+    "phase_order": [
+      "PENDING_INTERRUPT",
+      "REFRESH_PLAYER_SNAPSHOT",
+      "PASSIVE_APPLY",
+      "PASSIVE_VALIDATE",
+      "ACTIVE_PROFILE_STEP_ORDER"
+    ],
+    "active_error_behavior": "RECORD_FAILURE_AND_CONTINUE",
+    "return_semantics": {
+      "true": "STOP_CURRENT_CONFIGURATION_PASS_ONLY",
+      "non_true": "CONTINUE_CURRENT_CONFIGURATION_PASS",
+      "client_acceptance_inferred": false,
+      "server_outcome_inferred": false
+    },
+    "sink_semantics": {
+      "card_execute_boolean_is_action_label": false,
+      "ordered_sink_trace_required": true,
+      "client_acceptance_trace_required": true,
+      "server_outcome_trace_required": true,
+      "executed_total_unit": "CARD_EXECUTE_INVOCATIONS"
+    },
+    "continuing_warrior_cards": [
+      "warrior_bloodrage",
+      "warrior_cleave",
+      "warrior_execute_nearby_target",
+      "warrior_heroic_strike",
+      "warrior_heroic_strike_alt",
+      "warrior_shield_block"
+    ],
+    "multi_sink_paths": [
+      {
+        "path_id": "pending_interrupt_prepass",
+        "scope": "CONFIGURATION_ENTRY",
+        "ordered_sinks": [
+          {
+            "order": 1,
+            "sink": "SpellStopCasting",
+            "cardinality": "0..1",
+            "condition": "pending interrupt request"
+          }
+        ],
+        "repeat": "ONCE_PER_CONFIGURATION_PASS",
+        "traversal_after_path": "STOP_BEFORE_CARD_EXECUTION_WHEN_SINK_RUNS"
+      },
+      {
+        "path_id": "execute_interrupt_then_cast",
+        "scope": "WARRIOR_CARD_EXECUTE",
+        "cards": [
+          "warrior_execute",
+          "warrior_execute_high_rage"
+        ],
+        "ordered_sinks": [
+          {
+            "order": 1,
+            "sink": "SpellStopCasting",
+            "cardinality": "0..1",
+            "condition": "interrupt passive enabled and Cat2.GetIsCast true"
+          },
+          {
+            "order": 2,
+            "sink": "Cat2.Cast",
+            "cardinality": "1",
+            "condition": "execute gate true; downstream CastSpellByName may still be suppressed"
+          }
+        ],
+        "repeat": "ONCE_PER_MATCHING_CARD_INVOCATION",
+        "traversal_after_path": "STOP_ON_LITERAL_TRUE"
+      },
+      {
+        "path_id": "nearby_execute_loop",
+        "scope": "WARRIOR_CARD_EXECUTE",
+        "cards": [
+          "warrior_execute_nearby_target"
+        ],
+        "ordered_sinks": [
+          {
+            "order": 1,
+            "sink": "SpellStopCasting",
+            "cardinality": "0..1_PER_ELIGIBLE_TARGET",
+            "condition": "interrupt passive enabled and Cat2.GetIsCast true"
+          },
+          {
+            "order": 2,
+            "sink": "TargetUnit",
+            "cardinality": "0..1_PER_ELIGIBLE_TARGET",
+            "condition": "eligible unit is not current target"
+          },
+          {
+            "order": 3,
+            "sink": "CastSpellByName",
+            "cardinality": "0..1_PER_ELIGIBLE_TARGET",
+            "condition": "eligible unit remains visible"
+          },
+          {
+            "order": 4,
+            "sink": "TargetUnit_OR_ClearTarget",
+            "cardinality": "0..1_PER_ELIGIBLE_TARGET",
+            "condition": "restore target after temporary targeting"
+          }
+        ],
+        "repeat": "FOR_EACH_ELIGIBLE_NEARBY_TARGET_IN_UNSPECIFIED_LUA_PAIRS_ORDER",
+        "traversal_after_path": "CONTINUE_AFTER_LITERAL_FALSE"
+      },
+      {
+        "path_id": "profile_order_nonblocking_chain",
+        "scope": "CONFIGURATION_ACTIVE_PHASE",
+        "cards": [
+          "warrior_bloodrage",
+          "warrior_cleave",
+          "warrior_execute_nearby_target",
+          "warrior_heroic_strike",
+          "warrior_heroic_strike_alt",
+          "warrior_shield_block"
+        ],
+        "ordered_sinks": [],
+        "repeat": "ZERO_OR_MORE_SINKS_IN_PROFILE_STEP_ORDER_UNTIL_A_LATER_CARD_RETURNS_TRUE",
+        "traversal_after_path": "CONTINUE_IN_PROFILE_STEP_ORDER"
+      },
+      {
+        "path_id": "auto_stance_multi_press",
+        "scope": "WARRIOR_AUTO_STANCE_CARDS",
+        "cards": [
+          "warrior_charge_auto_stance",
+          "warrior_intercept_auto_stance",
+          "warrior_intervene_auto_stance",
+          "warrior_shield_wall_auto_stance"
+        ],
+        "ordered_sinks": [
+          {
+            "order": 1,
+            "sink": "Cat2.Cast_STANCE",
+            "cardinality": "0..1",
+            "condition": "required stance absent on first matching press"
+          },
+          {
+            "order": 2,
+            "sink": "Cat2.Cast_ABILITY",
+            "cardinality": "0..1",
+            "condition": "required stance observed on a later matching press"
+          }
+        ],
+        "repeat": "ORDERED_ACROSS_SEPARATE_HARDWARE_PRESSES_NOT_ATOMIC",
+        "traversal_after_path": "STOP_ON_EACH_LITERAL_TRUE"
+      }
+    ],
+    "zero_sink_true_example": {
+      "card_id": "common_flow_terminate",
+      "traversal_after_path": "STOP_ON_LITERAL_TRUE",
+      "action_sink_count": 0
+    },
+    "direct_execution_boundary": {
+      "entry": "Cat2.ExecuteCardById",
+      "passes_step_argument": false,
+      "current_warrior_callers": 0,
+      "optioned_card_execution_safe": false
+    }
+  },
+  "known_boundaries": [
+    {
+      "id": "ARCHIVE_BYTES_UNAVAILABLE",
+      "claim": "The requested ZIP was not present at audit time, so archive identity, member metadata, and signature provenance are not verified."
+    },
+    {
+      "id": "TREE_NOT_DEPLOYED",
+      "claim": "Cat2_new is a nested external source tree, not the Cat2 directory loaded by the client, and has no runtime validation under this identity."
+    },
+    {
+      "id": "NO_POLICY_PROFILE",
+      "claim": "The package default profile is empty and no captured Cat2CharacterDB policy is part of this manifest; capabilities alone are not an expert policy."
+    },
+    {
+      "id": "BOOLEAN_NOT_ACCEPTANCE",
+      "claim": "Execute true controls traversal only; Cat2.Cast has no return value and may suppress its downstream sink while a channel is active."
+    },
+    {
+      "id": "NEARBY_SCAN_IS_CACHED",
+      "claim": "Nearby-enemy capabilities depend on the SuperWoW object cache and return zero without SuperWoW; they are not an exact full-scene oracle."
+    },
+    {
+      "id": "FRONT_FILTER_REQUIRES_UNITXP",
+      "claim": "The front-only cleave passive additionally requires UnitXP behind checks; absent support yields zero eligible front targets."
+    },
+    {
+      "id": "BOSS_GATE_USES_CURRENT_HEALTH",
+      "claim": "The effective later IsBossTarget definition uses cached classification, current target health greater than 280000, or two hard-coded names; targetHealth is UnitHealth rather than UnitHealthMax."
+    },
+    {
+      "id": "NEARBY_EXECUTE_ORDER_UNSPECIFIED",
+      "claim": "ExecuteNearbyTarget iterates a Lua table with pairs, so target and sink order is not stable across executions."
+    },
+    {
+      "id": "ACTIVE_ERRORS_CONTINUE",
+      "claim": "An active card error increments failure counts and traversal continues; passive Apply or Validate failure stops the pass."
+    },
+    {
+      "id": "DIRECT_CARD_STEP_OMITTED",
+      "claim": "ExecuteCardById invokes a target card without its step; no current Warrior card calls it, but option-dependent direct execution is not safe."
+    },
+    {
+      "id": "SAVEDVARIABLES_SCHEMA_IS_NOT_SEMANTIC_IDENTITY",
+      "claim": "Schema version 1 can restore old card IDs, but changed source semantics require a new profile snapshot and new evidence identity."
+    }
+  ],
+  "lineage": {
+    "relation": "CANDIDATE_SUCCESSOR_OF",
+    "frozen_predecessor_expert_id": "cat2.fury.brainofcat_shadow.saved_profile_source_v1",
+    "frozen_predecessor_source_bundle_sha256": "1d591e5ef60222a0f6eb1e081b4f43feb4cfa1576103558689dc6fda2aa84970",
+    "replaces_predecessor": false,
+    "reuse_predecessor_results": false,
+    "migration_requires_new_profile_snapshot": true,
+    "promotion_requires_deployed_tree_and_exact_sink_trace": true
+  }
+}

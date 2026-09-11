@@ -1,0 +1,38 @@
+{
+  "schema": "o2o_hpc_dynamic_environment/v4",
+  "bridge": {
+    "filename": "o2obridge.seedfix-v4.withdb.goamd64v1.linux-amd64",
+    "sha256": "93015dd74ce436c171b50b41d9b2059249c6dbbea64614c1a472c9bda2ad838b"
+  },
+  "route": {
+    "control_plane_alias": "jtl110gpu2",
+    "node_transport_kind": "scheduler_run_on"
+  },
+  "nodes": [
+    "node001",
+    "node002",
+    "node003",
+    "node004",
+    "node005",
+    "node006"
+  ],
+  "dynamic_probe": {
+    "base_request": "configs/wowsims/fury_warrior_phase1.json",
+    "seed_base": 202609110000,
+    "target_count": 2,
+    "health_stat_index": 34,
+    "target_health": [
+      1.0,
+      100000.0
+    ],
+    "same_timestamp_order": "BACKGROUND_BEFORE_CANDIDATE",
+    "retarget_mode": "NEXT_ALIVE_CYCLIC"
+  },
+  "pilot": {
+    "workers_per_node": 32,
+    "total_workers": 192,
+    "gomaxprocs_per_worker": 1,
+    "worker_timeout_seconds": 30,
+    "node_timeout_seconds": 180
+  }
+}

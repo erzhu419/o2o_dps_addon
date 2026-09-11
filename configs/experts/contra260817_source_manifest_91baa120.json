@@ -1,0 +1,353 @@
+{
+  "schema": "contra260817_source_manifest/v1",
+  "manifest_id": "contra260817.source.91baa120",
+  "audit_date": "2026-09-10",
+  "package": {
+    "user_label": "Contra260817",
+    "local_alias": "Contra_new",
+    "expected_directory_name": "Contra_new",
+    "location_kind": "EXTERNAL_LOCAL_SOURCE_TREE",
+    "archive_identity": "NOT_AVAILABLE",
+    "deployed": false,
+    "source_execution_verified": false,
+    "exact_runtime_verified": false,
+    "declared_toc": {
+      "interface": "11200",
+      "title": "Contra魂斗罗",
+      "author": "音十月-卡拉赞",
+      "version": "4.04",
+      "saved_variables_per_character": "ContraDB"
+    }
+  },
+  "identity": {
+    "algorithm": {
+      "name": "sha256-canonical-code-manifest-v1",
+      "included_extensions": [
+        ".lua",
+        ".toc",
+        ".xml"
+      ],
+      "entry_fields": [
+        "relative_path",
+        "size_bytes",
+        "sha256"
+      ],
+      "relative_path_format": "forward_slash",
+      "ordering": "relative_path_unicode_codepoint",
+      "serialization": "json_utf8_sort_keys_compact_ensure_ascii_false_allow_nan_false"
+    },
+    "code_manifest": {
+      "file_count": 33,
+      "byte_count": 4285993,
+      "sha256": "91baa120a0c895f3a9b3f26d701eb6c48eda78c6f036ad9a04065c6b8990db6d"
+    },
+    "critical_files": {
+      "Bindings.xml": "3be47c832fad91352f154383bd1cff94cba6ab77f2b2eae694ea23f089701c7f",
+      "Contra.toc": "de16071d2e92ecac2c69104cc3f41839ef4928368e1f2d799c574850f5a8d1be",
+      "Contra_Casting.lua": "7e23204f971527559236a3b1bf16619254be5275c3720109a7fad54a50b0db7d",
+      "Contra_DB.lua": "597062fcdb8673153397e94e2f8564eceaf1131bde8755165bd8a2759dee617b",
+      "Contra_Fliter.lua": "f2bf3a505187999632356b28a00f60257a5243f636cee821b9a4b61aa3431260",
+      "Contra_Lib.lua": "091fc679d11be3a0e86e69095c3796f1eb41bff8c19123bf1673f4acd73f61e7",
+      "Contra_Macro.lua": "830109cc35c21b68fac4965875ac5cd370e6060749e5e3f4d7a795cd6f5a66a2",
+      "Contra_Onlogin.lua": "8ee56f9c584e4360242607bc08529b472653a515ca988e545a71e6e01d001430",
+      "Contra_Scrip_Warrior.lua": "a0f54d2a62e84084bb4d631f09e0173213190f4bea1eba670e6bfc1cd2b99713",
+      "Contra_UI_Warrior.lua": "be3afd6d14c2489ee5c430be213188e4fec679f333e8cef222485bdd3b39bf80"
+    },
+    "toc": {
+      "relative_path": "Contra.toc",
+      "load_entry_count": 31,
+      "present_entry_count": 29,
+      "duplicate_entry_count": 0,
+      "missing_members": [
+        "Contra_Debuff.lua",
+        "Contra_UI_DB.lua"
+      ],
+      "empty_members": [
+        "Contra_TrinketManager.lua"
+      ],
+      "unlisted_lua_files": [
+        "Contra_PaladinRetribution.lua",
+        "Contra_log.lua"
+      ]
+    },
+    "empty_code_files": [
+      "Contra_PaladinRetribution.lua",
+      "Contra_TrinketManager.lua"
+    ]
+  },
+  "fury": {
+    "authority_files": [
+      "Contra.toc",
+      "Contra_Macro.lua",
+      "Contra_Scrip_Warrior.lua",
+      "Contra_DB.lua",
+      "Contra_Onlogin.lua",
+      "Contra_Lib.lua",
+      "Contra_Casting.lua",
+      "Contra_Fliter.lua"
+    ],
+    "entrypoints": {
+      "macro_handler": {
+        "symbol": "Contra_MacroHandler",
+        "source_ref": "Contra_Macro.lua:11-301",
+        "slash_commands": [
+          "/Contra",
+          "/contra",
+          "/CONTRA"
+        ],
+        "callable_wrapper": "Contra_Macro"
+      },
+      "single_target": {
+        "macro_parameter": "a",
+        "two_hand_raid": "Contra_SSKBZ_A",
+        "dual_wield_raid": "Contra_SCKBZ_A",
+        "source_refs": [
+          "Contra_Macro.lua:101-158",
+          "Contra_Scrip_Warrior.lua:586-750",
+          "Contra_Scrip_Warrior.lua:1257-1288"
+        ]
+      },
+      "multi_target": {
+        "macro_parameter": "b",
+        "two_hand": "Contra_SSKBZ_B",
+        "dual_wield": "Contra_SCKBZ_B",
+        "source_refs": [
+          "Contra_Macro.lua:171-190",
+          "Contra_Scrip_Warrior.lua:752-823",
+          "Contra_Scrip_Warrior.lua:1290-1315"
+        ]
+      },
+      "automatic_single_multi_route": {
+        "macro_parameter": "c",
+        "count_symbol": "Contra.Filter.CountAttackableUnitsInRangeFivema",
+        "group_condition": "nearbyCount > 1",
+        "source_ref": "Contra_Macro.lua:221-292"
+      }
+    },
+    "talent_dispatch": {
+      "two_hand_fury": {
+        "label": "双手狂暴",
+        "predicate": "TalentRank(2,17)>0 and TalentRank(1,10)>0"
+      },
+      "dual_wield_fury": {
+        "label": "双持狂暴",
+        "predicate": "TalentRank(2,17)>0 and TalentRank(2,3)>0"
+      },
+      "source_ref": "Contra_Onlogin.lua:176-194"
+    },
+    "configuration_inputs": {
+      "profile_root": "ContraDB.Warrior.Buttons",
+      "routing": [
+        "mode",
+        "autoselect",
+        "xuanfeng"
+      ],
+      "prelude_switches": [
+        "Burst",
+        "Survive",
+        "interrupt",
+        "Sunder",
+        "SunderMode",
+        "liunudaduan",
+        "quanbudaduan",
+        "zhidingdaduan",
+        "daduanjineng"
+      ],
+      "support_and_survival": [
+        "nuhou",
+        "yazhi",
+        "xuexing",
+        "kuangbao",
+        "zhendang",
+        "leiting",
+        "cuozhi",
+        "tang",
+        "hong",
+        "cha",
+        "dunqiang",
+        "pofu"
+      ],
+      "burst_groups": [
+        "baofa_1_*",
+        "baofa_2_*"
+      ],
+      "weapon_swap": [
+        "bossothuanwuqi",
+        "xiaoguaiothuanwuqi",
+        "shuchuzhushou",
+        "shuchufushou",
+        "fangyuzhushou",
+        "fangyufushou"
+      ],
+      "external_gates": [
+        "Contra.DB.NameAndGuild[playername_or_guild]",
+        "nampower",
+        "NP_QueueCastTimeSpells",
+        "NP_QueueChannelingSpells",
+        "NP_QueueTargetingSpells",
+        "NP_QueueOnSwingSpells",
+        "NP_QueueSpellsOnCooldown",
+        "NP_QueueInstantSpells",
+        "NP_RetryServerRejectedSpells"
+      ],
+      "source_configuration_hazards": [
+        "Contra_DB Warrior defaults define legacy keys baofa/shengcun, while executable prelude helpers read Burst/Survive",
+        "Contra_Onlogin initializes absent Burst/Survive to false, so the effective values require the per-character ContraDB or an observed UI state",
+        "the embedded NameAndGuild table gates every Warrior macro route and is part of runtime eligibility, not rotation state"
+      ],
+      "source_refs": [
+        "Contra_DB.lua:27492-27944",
+        "Contra_Onlogin.lua:149-169",
+        "Contra_Onlogin.lua:294-339",
+        "Contra_Macro.lua:101-105"
+      ]
+    },
+    "state_inputs": {
+      "target": [
+        "exists",
+        "name",
+        "health",
+        "max_health",
+        "health_pct",
+        "UnitClassification",
+        "combat",
+        "melee_range",
+        "aoe_range",
+        "target_of_target",
+        "cast_identity_and_timing",
+        "sunder_stacks"
+      ],
+      "player": [
+        "rage",
+        "health_pct",
+        "race",
+        "class",
+        "talent_ranks",
+        "buffs",
+        "spell_cooldowns",
+        "last_cast_name",
+        "slam_remaining",
+        "mainhand_swing_remaining",
+        "past_swing_time",
+        "attack_speed",
+        "stance",
+        "shield_and_weapon_identity",
+        "equipped_item_names",
+        "actionbar_next_swing_state",
+        "inventory_and_item_cooldowns"
+      ],
+      "encounter": [
+        "attackable_units_within_five_yards",
+        "guid_set_and_positions_or_range_tests"
+      ],
+      "source_refs": [
+        "Contra_Scrip_Warrior.lua:134-247",
+        "Contra_Lib.lua:808-1044",
+        "Contra_Casting.lua:228-529",
+        "Contra_Fliter.lua"
+      ]
+    },
+    "ordered_sink_semantics": {
+      "decision_shape": "one macro invocation may emit zero, one, or multiple ordered sinks",
+      "prelude_order": [
+        "optional_target_select",
+        "start_attack",
+        "interrupt_and_early_return",
+        "burst_sinks",
+        "support_sinks",
+        "survival_and_weapon_swap_sinks",
+        "stance_sink",
+        "rotation_body_sinks"
+      ],
+      "sink_channels": [
+        "target",
+        "autoattack",
+        "cast_control",
+        "gcd_or_spell_cast",
+        "next_swing",
+        "item_or_trinket",
+        "equipment_swap",
+        "stance"
+      ],
+      "cast_helper": {
+        "symbol": "ContraZSCast",
+        "heroic_strike_and_cleave": "actionbar-aware CastSpellByName then helper return",
+        "whirlwind_and_slam": "suppressed when offhand type is shield",
+        "other_spells": "CastSpellByName",
+        "source_ref": "Contra_Scrip_Warrior.lua:134-193"
+      },
+      "normalization_rule": "preserve every raw sink in source order; any last-sink proposal is a separate normalized view and is not proof that earlier or later client calls executed",
+      "return_rule": "helper return values control Lua traversal; they are not general cast-success acknowledgements",
+      "source_refs": [
+        "Contra_Scrip_Warrior.lua:580-590",
+        "Contra_Scrip_Warrior.lua:586-823"
+      ]
+    }
+  },
+  "deployed_v2_reuse_map": {
+    "deployed_adapter": "o2o_dps.fury_contra_adapter_v2.ContraDeployedFuryAdapterV2",
+    "reusable_state_fields": [
+      "target_health_pct with provenance",
+      "target_max_health with provenance",
+      "target_name with provenance",
+      "UnitClassification with provenance and worldboss-only IsBoss derivation",
+      "rage",
+      "bloodthirst and whirlwind cooldowns",
+      "swing remaining/past time/attack speed",
+      "range and race",
+      "flurry and last-cast state",
+      "slam cast timing",
+      "shield state",
+      "loadout-derived ZSSDW"
+    ],
+    "reusable_two_hand_raid_a_branch_skeleton": {
+      "status": "SOURCE_SIMILAR_NOT_RUNTIME_EQUIVALENT",
+      "contra260817_ref": "Contra_Scrip_Warrior.lua:586-750",
+      "deployed_ref": "Contra_ALL.lua:31612-31733",
+      "shared_predicate_families": [
+        "boss_or_training_dummy",
+        "max_health_51000_and_25000_buckets",
+        "health_20_21_2_cutoffs",
+        "ZSSDW_thresholds",
+        "ST_SS_SD_timing",
+        "bloodthirst_whirlwind_slam_execute_order"
+      ]
+    },
+    "differences_requiring_new_adapter_evidence": [
+      "Contra260817 ContraZSCast uses CastSpellByName and actionbar-aware next-swing detection; deployed v2 models the deployed Nampower queue contract",
+      "Contra260817 actual per-character ContraDB profile is absent, so source defaults cannot be treated as the user's runtime profile",
+      "Contra260817 default xuanfeng/autoselect values differ from the attested deployed profile",
+      "Contra260817 adds macro parameter c for automatic single/multi-target dispatch",
+      "Contra260817 macro dispatch has a NameAndGuild authorization gate",
+      "Contra260817 prelude, support, survival, item, and weapon-swap sinks require a wider state/action model"
+    ],
+    "reuse_prohibition": "do not substitute the deployed v2 adapter as an exact Contra260817 adapter and do not infer runtime equivalence from similar rotation text"
+  },
+  "closure": {
+    "source_identity_verified_by_manifest": true,
+    "package_complete": false,
+    "comparison_eligible": false,
+    "eligible_for_independent_vote": false,
+    "baseline_sealed": false,
+    "package_blockers": [
+      "missing_toc_member:Contra_Debuff.lua",
+      "missing_toc_member:Contra_UI_DB.lua",
+      "empty_code_file:Contra_PaladinRetribution.lua",
+      "empty_code_file:Contra_TrinketManager.lua"
+    ],
+    "comparison_blockers": [
+      "package_incomplete",
+      "per_character_ContraDB_profile_not_in_package",
+      "runtime_load_not_verified",
+      "full_ordered_Fury_adapter_not_implemented"
+    ],
+    "promotion_requirements": [
+      "obtain all TOC members and replace every unintended zero-byte code file",
+      "create a new immutable source-tree manifest after repair",
+      "capture and hash the intended per-character ContraDB Fury profile",
+      "verify addon load and macro entrypoints in the Turtle client",
+      "implement and test the complete ordered single/multi-target Fury source adapter",
+      "rerun matched multi-seed comparison under the frozen evaluation protocol"
+    ]
+  }
+}

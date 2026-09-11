@@ -675,12 +675,14 @@ never keeps the template Orc as a substitute for an unknown live character.
 
 ## Chronicle acquisition boundary
 
-The export assistant can build its selection from local printed leaderboard
-PDFs or enumerate history for known characters through Chronicle's documented
-External API. PDF hyperlinks select canonical slugs; the same External API
-resolves those slugs to the UUIDs used in official CSV filenames. It does not
-call browser-only/internal event routes, set browser-identifying headers, or
-crawl the website. See the step-by-step Chinese runbook in
+The preferred acquisition path now uses Chronicle's documented, no-auth
+[External API](https://capy.chronicleclassic.com/developers/api). It captures
+character-instance history, instance metadata, exact ranking records, and the
+published gzip/protobuf event streams directly; it does not crawl HTML or
+automate the browser. The older export assistant can still build a selection
+from local printed leaderboard PDFs, resolve canonical slugs to instance UUIDs,
+and drive the official CSV export UI as a legacy/manual fallback. See the
+step-by-step Chinese runbook in
 [`CHRONICLE_EXPORT_zh-CN.md`](CHRONICLE_EXPORT_zh-CN.md).
 
 ## Queue Chronicle exports on Windows
@@ -740,13 +742,16 @@ Progress and per-worker details are stored under
 `offline_data\chronicle_raw\parallel_export`; see
 [`CHRONICLE_PARALLEL_EXPORT_zh-CN.md`](CHRONICLE_PARALLEL_EXPORT_zh-CN.md).
 
-Chronicle's public External API currently has character and character-instance
-lookups, but it cannot enumerate the whole site and does not expose All
-Activity event streams. The event routes used by the website are browser-only,
-and Chronicle's terms prohibit scraping. The parallel worker does not call
-those internal routes; it automates the official per-instance export UI with
-bounded concurrency. Research use does not itself replace any permission that
-Chronicle's terms may require for automated bulk collection.
+As of 2026-09-11, the public External API exposes instance metadata,
+`ranking-records`, and 19 typed event-stream routes in addition to character
+history, `/raidlogs/recent`, and `/leaderboards`. The current External capture
+pipeline uses those documented routes with no authentication, so new captures
+do not depend on the UI automation above. The UI scripts are retained only for
+legacy/manual CSV recovery. There is still no single "all dated DPS for this
+person" response: the reproducible join is character-instance history -> exact
+instance UUID -> that instance's `ranking-records` filtered by exact player
+GUID. The official recent-query parameter is exactly `upload_after`;
+`uploaded_after` is not used.
 
 ## Audit the Chronicle offline dataset
 
@@ -1195,3 +1200,627 @@ also records 344 classified cooldown proxies. Bonereaver and Crusader vary as
 one historical bundle and cannot be separated causally here. The observed DPS
 cells are therefore nuisance/debugging signals only and cannot rank the four
 policies. Candidate remains inactive Shadow.
+
+## Fury paired multi-seed protocol v2 (prepared, not executed)
+
+The versioned v2 protocol replaces neither the frozen v1 gates nor their
+historical results. It defines the evidence required for a new claim after the
+literal-seed supplemental replay exposed a single-target reversal that a pooled
+or single-run comparison could hide. The protocol is currently
+`DRAFT_BLOCKED_ON_REQUIRED_BASELINE_CLOSURE_AND_FUTURE_FINAL_CORPUS`; its plan
+has been materialized, but no v2 simulator phase has been dispatched, no
+candidate has been frozen, and no win is claimed.
+
+| Phase | Paired master seeds | May change/select policy | Final-claim authority |
+|---|---:|---|---|
+| development | 256 | yes | no |
+| selection validation | 256, disjoint from development | one preregistered shortlist choice | no |
+| final confirmation | 1000, disjoint from both earlier phases | no; candidate is already frozen | only on the future post-freeze corpus |
+
+Every master seed is evaluated on the same complete reconstructed scenario for
+the candidate and every required baseline. A request-derived simulator seed is
+shared inside each paired group; this pairs the requested stochastic condition
+without claiming that different policies consume RNG identically. Worker
+concurrency is only an execution detail: one bridge belongs to one worker, and
+200--1000 concurrent jobs do not create additional statistical samples beyond
+the frozen master-seed and corpus units.
+
+The primary metric is a finite-corpus, wave-family-weighted paired relative DPS
+improvement. It estimates performance on the frozen reconstructed corpus; it
+does not by itself identify a population-wide or real-game effect. The
+candidate must pass against **each** required baseline in all three required
+strata: overall, single-target, and multi-target. Overall mean improvement must
+be at least +1%; the two target-count strata must each be non-negative; and all
+Bonferroni-adjusted one-sided 95% lower bounds must be above zero. Each voting
+bound comes from one crossed/pigeonhole bootstrap that independently resamples
+master-seed and guild/repeated-player component labels and applies the product
+of their multiplicities. Marginal one-axis bootstraps are reported only as
+non-inferential diagnostics. The Bonferroni family therefore contains the nine
+predeclared baseline/stratum cells (3 baselines × 3 strata), and the production
+protocol uses 100,000 fixed replicates plus a non-voting fixed-split Monte Carlo
+stability diagnostic. Missing Cartesian rows,
+incomplete horizons, omissions, fatal errors, provenance/hash disagreement, or
+a nonfaithful required baseline block the result; they cannot be counted as a
+candidate win or removed post hoc.
+
+The downloaded local Chronicle snapshot remains useful, but all 50 raid
+instances have already informed development. The frozen development corpus is
+compiled only from compact scenario catalogs and contains 1,197 primary
+rotation-DPS families with observed duration of at least 5 seconds: 618
+single-target and 579 positive co-hit multi-target families. Another 1,631
+families with unknown layout remain explicit stacked/separated sensitivity
+evidence, and shorter waves are action-legality/cumulative-damage diagnostics
+rather than DPS voters. Guild and repeated-player links form 27 conservative
+components. Grouped selection-validation folds are not yet frozen, and no part
+of these exposed 50 raids can be relabeled as untouched final evidence.
+
+The development phase also requires a frozen candidate registry before any
+batch can be dispatched; its exact candidate source, adapter, and profile
+identities cannot be supplied after results are seen. That registry is not yet
+frozen. The current corpus binding is additionally marked
+`comparison_eligible=false` and permits only `DIAGNOSTIC_NONVOTING` plans, so the
+1,197 families describe prepared coverage rather than completed voting rows.
+
+The local exports do not contain exact historical `UnitHealthMax`,
+`UnitClassification`, or target coordinates. Kill/damage budgets are not
+silently reinterpreted as exact maximum health. These fields remain missing;
+stacked/separated layouts and later target-health/class sensitivity runs are
+explicit alternative contexts until stronger evidence exists. Per-wave,
+per-target, and boss/trash models may estimate health budgets, base armor,
+attackable intervals, stacked/separated layouts, and tactic-delay branches, but
+the estimates remain named hypotheses. Armor-changing auras such as Sunder,
+Faerie Fire, Curse of Recklessness, and comparable debuffs must be applied as
+timed transitions rather than collapsed into one fixed armor value. Likewise,
+observed inactivity alone cannot distinguish a forced immunity window from a
+raid tactic that delays attacks.
+
+The development corpus now also has a portable
+`fury_offline_scenario_capsules/v2` projection. It condenses the 50 local raid
+bundles into 1,197 per-wave models (618 single-target, 579 multi-target) and
+3,269 target records in one deterministic 1,950,480-byte gzip artifact. Its
+canonical content SHA-256 is
+`23029ac5328e8c5e9e3009010e5d2876415d69b0e3d39e23e0ba4bf66a48e63e`
+and its gzip-file SHA-256 is
+`f1e80f84cbf40c42f60bc82426eb66d2628143c4b1cb2d281a75f9920732a45c`.
+Each target keeps observed activity and debuff transitions, health/base-armor
+hypothesis families, and explicit attackability, classification, and layout
+sensitivity branches. It sets `historical_truth=false`: an observed silence
+does not reveal whether a boss was mechanically immune or held for tactics,
+and player-visible damage does not identify exact maximum health or background
+raid DPS. Fixed observed-horizon simulations can use the compact projection;
+health-driven target death remains blocked until player-conditioned background
+damage and dynamic target schedules are modeled.
+
+The capsule embeds a 50-entry source-instance provenance ledger (SHA-256
+`490f008d7db97f0ecfd9cd1e995088e8b2bcda3a4f10fa23ca973fb96540b287`).
+Each entry binds the instance ID, source-bundle ID, raw-source reference,
+provenance sidecar, catalog, reconstruction feature, raw CSV bytes, and
+normalized JSONL bytes. The compiler reads those large local files only as
+opaque byte streams for stable SHA-256 calculation; it does not parse, embed,
+copy, or upload them. Including this ledger in the runner-facing corpus core
+changes the development corpus-binding SHA-256 to
+`39e626520bafc4a6d3ee2442a4bd53eb0de08b91c610e7c944d304f62bf63e0a`.
+
+A second, deterministic `fury_capsule_static_execution_binding/v2` artifact now
+turns that capsule into 1,197 runner-compatible requests containing all 3,269
+targets. The compressed binding is 2,474,060 bytes (content SHA-256
+`ef04daec02d56ff1687122eefdaa5ca9af13f40321546550d89189ab1157ca86`,
+gzip SHA-256
+`4442e9bf6fa5e3968b8d8abcb0d70e76f25272113d823f3f1947286a68dec3de`).
+It reads the capsule only, so neither materialization nor later scheduler
+transfer requires the roughly 30 GB raw/normalized archive. This first binding
+is deliberately a non-voting control: it uses fixed observed duration,
+full-wave static attackability, a caller-pinned level-60 sensitivity context,
+static base-armor hypotheses, and disabled health termination. It does not
+pretend that these requests reproduce the earlier catalog requests (0/1,197
+exact matches). Unlike the first static projection, every runner scenario now
+content-addresses the complete per-target context bundle and a dynamic-semantics
+receipt: all 8,435 observed armor-debuff transitions, attackability/tactic-delay
+hypotheses, health proxies and the missing player-conditioned background-team
+damage field are retained rather than reduced to counts. The bridge still does
+not execute those dynamic schedules, so comparison plans reject this control
+before launching a worker; only an explicitly diagnostic plan may use it. Thus
+the compact model can be transported without raw data while remaining unable to
+claim that hidden maximum health, base armor, mechanical immunity, tactic delay,
+or endogenous time-to-kill has been identified.
+
+That execution gate is behavioral, not a string-label check. The current bridge
+can bind only the exact static request it actually receives. Relabeling the same
+request as an `EXACT_BOUND_VERSIONED_SCHEDULE` cannot make it comparison
+eligible; versioned armor/attackability/death schedules remain blocked until a
+versioned interpreter consumes them and the bridge result proves that exact
+consumption.
+
+Selection validation cannot choose among candidates post hoc. Before those
+seeds are used, the complete shortlist, exact source/adapter/profile identities,
+metric, deterministic rule, tie-break and one-time nonce must be frozen. The
+complete typed analysis artifacts for every shortlisted candidate must cover
+all three required baselines and all three strata and produce one
+content-addressed selection-evidence bundle. Its deterministic metric rows feed
+one selection receipt; a candidate becomes frozen only after that receipt is
+timestamped by an independently trusted, out-of-band allowlisted external
+anchor. No shortlist, typed evidence bundle, selection receipt, or real anchor
+exists yet.
+
+A sealed selection cannot later be loaded from its embedded analysis or from a
+self-consistent digest receipt alone. The caller must supply one out-of-band
+physical replay package per shortlisted candidate. Each package points to the
+frozen shortlist-stage protocol, runner plan, every shard manifest and its
+rollout/full-policy artifacts, the persisted reduction, and the persisted
+analysis. Materialization reruns the reducer and the complete registered
+analysis and requires exact equality with the sealed evidence bundle. The CLI
+accepts these only through repeatable `--selection-replay-package` arguments;
+the paths are not embedded in the protocol.
+
+Final confirmation requires new qualifying Chronicle instance IDs absent from
+the locked 50-instance digest and from all 27 known guild/repeated-player
+components, ingested only after the candidate and protocol are sealed. The
+current contract takes exactly 50 new complete Upper Tower raids spanning at
+least 20 new guild/player leakage components. Chronicle's current `recent` API
+has no server-side upper upload-time bound and returns provider pages in
+`started_at DESC, instance_id DESC` order. Admission therefore captures every
+raw response page through `has_more=false` only after the local cutoff, verifies
+that provider order, filters locally by `uploaded_at`, then accepts exactly the
+first 50 eligible rows in ascending `uploaded_at`, instance-ID order. Loading a
+sealed final receipt requires the retained physical capture again: metadata,
+ranking and All Activity bytes are rehashed, nine-boss coverage is cross-checked,
+and guild/player component identities are derived from metadata rather than
+accepted from a caller. A bare query hash, in-memory record list, skipped earlier
+upload, or self-reported component digest cannot become untouched evidence. This
+physical replay is required only for the future final-admission corpus; the
+already frozen local development corpus has no API dependency.
+
+The retained capture is likewise an out-of-band input, supplied with
+`--final-discovery-capture-manifest`. Materialization, loading, and later
+analysis all replay it again; a final-enabled protocol cannot be used without
+that physical manifest, while a development-only protocol cannot consume one.
+
+All three intended expert lanes are mandatory baselines and are currently
+fidelity-blocked rather than discarded:
+
+- deployed Cat now has a pinned 100-member TOC closure. A local,
+  content-addressed runtime-identity snapshot also pins the current
+  character-specific `MPWarriorFurySaved` profile 1, fixed character build,
+  Nampower queue CVars, and Nampower/SuperWoW binary identities. That snapshot
+  does not prove that the pinned source was loaded, that ordered sinks were
+  accepted, that a server result occurred, or that the full simulator adapter
+  is faithful;
+- deployed Contra remains a strong required baseline. The same snapshot pins
+  the current Warrior `Buttons`/scheme 1 settings and fixed build, while its v2
+  adapter requires true target health percentage, `UnitHealthMax`,
+  `UnitClassification`, and a loadout-derived Brotherhood-set state instead of
+  convenient defaults. Exact historical target fields, client load,
+  acceptance/outcome traces, and full-policy fidelity are still unavailable;
+- Contra260817 (`Contra_new`) has a pinned source manifest, but its TOC names
+  two missing Lua files and two other Lua files are empty. A bounded
+  dual-wield-Fury `/contra c` adapter now preserves its A/B traversal,
+  same-call multi-sink ordering, Tauren OR precedence, double-Sunder helper,
+  action-bar no-sink path, and NameAndGuild early return. It exposes a fresh
+  source-default profile and a separately content-addressed predicted upgrade
+  of the current older SavedVariables; both are explicitly
+  `DEVELOPMENT_SENSITIVITY`, `NONVOTING`, and not runtime proof. Exact
+  per-character load evidence, target-selection/support-sink coverage, and the
+  production full-policy adapter remain absent.
+
+Cat2 2026-09-10 (`Cat2_new`) is intentionally different: it is a non-voting
+candidate-generation and final execution-capability source, not a fourth
+independent expert baseline. Its exact extracted tree and reviewed Warrior
+capabilities are pinned, and `cat2_action_plan/v1` preserves ordered multi-sink
+and traversal semantics, but the current artifact is
+`PLAN_ONLY_NOT_DISTILLED`; no deployed Cat2 profile or exact runtime result is
+implied.
+
+The v2 simulator bridge now preserves the distinction between source intent,
+immediate acceptance, and later server-style result. Every accepted
+result-bearing GCD receives an immutable attempt ID on submission; the bridge
+returns an ordered resolved/pending partition across decision boundaries, so a
+Turtle Slam cast can remain pending and later resolve—or return `CANCELED` if
+the source stops the cast—without being attached to a newer decision. The live
+Turtle Pummel action ID is also aligned to 6552 rather than the obsolete 6554.
+Every result batch must be complete exactly through the state timestamp, and a
+result timestamp must fall between that attempt's acceptance and the observed
+state. At the exact scoring horizon, only one still-active hardcast whose action
+byte-matches the simulator cast state may be right-censored, with no
+post-horizon damage; every other unresolved attempt remains fatal. This rule
+freezes the score uniformly and does not reinterpret an unfinished cast as a
+hit or miss.
+These are execution-contract fixes, not evidence that any expert adapter is
+faithful or superior.
+
+`fury_baseline_readiness_gate/v3` aggregates these identities without turning
+source presence or the local runtime snapshot into execution evidence. With
+all four local source trees available, their source-identity checks pass, but
+the report remains `BLOCKED`: zero of the three required baselines is
+comparison-ready and `comparison_allowed=false`. This is the expected state
+until ordered source submissions, client acceptance, server outcomes, and
+complete scenario-bound adapters are closed.
+
+The current baseline-readiness receipt format is intentionally only a
+`SELF_REPORTED_DIGEST_INDEX` and is permanently `NONPROMOTING`. Production
+materialization rejects it if it claims comparison eligibility. A private unit
+test path can exercise downstream statistics, but its envelope remains marked
+non-promoting, all dispatch remains blocked, and it can never authorize a
+victory claim.
+
+No scientific evaluation job has been dispatched to the external CPU pool.
+Infrastructure-only bootstrap has been exercised separately: the control
+plane, shared user directory, content-addressed Linux bridge, and per-node
+health checks may be prepared without granting permission to train, compare,
+or make a superiority claim. New immutable
+full-policy bridges have been built locally: Windows SHA-256
+`117bb1e0237d4872db0d511f160cd66ddac451eea1eef32fb5c45dcddc242de6`
+and Linux `with_db`, `GOAMD64=v1` SHA-256
+`b5b3e4123feba0f3eea55ed147b7edb04b81d7d35d27b65c3e407601ed64d187`.
+Windows and WSL produced the same 61-step canonical trace twice for one fixed
+request and seed, including Slam pending across acceptance and its later typed
+result (trace SHA-256
+`af0d6485c6c39085d41eb10d07148be478fa812af5bc58a2b5efe93e1be99f6a`).
+That narrow transport/build check is not scientific equivalence or HPC
+readiness. Before any remote dispatch, a 32-worker-per-node pilot must still
+measure memory and throughput; only then may worker counts scale. Reported
+logical-core capacity is an external execution hint, not evidence. Node names
+and jump-host routing belong in a local, untracked site configuration. The
+roughly 30 GB raw/normalized Chronicle archive remains Windows-local. A later
+remote job may receive only the source-only repository, content-addressed Linux
+bridge, protocol, locked manifests, and compact content-addressed
+scenario/target/debuff/attackability/tactic artifacts after their executable
+dynamic semantics pass the comparison gate. The current 2,474,060-byte static
+binding may be transferred only as an optional diagnostic input; it cannot vote.
+
+Copy the credential-free site example to the ignored local path, then run the
+read-only probe. `--apply` is the only switch that creates user-owned remote
+directories, installs the content-addressed bridge, and atomically updates its
+`current-bridge` pointer. Activation occurs only after all six configured nodes
+verify the final file's exact SHA-256, ELF64/x86-64 header, and a real
+`load` + `actions` + `close` simulator exchange; all six then repeat those
+checks through `current-bridge`. The resulting receipt must say
+`ENVIRONMENT_READY_NO_EXPERIMENT`; this is infrastructure evidence only, and
+the receipt explicitly records that no scheduler task or scientific experiment
+was started.
+
+```powershell
+Copy-Item .\configs\hpc\site.example.json .\configs\hpc\site.local.json
+.\scripts\hpc_environment_windows.ps1
+.\scripts\hpc_environment_windows.ps1 -Apply
+```
+
+The legacy command above remains the v3/static environment path. Dynamic-v4
+validation is deliberately separate and cannot update or masquerade as its
+`current-bridge` pointer. The tracked, credential-free
+`configs/hpc/dynamic_v4.example.json` pins Linux bridge SHA-256
+`93015dd74ce436c171b50b41d9b2059249c6dbbea64614c1a472c9bda2ad838b`,
+the `jtl110gpu2` plus `scheduler_run_on` route, exactly `node001` through
+`node006`, and a maximum pilot of 32 one-CPU workers per node (192 total).
+The machine-specific `configs/hpc/site.local.json` remains ignored. Run the
+read-only route/inventory preflight first; only `-Apply` installs the isolated
+`releases/dynamic-v4/<sha256>` artifact, runs one real two-target
+`load_dynamic_v1` health/background/cancellation/close smoke per node, and—if
+all six pass—runs the non-scientific concurrent round-trip pilot:
+
+```powershell
+.\scripts\hpc_dynamic_environment_v4_windows.ps1
+.\scripts\hpc_dynamic_environment_v4_windows.ps1 -Apply
+```
+
+The 2026-09-11 infrastructure run passed 6/6 node smokes, 6/6 post-activation
+pointer checks, and 192/192 exit-zero, schema-validated dynamic round trips.
+All nodes produced deterministic workload SHA-256
+`09c1c99b222b99ae56f36a8b1f7474069f849af4423b423d17004de3ae4bbb2d`.
+Per-node concurrent-batch wall time was 455–554 ms; Linux
+`RUSAGE_CHILDREN.ru_maxrss` was 55,492–57,644 KiB. The latter is the maximum
+single-child high-water mark, not aggregate RSS. The final ignored local
+receipt is content-addressed as
+`52d97a0517bd79dd173c36a54b6dae5a3b31903969f331676a059c4c2e0bc843`.
+It records `offline_data_uploaded=false`, `training_started=false`,
+`policy_comparison_started=false`, and `scientific_experiment_started=false`;
+this is infrastructure capacity evidence only.
+
+After the protocol and both compact artifacts are final and content-addressed,
+the same command can stage exactly one four-role control-plane release. Any
+other path—including raw or normalized Chronicle data—is rejected before
+transfer. The protocol is materialized, both compact documents pass their
+strict schema/content-address validators, filename hashes and cross-references
+must close, and the protocol must pin the same Linux bridge. The remote final
+directory and its `manifest.json`/`SHA256SUMS` are compared against locally
+computed expected hashes before `current` changes, then checked again through
+the new pointer; a remote self-consistent but different checksum file is not
+trusted. Replace the two `<sha256>` tokens with the finalized filenames:
+
+```powershell
+$hpcArtifacts = @(
+  '.\configs\evaluation\fury_multiseed_protocol_v2.json',
+  '.\bin\o2obridge.seedfix-v2.withdb.goamd64v1.linux-amd64',
+  '.\offline_data\derived\fury_offline_scenario_capsules\v2\fury_offline_scenario_capsules_v2.<sha256>.json.gz',
+  '.\offline_data\derived\fury_capsule_execution_bindings\v2\fury_capsule_static_execution_binding_v2.<sha256>.json.gz'
+)
+.\scripts\hpc_environment_windows.ps1 -Apply -Artifact $hpcArtifacts
+```
+
+The following commands audit the prepared inputs and plan without launching a
+simulator:
+
+```powershell
+py -3 -B -m o2o_dps.fury_offline_runner_inputs_v2 `
+  --manifest .\offline_data\derived\fury_offline_corpus\v2\fury_offline_corpus_v2.8963fb248832c99713294cbc1aebbd207e38327b13ad8e7eea3979697d19036e.json.gz `
+  --plan-only
+
+py -3 -B -m o2o_dps.fury_offline_scenario_capsule_v2 `
+  --manifest .\offline_data\derived\fury_offline_corpus\v2\fury_offline_corpus_v2.8963fb248832c99713294cbc1aebbd207e38327b13ad8e7eea3979697d19036e.json.gz
+
+py -3 -B -m o2o_dps.fury_capsule_execution_binding_v2 `
+  --capsule .\offline_data\derived\fury_offline_scenario_capsules\v2\fury_offline_scenario_capsules_v2.23029ac5328e8c5e9e3009010e5d2876415d69b0e3d39e23e0ba4bf66a48e63e.json.gz `
+  --base-request .\configs\wowsims\fury_warrior_phase1.json `
+  --target-level 60 `
+  --output .\offline_data\derived\fury_capsule_execution_bindings\v2\fury_capsule_static_execution_binding_v2.ef04daec02d56ff1687122eefdaa5ca9af13f40321546550d89189ab1157ca86.json.gz
+
+py -3 -B -m o2o_dps.fury_multiseed_evaluation_v2 --plan-only
+
+py -3 -B -m o2o_dps.fury_baseline_readiness_gate_v3 --require-ready
+```
+
+These commands verify/materialize metadata only. A future execution still
+requires sealed baseline adapters and profiles, a frozen candidate and
+selection fold, a content-addressed production executor, and—for the final
+claim—the post-freeze raid corpus. Until those gates close, v2 supplies no
+training, voting, deployment, real-game-superiority, or simulator-victory
+authority.
+
+## Chronicle team/background pipeline (2026-09-11 checkpoint 12)
+
+The retained old-50 corpus now has a stable
+`chronicle_team_wave_timeline/v1` artifact at implementation revision
+`v1.2_target_activity_damage_lanes`: 50 raids, 1,197 waves, and 2,566,481
+ordered events. Only parsed numeric `DMG` is canonical prefix damage. `DEAD`
+is a terminal marker in that lane—even when its historical row carries a
+number—and its value remains only in the exact/diagnostic trace, so lethal
+damage cannot be counted twice. Classification and owner attribution use the
+latest explicit evidence at or before each event; a later `CLASS` observation
+never fills an earlier prefix.
+
+The downstream `chronicle_team_wave_model/v1` v1.2 build is also complete and
+content-addressed: 50 partitions totaling 626,513,772 compressed bytes,
+39,015 player-wave episodes, 885 Fury episodes, and 571 Arms episodes. The
+manifest content SHA-256 is
+`c5a1dcd39aea40ebe1cd11bbed37fe6aa489394b7d2b259c9c3566d70ae2dc25`;
+the manifest file SHA-256 is
+`ae4adfe7acf5a663216cd07b7cca136230a2a4dc68419d66d54999e21cbfe195`.
+For every focal player, leave-one-out background removes both that player's
+direct damage and explicitly owned-unit damage. Unattributed damage remains a
+separate explicit branch rather than being guessed onto a player. Historical
+exact traces are permanently `DESCRIPTIVE_NONVOTING`; future events, final
+wave totals, and the observed death clock are not decision features.
+
+The 36-yard contamination rule is raid-level provenance, not a player-name
+allowlist or denylist. Following the later first-hand correction recorded below,
+`南北` raids with `started_at < 2026-09-03T00:00:00+08:00` are suspect;
+raids in `[2026-09-03T00:00:00+08:00, 2026-09-03T12:00:00+08:00)` are
+boundary-uncertain and nontraining; and raids at or after the noon boundary are
+post-fix clean. Noon is a conservative safe floor for the reported morning fix,
+not the claimed exact patch instant. Named players are examples of known
+exposure, not the classifier. Other guilds are not marked suspect by this rule,
+so it does not quarantine most other warriors;
+`NO_KNOWN_RULE_MATCH` is still not a blanket verified-clean claim. Missing
+guild/time evidence remains `UNKNOWN_NONVOTING`.
+
+The External API lane now includes a deliberately unauthenticated, paced,
+incremental capture client, immutable local objects, an `uploaded_at`
+watermark with inclusive-boundary deduplication, a core-event normalizer, and
+fail-closed reconstruction admission. Chronicle's pinned official class
+semantics are applied as temporal ordinal unit-type/affiliation evidence—not
+as combat-log bit flags—and owner/controller resolution requires exact GUID
+evidence. The retained `南北` raid started on 2026-09-02 was admitted under the
+superseded September 1 cutoff and is now `SUSPECT_36YD_RANGE_BUG`. Its 315,699
+normalized rows and 50 encounters remain raw reconstruction facts, but the old
+admission label and the resulting 52-wave External-v2 artifact (content SHA-256
+`331d83fdf6e4f5a5c1e886ddef72fea9f50c6beeb8ff226b3996d191861e6992`)
+are invalidated for eligibility/training and must be rebuilt under the corrected
+rule. That historical artifact remains audit-only and cannot vote.
+
+Stable historical-policy model and evaluation files were also generated and
+passed their structural validators. Their scientific result is negative:
+Fury status is `INTERNAL_HELDOUT_FIDELITY_FAIL`, comparison status is
+`NOT_COMPARISON_READY`, and simulator runtime admission is unvalidated. The
+team-background generator completed manifest-last with 1,197 final whole-wave
+blocks, four leakage components, 579 training-eligible blocks, and zero voting
+blocks (manifest content SHA-256
+`77b3a7780ae57e461a7ed61193c3d211c1941f892f2833313178ca18f3128929`).
+Its structure is validated, but it remains
+`BOOTSTRAP_TRAINING_DIAGNOSTIC_NONVOTING`: learned team response, retargeting,
+and dynamic-bridge admission are still missing.
+
+Baseline readiness therefore remains 0/3. No simulator-based candidate
+training, comparison, or superiority evaluation has run, and none of these
+artifacts authorizes deployment. The historical policy cannot become a fourth
+voting baseline until both held-out fidelity and runtime admission pass.
+
+The corresponding Windows materialization commands are:
+
+```powershell
+py -3 -B -m o2o_dps.chronicle_team_wave_timeline_v1 `
+  --capsule .\offline_data\derived\fury_offline_scenario_capsules\v2\fury_offline_scenario_capsules_v2.23029ac5328e8c5e9e3009010e5d2876415d69b0e3d39e23e0ba4bf66a48e63e.json.gz `
+  --workers 6
+
+py -3 -B -m o2o_dps.chronicle_team_wave_model_v1 `
+  --timeline-manifest .\offline_data\derived\chronicle_team_wave_timeline\v1\manifest.json `
+  --workers 6
+
+py -3 -B -m o2o_dps.chronicle_historical_warrior_policy_v1 `
+  --team-wave-model-manifest .\offline_data\derived\chronicle_team_wave_model\v1\manifest.json `
+  --output-directory .\offline_data\behavior_models\chronicle_historical_warrior_policy\v1 `
+  --fold-count 5 --split-seed 20260911 --smoothing-alpha 0.5 --backoff-strength 8.0
+
+py -3 -B -m o2o_dps.chronicle_team_background_generator_v1 `
+  --team-model-manifest .\offline_data\derived\chronicle_team_wave_model\v1\manifest.json `
+  --output-dir .\offline_data\derived\chronicle_team_background_generator\v1
+
+py -3 -B -m o2o_dps.chronicle_external_api_ingest_v1 ingest `
+  --instance-id a26a041a-6b7a-4c26-a1cd-5464e59dee7c `
+  --all-streams --include-ranking-records --max-instances 1 `
+  --scope-name utok-postfix-arms-reference --data-root .\offline_data
+
+py -3 -B -m o2o_dps.chronicle_external_event_normalizer_v1 `
+  --source-manifest .\offline_data\chronicle_raw\external_api\v1\manifests\65671f2548fa4bee0a5969e1900c1b6f264c28f85330ac93f7e0db46e143b510.json `
+  --data-root .\offline_data
+
+py -3 -B -m o2o_dps.chronicle_external_reconstruction_admission_v1 `
+  --raw-manifest .\offline_data\chronicle_raw\external_api\v1\manifests\65671f2548fa4bee0a5969e1900c1b6f264c28f85330ac93f7e0db46e143b510.json `
+  --normalization-manifest .\offline_data\derived\chronicle_external_core_events\v1\manifest.json `
+  --data-root .\offline_data
+
+py -3 -B -m o2o_dps.chronicle_external_encounter_reconstruction_v2 `
+  --admission-manifest .\offline_data\derived\chronicle_external_reconstruction_admission\v1\manifest.json
+```
+
+## Chronicle character/DPS migration and corrected provenance (2026-09-11 checkpoint 13)
+
+This checkpoint finalizes the character-history, instance-inventory, and exact
+DPS-index rebuild only. It does not replace checkpoint 12's negative
+historical-policy result, and it does not claim that the downstream External
+timeline or team-wave model has been rebuilt. Those heavy derived artifacts
+remain pending/superseded and cannot train, vote, compare policies, authorize
+deployment, or support a superiority claim.
+
+Chronicle's documented, no-auth External API can be used to construct a
+person's dated DPS history, but it has no single person-all-DPS response. The
+identity-safe join is paginated character instances -> authoritative instance
+UUID -> that instance's `ranking-records` -> exact player GUID. Character
+performance percentiles are not DPS, and neither player names nor the
+leaderboard's zero UUID substitute for that join. The exact recent-query
+parameter remains `upload_after`, not `uploaded_after`.
+
+First-hand information from `托尼牛` says the 36-yard bug was fixed on the
+morning of September 3 and that the September 3 evening raid was clean. The
+current raid-level rule uses `guild=南北` plus raid `started_at`: times before
+`2026-09-03T00:00:00+08:00` are `SUSPECT_36YD_RANGE_BUG`; the half-open interval
+`[2026-09-03T00:00:00+08:00, 2026-09-03T12:00:00+08:00)` is
+`RANGE_BUG_BOUNDARY_UNCERTAIN_NONVOTING`; and times at or after noon are
+`POSTFIX_KNOWN_CLEAN`. Noon is a conservative safe floor, not the claimed exact
+patch instant. `桃姬儿` and `围观群众三爷` are provenance examples, not a
+name-based classifier.
+
+Migration replayed seven legacy raw-ingest manifests into the current parser
+contract with zero network requests. Two character-history manifests were also
+migrated to the current contract without copying their immutable raw response
+objects. The unsupported legacy manifest
+`f45eddaf3a85a5183ab4fc8f87c7d944de3f44d7bee75a3429a5b0f5f1114e0`
+was rejected rather than silently adopted. The authoritative 293-character
+history is now
+`ce85de50671caf1739216f5d91248a2fd73bd2fc0174ee551faef3adc4d89a31`;
+the two-reference history is
+`a70cabd299c21d69a61dde629b653bf03d0d2ed5d4d2de4b0582e6bc80019426`.
+
+The previous 55-instance ranking gap capture remains physically reusable: its
+110 GETs produced 55 metadata and 55 ranking objects and no event requests.
+Legacy manifest
+`be4e97e745aa2184eeaecf1b20276dac851327f122ae2654aa1baed08a444b13`
+replayed locally to current manifest
+`94cbf63b6176783d964db7a205bfa19be29ddc8153a2fb420c9884078b59edfd`.
+Likewise, the 36-instance stream batch retained 36 metadata objects and all
+684/684 typed streams as `AVAILABLE`, with no 404; legacy manifest
+`d5e2a786ce6e08a6998beb9d0de1d58ecf6035b95bb55b8768e978a84e5b6504`
+replayed to current manifest
+`2c06855e541842384fef01b47b77bad54ed85792300066030de33f068b89666c`.
+All 68 currently training-candidate unique raids now have complete required and
+action streams. No claim is made about completing nontraining streams.
+
+The current v1.4 inventory contains 710 UTK character-instance memberships
+across 105 unique raids, with zero missing instances and empty ranking and
+training-eligible stream fetch gaps. Its content SHA-256 is
+`c5c2b690adcd0ebc6bc49c49ceac68236e0ef55b6a3ab59b6bc35c763a5d7a8a`.
+The 5,829,968-byte manifest's physical file SHA-256 is
+`fbde28eb91d4128570bf9ab8612589963a2b788051613e8deb84852da9b653f0`.
+Membership labels are 438 `NO_KNOWN_RULE_MATCH`, 28
+`POSTFIX_KNOWN_CLEAN`, 63 `SUSPECT_36YD_RANGE_BUG`, 181
+`UNKNOWN_NONVOTING`, and zero boundary-uncertain. Unique-raid counts are
+65/3/8/29/0 in the same order. Exactly 466 memberships across 68 unique raids
+are training candidates at this inventory stage.
+
+The corrected rule flips all 12 memberships in September 2 instance
+`a26a041a-6b7a-4c26-a1cd-5464e59dee7c` to suspect. Instance
+`1d67b220-cb60-49f9-9ab3-ab3c12439510`, started at 20:48:06 `+08:00` on
+September 3, remains clean. `托尼牛` retains five UTK raids and 50 exact ranking
+records, and `桃姬儿` retains four UTK raids and 40; their September 2 shared
+raid is suspect, while the September 9 shared raid is clean. A recent capture
+at `upload_after=2026-09-10T15:03:37.108769Z` still yielded no strictly newer
+UTK instance after inclusive-boundary deduplication.
+
+The current DPS index contains 6,629 exact ranking rows from 707 exact
+memberships. Three endpoint-captured memberships remain censored because the
+expected exact GUID is absent (`大吉爸`, `傲笑紅尘`, and `瞎还听不着`);
+they are not converted to zero DPS or replaced with a performance parse. Of the
+707 exact memberships, 463 are training-eligible and 244 remain descriptive
+nontraining evidence. The manifest content SHA-256 is
+`4e506cbba15d51809fad8636a9b440ee14497b874b8c79665ba74e69d749ee9e`;
+its 5,085-byte physical file SHA-256 is
+`ce8a07f9e0e028a0d1538676618d046ee04e00f14c4168c84a000bc194049822`.
+The 393,157-byte zstd partition has compressed SHA-256
+`2ec582030dfe9fc870036db3a7c95325613b61b4adb18a14fd716652c029d055`
+and expands to 4,497,103 logical bytes with logical SHA-256
+`cd88a132239fc08d57fc68657114f9499f0f611cb72ad9ac4df02c2dbaeadaf5`.
+Full hash, inventory-source, and row replay finished as
+`PASS_STRICT_HASH_AND_SOURCE_REPLAY`.
+
+The earlier September-1-cutoff inventory
+`b4758e0a3f40969ae8715f0fae17ecafd9a936735b3d4b26ddd54ee924928d18`
+and DPS index
+`55b54d194558ad15c66620f711a1df764e12caf8cc5df1be7b394dd1d52dd8cd`
+(logical partition
+`cd233dde638f04e46b921726de2e42862edab876558b4b04b340555530d89f01`)
+remain immutable audit provenance but are superseded for current use. Likewise,
+the old September 2 External timeline/model derivatives remain superseded until
+their own current-contract heavy rebuild and strict validation complete.
+
+Separately, the isolated dynamic-v4 Linux bridge passed one real dynamic smoke
+on each of `node001` through `node006` (6/6) and the bounded 32-worker-per-node
+round-trip pilot (192/192 exit-zero and schema-validated). Receipt
+`52d97a0517bd79dd173c36a54b6dae5a3b31903969f331676a059c4c2e0bc843`
+records `offline_data_uploaded=false`, `training_started=false`,
+`policy_comparison_started=false`, and `scientific_experiment_started=false`.
+This remains non-scientific infrastructure evidence, not a 1,152-core run or a
+policy result. The focused External ingest/history/sync/inventory/DPS-index
+suite passes 67/67 tests under the current contract.
+
+## Chronicle raw-union/cohort binding (2026-09-11 checkpoint 14)
+
+The current raw evidence is now bound by
+`o2o_dps.chronicle_external_api_manifest_union_v1`, which deterministically
+unions current, locally replayable raw manifests and then publishes a separate
+content-addressed cohort receipt. The union is descriptive evidence; it does
+not infer training eligibility from a raw contamination label. The current
+inventory remains the sole training-cohort authority, and the DPS index is
+replayed against that exact inventory. Publication and audit made zero network
+requests.
+
+The two bound current raw manifests contain 84 distinct instances with zero
+duplicate instance rows. Their 1,042,820-byte raw union is
+`fcd5388de131ac0cd784b23cb31bc565e3368cdc150129338fc5fbc16a645f99`.
+The independently content-addressed cohort receipt is
+`06ae246713a0e6976302ec8e9ae6709b605ad7b8f1a2db5ae982f9b088bcdc0d`.
+It freezes three disjoint counts: 84 descriptive instances, 68
+training-candidate instances, and 16 descriptive-only nontraining instances.
+The 68-instance cohort binds 466 candidate memberships: 463 exact
+training-eligible memberships, three captured-but-exact-GUID-absent censored
+memberships, and 4,237 selected exact DPS rows.
+
+Instance `3febcdb7-4503-4815-a73b-8af7024f2b89` is deliberately retained in
+the 84-instance descriptive union but excluded from the 68-instance training
+cohort. It is absent from the bound inventory, so its fail-closed reason is
+`ABSENT_FROM_BOUND_INVENTORY_DEFAULT_DESCRIPTIVE_NONTRAINING`; older heavy
+derivatives for that instance do not override this mask.
+
+The September 3 provenance rule is unchanged: for `guild=南北`, raid
+`started_at` before September 3 is suspect, the September 3 midnight-to-noon
+interval is boundary-uncertain/nonvoting, and times at or after noon are clean.
+This conservative noon floor captures the first-hand statement that the bug
+was fixed that morning and that the evening raid was clean without inventing
+an exact patch time.
+
+Strict receipt audit completed as `PASS_STRICT_FULL_SOURCE_REPLAY`, including
+the source manifests, raw union, inventory, DPS index, cohort IDs and counts.
+This is a reproducible data-selection checkpoint only:
+`training_or_comparison_authorized=false`. No candidate training, Cat/Contra
+comparison, multi-seed victory, deployment decision, or real-WoW superiority
+claim follows from it. The next controlled step is a full current-contract
+External V2 rebuild from the 84-instance descriptive union while preserving
+the frozen 68-instance training mask, followed by its own strict validation;
+only a later authorized stage may train or compare policies.

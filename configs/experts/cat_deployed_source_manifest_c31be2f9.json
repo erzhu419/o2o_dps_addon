@@ -1,0 +1,349 @@
+{
+  "schema": "cat_deployed_source_manifest/v1",
+  "manifest_id": "cat.deployed_source.1_18_1.c31be2f9",
+  "audit_date": "2026-09-10",
+  "source": {
+    "source_id": "cat.addon_directory.1_18_1.c31be2f9",
+    "declared_interface": "11200",
+    "declared_version": "1.18.1",
+    "fury_source_date": "2026-07-22",
+    "location": {
+      "kind": "EXTERNAL_ADDON_DIRECTORY",
+      "expected_directory_name": "Cat",
+      "installed_under_interface_addons": true,
+      "client_enabled_observed": false,
+      "client_load_observed": false
+    },
+    "authority": {
+      "role": "SOURCE_IDENTITY_AND_CAPABILITY",
+      "provenance_kind": "SOURCE_DERIVED",
+      "source_execution": false,
+      "exact_runtime": false,
+      "policy_profile_included": false,
+      "eligible_for_comparison": false,
+      "eligible_for_independent_vote": false
+    }
+  },
+  "identity": {
+    "algorithm": {
+      "name": "sha256-canonical-file-list-v1",
+      "entry_fields": [
+        "root_kind",
+        "relative_path",
+        "sha256"
+      ],
+      "ordering": "relative_path_unicode_codepoint",
+      "serialization": "json_utf8_sort_keys_compact_ensure_ascii_false_allow_nan_false"
+    },
+    "tree": {
+      "root_kind": "cat_deployed_tree",
+      "file_count": 102,
+      "byte_count": 2528102,
+      "sha256": "3444597ef6b162b6d65c11f28b49301226b55e9b9a94d74d4c62ad56350e2c75"
+    },
+    "toc_closure": {
+      "root_kind": "cat_deployed_toc_closure",
+      "file_count": 100,
+      "byte_count": 2519838,
+      "sha256": "c31be2f97a0af6c9f996e642585cd6a5c3acbedfd2f45b23b4e18813bdc2273e",
+      "lua_file_count": 99,
+      "xml_file_count": 1,
+      "duplicate_entry_count": 0,
+      "missing_entry_count": 0,
+      "unlisted_lua_or_xml_count": 0
+    },
+    "unloaded_files": [
+      "Cat.toc",
+      "\u4f7f\u7528\u6307\u5357.txt"
+    ],
+    "critical_files": {
+      "Cat.toc": "aaf871e3d9ea6bc41af60da775b3388d443c7b61a751b6961a1edafbf0a3c3e5",
+      "CatLib.lua": "44d1c9d02653a7966c6bf2aef9f35652b9ce261d2d01ea857449cdf17f0fd211",
+      "CatEvent.lua": "de4039dd5ca529e9f1893b002d36a009346f1aeed760c18a03199fc59a2fbe67",
+      "CatEvent-Warrior.lua": "d4b72ffc68aa84d65ad8723c87b02cab4b1bbd8635fa47bb81a76e3d800c3f09",
+      "WarriorFury.lua": "1dc652bc34117d11703e2b9481b4da7386c3e3865b85413af5b2a4031bbab6fe",
+      "UI/Settings-WarriorFury.lua": "f0d8ffe0ebed334cbcc854ea2cdd0d4f76c1a206d1f21c48cc5ffed1613ddba9",
+      "UI/Command.lua": "1e8014088496c0a17e8111bda1ba38d7db1fbe3a297416067c4de32a30460b92",
+      "Bindings.xml": "81324380180cb3fad0bb7ee48df9166b5fe216e321ba13e534b09c935147194e",
+      "Expand/TWT.lua": "094014031f7c77dab03ca0477007473a706ae02e79d477668f49a647c185faf4",
+      "CatImmuneLib.lua": "e4dc6cb99f54cd3f6761c1faff2f17592208c3f40a4f3e451e64ab26c8652985"
+    }
+  },
+  "fury_policy_surface": {
+    "entry_chain": [
+      "Bindings.xml:WARRIOR_FURY_BINDING",
+      "MPWarriorFuryCommand",
+      "MPFuryDPS"
+    ],
+    "slash_command": "/fury",
+    "saved_variables_scope": "SavedVariablesPerCharacter",
+    "saved_variables_name": "MPWarriorFurySaved",
+    "settings_schema_version": 32,
+    "profile_slot_count": 3,
+    "binding_selected_profile_slot": 1,
+    "slash_profile_selection": "RESET_TO_1_THEN_ACCEPT_FIRST_INTEGER_1_TO_3",
+    "source_default_is_runtime_profile": false,
+    "active_runtime_config_keys": [
+      "BattleShout",
+      "BerserkerRage",
+      "BerserkerStance",
+      "Carrot",
+      "Carrot_Value",
+      "Charge",
+      "DeathWish",
+      "DeathWishBoss",
+      "ExecuteWithoutMonster",
+      "Hamstring",
+      "HealthStone",
+      "HealthStone_Value",
+      "HerbalTea",
+      "HerbalTea_Value",
+      "HeroicStrike",
+      "HeroicStrike_Value",
+      "Interrupt",
+      "NearbyEnemies",
+      "NearbyEnemies_Value",
+      "Overpower",
+      "Overpower_Value",
+      "Pick",
+      "Power",
+      "RacialTraits",
+      "RacialTraitsBoss",
+      "Recklessness",
+      "Slam_Value",
+      "Soulspeed",
+      "SoulspeedBoss",
+      "SunderArmor",
+      "SunderArmorBOSS",
+      "SunderArmorOnce",
+      "Sweeping",
+      "Sweeping_Value",
+      "Target",
+      "TBBoss",
+      "Trinket_Below",
+      "Trinket_Upper",
+      "TUBoss",
+      "UseExecute",
+      "Whirlwind"
+    ],
+    "initialized_but_not_active_policy_keys": [
+      "Execute",
+      "ExecuteOtherTarget",
+      "Rend",
+      "Rend_Value",
+      "SuperWoW",
+      "UnitXP"
+    ],
+    "dynamic_dependencies": {
+      "character": [
+        "race",
+        "talent_ranks",
+        "known_spells",
+        "stance",
+        "equipment_names",
+        "mainhand_weapon_mode",
+        "T3_set_count",
+        "T3_5_set_count"
+      ],
+      "combat_state": [
+        "rage",
+        "player_health_fraction",
+        "target_current_health",
+        "target_max_health",
+        "target_auras",
+        "player_auras",
+        "spell_cooldowns",
+        "mainhand_swing_time_left",
+        "combat_start_time",
+        "current_target_and_distance"
+      ],
+      "optional_extensions": [
+        "Nampower QueueSpellByName and queue CVars",
+        "SuperWoW unit enumeration and GUID state",
+        "UnitXP geometry checks",
+        "TWT threat data"
+      ]
+    }
+  },
+  "reviewed_capabilities": [
+    {
+      "id": "DUAL_WIELD_AND_TWO_HAND_BRANCHES",
+      "claim": "MPWarriorRefreshInfo derives one-hand versus two-hand mode from current equipment and MPFuryDPS selects the corresponding priority branch."
+    },
+    {
+      "id": "TURTLE_SLAM_TIMING",
+      "claim": "The two-hand branch uses configured Slam_Value, main-hand swing time left, Flurry state, and MPCastWithoutNampower for Turtle Slam timing."
+    },
+    {
+      "id": "CORE_FURY_PRIORITY",
+      "claim": "The source contains Bloodthirst, Whirlwind, Execute, Hamstring, Heroic Strike, and Cleave conditions with distinct normal and execute phases."
+    },
+    {
+      "id": "AOE_NEXT_SWING_SELECTION",
+      "claim": "A SuperWoW-backed nearby-enemy count selects Cleave instead of Heroic Strike and changes rage reservation."
+    },
+    {
+      "id": "SUNDER_AND_STANCE_TRANSITIONS",
+      "claim": "The source includes configurable Sunder Armor, Overpower, Sweeping Strikes, Charge, Intercept, and stance transitions."
+    },
+    {
+      "id": "LOADOUT_AND_TALENT_COST_ADJUSTMENTS",
+      "claim": "Talent ranks and named T3/T3.5 equipment adjust learned abilities and rage costs during MPWarriorRefreshInfo."
+    },
+    {
+      "id": "UTILITY_ITEMS_AND_COOLDOWNS",
+      "claim": "The same policy pass may use trinkets, racials, Death Wish, Recklessness, consumables, auto-loot, and power helpers."
+    }
+  ],
+  "execution_contract": {
+    "entry_return_semantics": {
+      "MPWarriorFuryCommand": "NO_ACTION_RESULT",
+      "MPFuryDPS": "NO_ACTION_RESULT",
+      "branch_return": "STOP_CURRENT_LUA_CALL_ONLY",
+      "client_acceptance_inferred": false,
+      "server_outcome_inferred": false
+    },
+    "sink_semantics": {
+      "one_press_one_sink": false,
+      "ordered_sink_trace_required": true,
+      "client_acceptance_trace_required": true,
+      "server_outcome_trace_required": true,
+      "press_count_is_action_count": false
+    },
+    "sink_resolution": {
+      "direct_spell": "CastSpellByName",
+      "with_nampower": "QueueSpellByName_OR_CastSpellByName",
+      "without_nampower": "SetCVar_THEN_CastSpellByName_THEN_SetCVar",
+      "auto_attack": "AttackTarget",
+      "items": "UseInventoryItem_OR_UseContainerItem",
+      "targeting": "ClearTarget_OR_TargetNearestEnemy_OR_TargetUnit",
+      "cast_interrupt": "SpellStopCasting"
+    },
+    "reviewed_multi_sink_paths": [
+      {
+        "path_id": "target_and_attack_prelude",
+        "ordered_sinks": [
+          "ClearTarget_OR_TargetNearestEnemy_OPTIONAL",
+          "AttackTarget_OPTIONAL",
+          "AUTOLOOT_AND_POWER_HELPERS_OPTIONAL"
+        ],
+        "then_policy_continues": true
+      },
+      {
+        "path_id": "sunder_then_next_swing",
+        "ordered_sinks": [
+          "CastSpellByName:Sunder Armor",
+          "QueueSpellByName_OR_CastSpellByName:Heroic Strike/Cleave_OPTIONAL"
+        ],
+        "then_policy_continues": false
+      },
+      {
+        "path_id": "next_swing_then_primary_skill",
+        "ordered_sinks": [
+          "QueueSpellByName_OR_CastSpellByName:Heroic Strike/Cleave_OPTIONAL",
+          "CastSpellByName_OR_QueueSpellByName:priority ability_OPTIONAL"
+        ],
+        "then_policy_continues": false
+      },
+      {
+        "path_id": "slam_interrupt_then_skill",
+        "ordered_sinks": [
+          "SpellStopCasting_OPTIONAL",
+          "CastSpellByName:Whirlwind/Execute/stance transition"
+        ],
+        "then_policy_continues": false
+      },
+      {
+        "path_id": "stance_then_charge",
+        "ordered_sinks": [
+          "CastSpellByName:Battle Stance",
+          "CastSpellByName:Charge"
+        ],
+        "then_policy_continues": false
+      },
+      {
+        "path_id": "independent_off_gcd_and_item_chain",
+        "ordered_sinks": [
+          "UPPER_TRINKET_OPTIONAL",
+          "LOWER_TRINKET_OPTIONAL",
+          "SOULSPEED_OPTIONAL",
+          "HEALTH_ITEMS_OPTIONAL",
+          "RACIAL_OPTIONAL",
+          "BERSERKER_RAGE_QUEUE_ATTEMPT_0_TO_2"
+        ],
+        "then_policy_continues": true
+      }
+    ]
+  },
+  "comparison_readiness": {
+    "status": "BLOCKED",
+    "source_identity_complete": true,
+    "toc_closure_complete": true,
+    "exact_saved_profile_captured": false,
+    "exact_talents_and_equipment_captured": false,
+    "optional_extension_versions_captured": false,
+    "ordered_client_sink_trace_captured": false,
+    "client_acceptance_trace_captured": false,
+    "server_outcome_trace_captured": false,
+    "simulator_adapter_complete": false,
+    "eligible_for_comparison": false,
+    "blockers": [
+      "EXACT_SAVED_PROFILE_MISSING",
+      "EXACT_CHARACTER_BUILD_MISSING",
+      "OPTIONAL_EXTENSION_IDENTITY_MISSING",
+      "ORDERED_SINK_TRACE_MISSING",
+      "CLIENT_ACCEPTANCE_TRACE_MISSING",
+      "SERVER_OUTCOME_TRACE_MISSING",
+      "FULL_POLICY_SIMULATOR_ADAPTER_MISSING"
+    ]
+  },
+  "known_boundaries": [
+    {
+      "id": "ADDON_DIRECTORY_IS_NOT_LOAD_EVIDENCE",
+      "claim": "Presence under Interface/AddOns identifies bytes but does not prove the client enabled or loaded this exact tree."
+    },
+    {
+      "id": "PROFILE_SNAPSHOT_ABSENT",
+      "claim": "No character-specific MPWarriorFurySaved bytes or selected runtime profile are part of this source manifest."
+    },
+    {
+      "id": "SOURCE_DEFAULT_IS_NOT_EXPERT_IDENTITY",
+      "claim": "Settings defaults initialize missing or version-mismatched profiles and cannot substitute for the profile actually used in a raid."
+    },
+    {
+      "id": "FUNCTION_RETURN_IS_NOT_ACTION",
+      "claim": "MPFuryDPS and MPWarriorFuryCommand expose no action result; an early return only stops that Lua call."
+    },
+    {
+      "id": "ONE_PRESS_CAN_HAVE_MULTIPLE_SINKS",
+      "claim": "Targeting, attack, item, queued next-swing, interrupt, stance, and primary ability sinks can occur in one ordered policy pass."
+    },
+    {
+      "id": "NAMPOWER_QUEUE_IS_NOT_ACCEPTANCE",
+      "claim": "QueueSpellByName or CastSpellByName invocation does not prove client acceptance, server GO, resource spend, hit, or damage."
+    },
+    {
+      "id": "OPTIONAL_EXTENSION_STATE_UNFROZEN",
+      "claim": "Nampower, SuperWoW, UnitXP, and TWT availability changes reachable behavior but their exact runtime versions and state are outside this manifest."
+    },
+    {
+      "id": "TOC_CLOSURE_EXCLUDES_RUNTIME_ECOSYSTEM",
+      "claim": "The complete Cat TOC closure does not include client, server, other addons, SavedVariables, talents, equipment, or encounter state."
+    },
+    {
+      "id": "NEARBY_SCAN_IS_NOT_GROUND_TRUTH",
+      "claim": "AOE selection depends on optional SuperWoW enumeration, range heuristics, and current object visibility rather than a complete scene oracle."
+    },
+    {
+      "id": "NO_ARCHIVE_OR_RELEASE_SIGNATURE",
+      "claim": "The installed directory is content-addressed, but no matching distribution archive, signature, or upstream release identity is asserted."
+    }
+  ],
+  "lineage": {
+    "relation": "EXPANDS_NARROW_SOURCE_HASH",
+    "previous_warrior_fury_lua_sha256": "1dc652bc34117d11703e2b9481b4da7386c3e3865b85413af5b2a4031bbab6fe",
+    "replaces_existing_baseline_result": false,
+    "reuse_existing_baseline_result": false,
+    "promotion_requires_profile_and_runtime_evidence": true
+  }
+}
