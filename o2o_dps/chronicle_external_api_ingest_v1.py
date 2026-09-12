@@ -23,6 +23,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import time
 from typing import Any, Callable, Iterable, Mapping, Sequence, TextIO
@@ -325,6 +326,15 @@ def _parse_rfc3339(value: Any, *, field: str) -> datetime:
     normalized = value.strip()
     if normalized.endswith("Z"):
         normalized = normalized[:-1] + "+00:00"
+    # Python 3.10 rejects otherwise valid RFC3339 fractions unless they have
+    # exactly three or six digits.  Chronicle emits values such as ``.88Z``;
+    # right-padding preserves the instant and keeps the parser identical on
+    # the Windows 3.13 control host and the Linux 3.10 compute nodes.
+    normalized = re.sub(
+        r"\.(\d{1,5})(?=[+-]\d{2}:\d{2}$)",
+        lambda match: "." + match.group(1).ljust(6, "0"),
+        normalized,
+    )
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError as error:

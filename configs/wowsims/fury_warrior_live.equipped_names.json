@@ -1,0 +1,33 @@
+{
+  "schema": "fury_live_equipped_item_names/v1",
+  "status": "PINNED_FROM_STATIC_PROFILE_CAPTURE",
+  "source": {
+    "path": "offline_data/calibration/BrainOfCat__20260831T165938427836Z.jsonl",
+    "event": "STATIC_PROFILE_CAPTURED",
+    "sequence": 19364,
+    "latest_equal_equipment_confirmation_sequence": 19466,
+    "simulator_request": "configs/wowsims/fury_warrior_live.json"
+  },
+  "equipped_item_names": [
+    "征服者的皇冠",
+    "奥妮克希亚龙牙坠饰",
+    "征服者的肩铠",
+    "食尸鬼皮外套",
+    "冲击束带",
+    "梦境钢铁护腿",
+    "多彩长靴",
+    "复仇腕甲",
+    "烈焰守卫护手",
+    "屠龙大师之戒",
+    "埃古雷亚指环",
+    "龙牙饰物",
+    "鞭笞马鞭",
+    "坚定力量披风",
+    "削骨之刃"
+  ],
+  "contra_zssdw": 0,
+  "notes": [
+    "The item names are an explicit fixed-loadout input to Cat, deployed Contra, Contra260817, and Cat2_new simulator lanes.",
+    "No Brotherhood set item is equipped, so the source-defined Contra ZSSDW count is zero."
+  ]
+}

@@ -8,7 +8,11 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 # sibling addon/simulator trees. They remain covered by test_windows.ps1.
 $excluded = @(
     'test_addon_calibration_contract.py',
+    'test_cat2new_candidate_executor_v4.py',
+    'test_cat2new_candidate_feedback_loop_v6.py',
+    'test_cat2new_candidate_simulator_executor_v5.py',
     'test_cat2_zero_config_bridge.py',
+    'test_cat_fury_full_policy_readiness_v4.py',
     'test_fury_chronicle_prior.py',
     'test_fury_combined_shadow_policy.py',
     'test_fury_current_build_phase12.py',

@@ -111,6 +111,12 @@ class CurrentCat2SupplementalReplayTests(unittest.TestCase):
         self.assertEqual(
             contract["candidate_parameters"], frozen["candidate"]["parameters"]
         )
+        self.assertEqual(
+            contract["candidate_policy_id"], frozen["candidate"]["policy_id"]
+        )
+        reconstructed = FuryPolicyParameters(**contract["candidate_parameters"])
+        self.assertEqual(reconstructed.single_target_priority, "BLOODTHIRST_FIRST")
+        self.assertEqual(reconstructed.two_hand_slam_mode, "DISABLED")
 
     def test_changed_frozen_selection_fails_closed(self) -> None:
         frozen = json.loads(FROZEN_GATE.read_text(encoding="utf-8"))
@@ -159,6 +165,7 @@ class CurrentCat2SupplementalReplayTests(unittest.TestCase):
                 object(),
                 corpus,
                 candidate_parameters=FuryPolicyParameters(use_death_wish=False),
+                candidate_policy_id="frozen.candidate.fixture",
                 cat2_snapshot={},
                 validation_seeds=(1, 2),
             )
@@ -169,7 +176,7 @@ class CurrentCat2SupplementalReplayTests(unittest.TestCase):
             {
                 "cat.fury.profile1",
                 "contra.deployed.fury.raid_a",
-                FuryPolicyParameters(use_death_wish=False).policy_id,
+                "frozen.candidate.fixture",
             },
         )
         self.assertFalse(result["voting_result"])

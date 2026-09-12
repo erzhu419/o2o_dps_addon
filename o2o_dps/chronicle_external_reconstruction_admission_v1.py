@@ -53,7 +53,7 @@ from .chronicle_external_event_normalizer_v1 import (
 
 SCHEMA = "chronicle_external_reconstruction_admission/v1"
 IMPLEMENTATION_REVISION = (
-    "v1.2_exact_raw_rederive_range_bug_boundary_20260903_noon_streaming"
+    "v1.4_exact_guid_core_observed_missing_combatant_info_diagnostic"
 )
 RAW_MANIFEST_SCHEMA = "chronicle_external_api_ingest/v1"
 RAW_MANIFEST_KIND = "chronicle_external_api_raw_snapshot"
@@ -161,6 +161,14 @@ def _sha(value: Any, *, label: str) -> str:
 def _parse_rfc3339(value: Any, *, label: str) -> datetime:
     text = _text(value, label=label)
     normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    # Python 3.10 rejects otherwise valid RFC3339 fractions unless they have
+    # exactly three or six digits. Chronicle API timestamps may use a shorter
+    # fraction (for example ``.88Z``), so normalize only that representation.
+    normalized = re.sub(
+        r"\.(\d{1,5})(?=[+-]\d{2}:\d{2}$)",
+        lambda match: "." + match.group(1).ljust(6, "0"),
+        normalized,
+    )
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError as error:
@@ -525,6 +533,7 @@ def _combatant_info_evidence(
     cache: Mapping[tuple[str, str, int], bytes],
     metadata: Mapping[str, Any],
     players_by_guid: Mapping[str, Mapping[str, Any]],
+    verified_player_event_observations: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     streams = _mapping(raw_instance.get("streams"), label="instance.streams")
     wrapper = _mapping(streams.get("combatant_info"), label="combatant_info stream")
@@ -581,17 +590,117 @@ def _combatant_info_evidence(
         by_guid[guid].append(message)
     metadata_guids = set(players_by_guid)
     combatant_guids = set(by_guid)
-    missing_metadata_guids = metadata_guids - combatant_guids
+    missing_metadata_guids = sorted(metadata_guids - combatant_guids)
     extra_combatant_guids = sorted(combatant_guids - metadata_guids)
-    if missing_metadata_guids:
+    missing_without_core_event_evidence = [
+        guid
+        for guid in missing_metadata_guids
+        if _integer(
+            _mapping(
+                verified_player_event_observations.get(guid),
+                label=f"verified core-event observations for {guid}",
+            ).get("source_or_target_event_count"),
+            label=f"verified core-event source_or_target_event_count for {guid}",
+        )
+        <= 0
+    ]
+    if missing_without_core_event_evidence:
         raise ChronicleExternalAdmissionError(
-            "combatant_info and metadata player GUID sets differ: "
-            "missing metadata player GUIDs"
+            "combatant_info missing metadata player GUID lacks verified "
+            "core-event source/target evidence: "
+            f"{missing_without_core_event_evidence[:5]!r}"
+        )
+
+    missing_metadata_player_diagnostics: list[dict[str, Any]] = []
+    for guid in missing_metadata_guids:
+        metadata_player = _mapping(
+            players_by_guid[guid].get("metadata"), label="resolved metadata player"
+        )
+        observation = deepcopy(
+            dict(
+                _mapping(
+                    verified_player_event_observations.get(guid),
+                    label=f"verified core-event observations for {guid}",
+                )
+            )
+        )
+        missing_metadata_player_diagnostics.append(
+            {
+                "guid": guid,
+                "metadata_name": metadata_player.get("name"),
+                "metadata_hero_class": metadata_player.get("class"),
+                "metadata_race": metadata_player.get("race"),
+                "combatant_info_status": "MISSING_FROM_ALL_METADATA_ENCOUNTER_FRAMES",
+                "combatant_info_frame_count_searched": len(frames),
+                "identity_resolution": (
+                    "EXACT_METADATA_GUID_WITH_VERIFIED_CORE_EVENT_PRESENCE"
+                ),
+                "verified_core_event_evidence": observation,
+                "combatant_info_static_context": {
+                    "display_name": "UNAVAILABLE_NOT_IMPUTED",
+                    "hero_class": "UNAVAILABLE_NOT_IMPUTED",
+                    "display_race": "UNAVAILABLE_NOT_IMPUTED",
+                    "display_guild": "UNAVAILABLE_NOT_IMPUTED",
+                    "gear": "UNAVAILABLE_NOT_IMPUTED",
+                    "talents": "UNAVAILABLE_NOT_IMPUTED",
+                    "spec": "UNKNOWN_NOT_INFERRED_FROM_MISSING_COMBATANT_INFO",
+                },
+            }
         )
 
     identity_conflicts: list[dict[str, Any]] = []
     name_transition_player_count = 0
-    optional_guild_variation_count = 0
+    race_transition_player_count = 0
+    guild_transition_player_count = 0
+    optional_guild_presence_transition_player_count = 0
+    display_transition_diagnostics: dict[str, list[dict[str, Any]]] = {
+        "name": [],
+        "race": [],
+        "guild_name": [],
+    }
+
+    def display_transition_diagnostic(
+        *,
+        guid: str,
+        rows: Sequence[Mapping[str, Any]],
+        field: str,
+        metadata_value: Any,
+        casefold: bool = False,
+    ) -> dict[str, Any] | None:
+        values = [row.get(field) for row in rows]
+
+        def normalized(value: Any) -> Any:
+            if casefold and isinstance(value, str):
+                return value.casefold()
+            return value
+
+        normalized_values = [normalized(value) for value in values]
+        if len(set(normalized_values)) <= 1:
+            return None
+        counts = Counter(values)
+        ordered_values = sorted(
+            counts,
+            key=lambda value: (
+                value is not None,
+                str(value).casefold(),
+                str(value),
+            ),
+        )
+        return {
+            "guid": guid,
+            "metadata_value": metadata_value,
+            "observed_value_counts": [
+                {"value": value, "message_count": counts[value]}
+                for value in ordered_values
+            ],
+            "sequential_transition_count": sum(
+                previous != current
+                for previous, current in zip(
+                    normalized_values, normalized_values[1:]
+                )
+            ),
+        }
+
     for guid, rows in sorted(by_guid.items()):
         if guid not in players_by_guid:
             # CombatantInfo can contain a late joiner absent from the instance
@@ -603,33 +712,84 @@ def _combatant_info_evidence(
         )
         names = {str(row.get("name") or "") for row in rows}
         classes = {str(row.get("hero_class") or "").casefold() for row in rows}
-        races = {str(row.get("race") or "") for row in rows}
-        if metadata_player.get("name") not in names or str(
-            metadata_player.get("class") or ""
-        ).casefold() not in classes:
+        races = {str(row.get("race") or "").casefold() for row in rows}
+        metadata_name = _text(
+            metadata_player.get("name"), label="metadata player name"
+        )
+        metadata_class_raw = _text(
+            metadata_player.get("class"), label="metadata player class"
+        )
+        metadata_race_raw = _text(
+            metadata_player.get("race"), label="metadata player race"
+        )
+        metadata_class = metadata_class_raw.casefold()
+        metadata_race = metadata_race_raw.casefold()
+        if metadata_name not in names:
             identity_conflicts.append(
-                {"guid": guid, "fields": ["name_or_class"]}
+                {"guid": guid, "fields": ["metadata_name_not_observed"]}
             )
-        if len(names) > 1:
+        if metadata_class not in classes:
+            identity_conflicts.append(
+                {"guid": guid, "fields": ["metadata_hero_class_not_observed"]}
+            )
+        if len(classes) > 1:
+            identity_conflicts.append(
+                {"guid": guid, "fields": ["hero_class_transition"]}
+            )
+        if metadata_race not in races:
+            # Race is not an attribution key, but requiring the immutable
+            # metadata value to occur at least once prevents an unrelated or
+            # wholly corrupted display-race series from passing admission.
+            identity_conflicts.append(
+                {"guid": guid, "fields": ["metadata_race_not_observed"]}
+            )
+
+        name_transition = display_transition_diagnostic(
+            guid=guid,
+            rows=rows,
+            field="name",
+            metadata_value=metadata_name,
+        )
+        if name_transition is not None:
             # Some official frames temporarily expose an unknown-target display
             # name for the same exact GUID. Names never drive attribution, so
             # retain the transition diagnostically while requiring the metadata
             # identity to appear in at least one frame.
             name_transition_player_count += 1
-        if len(classes) > 1 or len(races) > 1:
-            identity_conflicts.append(
-                {"guid": guid, "fields": ["combatant_identity_transition"]}
-            )
-        if str(metadata_player.get("race") or "").casefold() not in {
-            value.casefold() for value in races
-        }:
-            identity_conflicts.append({"guid": guid, "fields": ["race"]})
-        guild_values = {row.get("guild_name") for row in rows}
-        if len(guild_values) > 1:
-            optional_guild_variation_count += 1
+            display_transition_diagnostics["name"].append(name_transition)
+
+        race_transition = display_transition_diagnostic(
+            guid=guid,
+            rows=rows,
+            field="race",
+            metadata_value=metadata_player.get("race"),
+            casefold=True,
+        )
+        if race_transition is not None:
+            # Chronicle reports the character's current display race here.
+            # Disguises or transformations may therefore change it while the
+            # exact GUID, class, name and guild remain stable.  Preserve the
+            # observation, but never use it to resolve or attribute an entity.
+            race_transition_player_count += 1
+            display_transition_diagnostics["race"].append(race_transition)
+
+        guild_transition = display_transition_diagnostic(
+            guid=guid,
+            rows=rows,
+            field="guild_name",
+            metadata_value=None,
+        )
+        if guild_transition is not None:
+            guild_transition_player_count += 1
+            display_transition_diagnostics["guild_name"].append(guild_transition)
+            guild_values = {row.get("guild_name") for row in rows}
+            if None in guild_values and any(
+                value is not None for value in guild_values
+            ):
+                optional_guild_presence_transition_player_count += 1
     if identity_conflicts:
         raise ChronicleExternalAdmissionError(
-            "combatant_info has a metadata name/class or identity conflict: "
+            "combatant_info has a metadata identity or stable-class conflict: "
             f"{identity_conflicts[:5]!r}"
         )
 
@@ -639,14 +799,55 @@ def _combatant_info_evidence(
         "frame_count": len(frames),
         "message_count": len(messages),
         "unique_player_guid_count": len(by_guid),
-        "metadata_player_guid_set_equal": not extra_combatant_guids,
+        "metadata_player_guid_set_equal": not (
+            missing_metadata_guids or extra_combatant_guids
+        ),
+        "metadata_player_guid_subset_of_combatant_info": not missing_metadata_guids,
+        "combatant_info_guid_subset_of_metadata_players": not extra_combatant_guids,
+        "missing_metadata_combatant_info_player_count": len(
+            missing_metadata_guids
+        ),
+        "missing_metadata_combatant_info_guids_sha256": _sha256(
+            _canonical_bytes(missing_metadata_guids)
+        ),
+        "missing_metadata_combatant_info_players": (
+            missing_metadata_player_diagnostics
+        ),
         "message_with_talents_count": sum(
             message.get("talents") is not None for message in messages
         ),
         "message_with_gear_count": sum(bool(message.get("gear")) for message in messages),
         "unanchored_message_count": 0,
         "identity_conflict_count": 0,
-        "optional_guild_presence_transition_player_count": optional_guild_variation_count,
+        "metadata_name_observed_player_count": len(metadata_guids)
+        - len(missing_metadata_guids),
+        "metadata_hero_class_observed_player_count": len(metadata_guids)
+        - len(missing_metadata_guids),
+        "metadata_race_observed_player_count": len(metadata_guids)
+        - len(missing_metadata_guids),
+        "hero_class_transition_player_count": 0,
+        "display_name_transition_player_count": name_transition_player_count,
+        "display_race_transition_player_count": race_transition_player_count,
+        "display_guild_transition_player_count": guild_transition_player_count,
+        "optional_guild_presence_transition_player_count": (
+            optional_guild_presence_transition_player_count
+        ),
+        "display_transition_diagnostics": display_transition_diagnostics,
+        "identity_resolution_contract": {
+            "attribution_key": "metadata exact canonical player GUID",
+            "combatant_info_present_metadata_name_must_appear": True,
+            "combatant_info_present_metadata_hero_class_must_appear": True,
+            "combatant_info_present_hero_class_must_be_stable": True,
+            "combatant_info_present_metadata_race_must_appear": True,
+            "metadata_race_appearance_is_integrity_check_not_attribution": True,
+            "missing_metadata_player_requires_verified_core_event_guid_evidence": True,
+            "missing_player_combatant_info_static_fields_imputed": False,
+            "missing_player_talents_gear_or_spec_inferred": False,
+            "display_name_used_for_identity_or_attribution": False,
+            "display_race_used_for_identity_or_attribution": False,
+            "display_guild_used_for_identity_or_attribution": False,
+            "display_name_race_or_guild_transitions_are_diagnostic_only": True,
+        },
         "frame_origin_matches_metadata_encounter_start": True,
         "anchor_locator_verified_count": len(messages),
         "selection_contract": (
@@ -656,13 +857,7 @@ def _combatant_info_evidence(
         ),
         "rows_copied_into_admission_manifest": 0,
     }
-    if name_transition_player_count:
-        result["display_name_transition_player_count"] = (
-            name_transition_player_count
-        )
-        result["display_name_used_for_identity_or_attribution"] = False
     if extra_combatant_guids:
-        result["metadata_player_guid_subset_of_combatant_info"] = True
         result["nonmetadata_combatant_guid_count"] = len(extra_combatant_guids)
         result["nonmetadata_combatant_guids_sha256"] = _sha256(
             _canonical_bytes(extra_combatant_guids)
@@ -952,7 +1147,8 @@ def _verify_partition(
     raw_manifest_sha256: str,
     cache: Mapping[tuple[str, str, int], bytes],
     metadata: Mapping[str, Any],
-) -> tuple[Path, dict[str, Any]]:
+    players_by_guid: Mapping[str, Mapping[str, Any]],
+) -> tuple[Path, dict[str, Any], dict[str, dict[str, Any]]]:
     instance_id = _text(raw_instance.get("instance_id"), label="instance id")
     if partition.get("instance_id") != instance_id:
         raise ChronicleExternalAdmissionError("partition instance id mismatch")
@@ -1042,6 +1238,17 @@ def _verify_partition(
     encounters: set[str] = set()
     unknown_count = 0
     owner_count = 0
+    player_event_observations: dict[str, dict[str, Any]] = {
+        guid: {
+            "source_event_count": 0,
+            "target_event_count": 0,
+            "source_or_target_event_count": 0,
+            "encounter_ids": set(),
+            "event_type_counts": Counter(),
+            "stream_type_counts": Counter(),
+        }
+        for guid in players_by_guid
+    }
     previous_order: tuple[int, int, int, int, int] | None = None
     encounter_rows: dict[str, tuple[int, int]] = {}
     try:
@@ -1165,6 +1372,35 @@ def _verify_partition(
                     raise ChronicleExternalAdmissionError(
                         f"normalized row {line_number} is not the exact canonical raw-derived projection"
                     )
+                source_guid_raw = record.get("source_guid")
+                target_guid_raw = record.get("target_guid")
+                source_guid = (
+                    canonical_guid(source_guid_raw, label="row source GUID")
+                    if source_guid_raw is not None
+                    else None
+                )
+                target_guid = (
+                    canonical_guid(target_guid_raw, label="row target GUID")
+                    if target_guid_raw is not None
+                    else None
+                )
+                source_observation = player_event_observations.get(source_guid or "")
+                target_observation = player_event_observations.get(target_guid or "")
+                if source_observation is not None:
+                    source_observation["source_event_count"] += 1
+                    source_observation["source_or_target_event_count"] += 1
+                    source_observation["encounter_ids"].add(encounter)
+                    source_observation["event_type_counts"][str(record["type"])] += 1
+                    source_observation["stream_type_counts"][stream_type] += 1
+                if target_observation is not None:
+                    target_observation["target_event_count"] += 1
+                    if target_guid != source_guid:
+                        target_observation["source_or_target_event_count"] += 1
+                        target_observation["encounter_ids"].add(encounter)
+                        target_observation["event_type_counts"][
+                            str(record["type"])
+                        ] += 1
+                        target_observation["stream_type_counts"][stream_type] += 1
                 if stream_type == "unit_classification":
                     owner = message.get("owner")
                     if owner is not None:
@@ -1215,6 +1451,30 @@ def _verify_partition(
     ):
         raise ChronicleExternalAdmissionError("partition unknown field count mismatch")
 
+    verified_player_event_observations: dict[str, dict[str, Any]] = {}
+    for guid, raw_observation in sorted(player_event_observations.items()):
+        observation_encounters = sorted(raw_observation["encounter_ids"])
+        verified_player_event_observations[guid] = {
+            "source_event_count": raw_observation["source_event_count"],
+            "target_event_count": raw_observation["target_event_count"],
+            "source_or_target_event_count": raw_observation[
+                "source_or_target_event_count"
+            ],
+            "encounter_count": len(observation_encounters),
+            "encounter_ids_sha256": _sha256(
+                _canonical_bytes(observation_encounters)
+            ),
+            "event_type_counts": dict(
+                sorted(raw_observation["event_type_counts"].items())
+            ),
+            "stream_type_counts": dict(
+                sorted(raw_observation["stream_type_counts"].items())
+            ),
+            "evidence_source": (
+                "byte-exact normalized rows rederived from verified raw core streams"
+            ),
+        }
+
     return path, {
         "compressed_size_bytes": actual_size,
         "compressed_file_sha256": expected_compressed_sha,
@@ -1228,7 +1488,7 @@ def _verify_partition(
         "raw_core_stream_message_count": len(envelopes),
         "normalized_manifest_frame_evidence_matches_raw_decode": True,
         "eventmeta_projection_and_order_verified": True,
-    }
+    }, verified_player_event_observations
 
 
 def _normalization_partitions(
@@ -1295,22 +1555,28 @@ def _admit_instance(
     metadata_evidence, metadata, players_by_guid = _metadata_evidence(
         raw_instance, cache=cache
     )
-    combatant_evidence = _combatant_info_evidence(
-        raw_instance,
-        cache=cache,
-        metadata=metadata,
-        players_by_guid=players_by_guid,
-    )
     spec_evidence = _warrior_spec_evidence(
         raw_instance, players_by_guid=players_by_guid
     )
-    partition_path, partition_verification = _verify_partition(
+    (
+        partition_path,
+        partition_verification,
+        verified_player_event_observations,
+    ) = _verify_partition(
         partition,
         normalization_manifest_path=normalization_manifest_path,
         raw_instance=raw_instance,
         raw_manifest_sha256=raw_manifest_sha256,
         cache=cache,
         metadata=metadata,
+        players_by_guid=players_by_guid,
+    )
+    combatant_evidence = _combatant_info_evidence(
+        raw_instance,
+        cache=cache,
+        metadata=metadata,
+        players_by_guid=players_by_guid,
+        verified_player_event_observations=verified_player_event_observations,
     )
     streams = _mapping(raw_instance.get("streams"), label="raw streams")
     core_objects = {
@@ -1689,6 +1955,12 @@ def build_external_reconstruction_admission(
             "raw_message_coverage_exact_no_duplicate_or_omission": True,
             "metadata_encounter_set_exact": True,
             "normalization_summary_recomputed": True,
+            "combatant_exact_guid_is_only_attribution_key": True,
+            "combatant_info_present_hero_class_stable_and_metadata_matched": True,
+            "combatant_info_present_metadata_race_observed_as_integrity_check": True,
+            "combatant_display_race_transition_is_diagnostic_only": True,
+            "missing_combatant_info_metadata_player_requires_verified_core_event_guid_evidence": True,
+            "missing_combatant_info_static_fields_not_imputed": True,
             "slain_attribution_projected_to_value": False,
         },
         "streaming_adapter_contract": {
@@ -1728,6 +2000,30 @@ def build_external_reconstruction_admission(
             ),
             "warrior_observation_count": sum(
                 instance["warrior_spec_evidence"]["observation_count"]
+                for instance in admitted_instances
+            ),
+            "display_name_transition_player_count": sum(
+                instance["combatant_info_evidence"][
+                    "display_name_transition_player_count"
+                ]
+                for instance in admitted_instances
+            ),
+            "display_race_transition_player_count": sum(
+                instance["combatant_info_evidence"][
+                    "display_race_transition_player_count"
+                ]
+                for instance in admitted_instances
+            ),
+            "display_guild_transition_player_count": sum(
+                instance["combatant_info_evidence"][
+                    "display_guild_transition_player_count"
+                ]
+                for instance in admitted_instances
+            ),
+            "missing_metadata_combatant_info_player_count": sum(
+                instance["combatant_info_evidence"][
+                    "missing_metadata_combatant_info_player_count"
+                ]
                 for instance in admitted_instances
             ),
             "raw_object_copy_count": 0,
@@ -1804,9 +2100,29 @@ def load_admission_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
         document.get("admission_validation_contract"),
         label="admission_validation_contract",
     )
-    if validation.get("normalized_rows_byte_exact_canonical_rederived") is not True:
+    if (
+        validation.get("normalized_rows_byte_exact_canonical_rederived") is not True
+        or validation.get("combatant_exact_guid_is_only_attribution_key") is not True
+        or validation.get(
+            "combatant_info_present_hero_class_stable_and_metadata_matched"
+        )
+        is not True
+        or validation.get(
+            "combatant_info_present_metadata_race_observed_as_integrity_check"
+        )
+        is not True
+        or validation.get("combatant_display_race_transition_is_diagnostic_only")
+        is not True
+        or validation.get(
+            "missing_combatant_info_metadata_player_requires_verified_core_event_guid_evidence"
+        )
+        is not True
+        or validation.get("missing_combatant_info_static_fields_not_imputed")
+        is not True
+    ):
         raise ChronicleExternalAdmissionError(
-            "admission manifest lacks exact raw re-derivation evidence"
+            "admission manifest lacks exact raw re-derivation or combatant "
+            "identity evidence"
         )
     instances = _array(document.get("instances"), label="admission.instances")
     if not instances:
@@ -1817,6 +2133,10 @@ def load_admission_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
     record_count = 0
     metadata_player_count = 0
     warrior_observation_count = 0
+    display_name_transition_player_count = 0
+    display_race_transition_player_count = 0
+    display_guild_transition_player_count = 0
+    missing_metadata_combatant_info_player_count = 0
     partition_paths: set[str] = set()
     for index, raw_instance in enumerate(instances):
         admission_instance = _mapping(
@@ -1886,10 +2206,312 @@ def load_admission_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
             admission_instance.get("metadata_player_resolver"),
             label=f"admission.instances[{index}].metadata_player_resolver",
         )
-        metadata_player_count += _integer(
+        instance_metadata_player_count = _integer(
             resolver.get("player_count"),
             label=f"admission.instances[{index}].player_count",
         )
+        resolver_players = _array(
+            resolver.get("players"),
+            label=f"admission.instances[{index}].metadata_player_resolver.players",
+        )
+        if (
+            len(resolver_players) != instance_metadata_player_count
+            or resolver.get("players_sha256")
+            != _sha256(_canonical_bytes(resolver_players))
+        ):
+            raise ChronicleExternalAdmissionError(
+                "admission instance metadata player resolver identity mismatch"
+            )
+        resolver_by_guid: dict[str, Mapping[str, Any]] = {}
+        resolver_guid_order: list[str] = []
+        for player_index, raw_player in enumerate(resolver_players):
+            player = _mapping(
+                raw_player,
+                label=(
+                    f"admission.instances[{index}].metadata_player_resolver."
+                    f"players[{player_index}]"
+                ),
+            )
+            guid = canonical_guid(player.get("guid"), label="resolved metadata GUID")
+            if guid in resolver_by_guid:
+                raise ChronicleExternalAdmissionError(
+                    "admission instance metadata player resolver has duplicate GUIDs"
+                )
+            resolver_by_guid[guid] = player
+            resolver_guid_order.append(guid)
+        if resolver_guid_order != sorted(resolver_guid_order):
+            raise ChronicleExternalAdmissionError(
+                "admission instance metadata player resolver order is not deterministic"
+            )
+        metadata_player_count += instance_metadata_player_count
+        combatant = _mapping(
+            admission_instance.get("combatant_info_evidence"),
+            label=f"admission.instances[{index}].combatant_info_evidence",
+        )
+        identity_contract = _mapping(
+            combatant.get("identity_resolution_contract"),
+            label=f"admission.instances[{index}].identity_resolution_contract",
+        )
+        if (
+            identity_contract.get("attribution_key")
+            != "metadata exact canonical player GUID"
+            or identity_contract.get(
+                "combatant_info_present_metadata_name_must_appear"
+            )
+            is not True
+            or identity_contract.get(
+                "combatant_info_present_metadata_hero_class_must_appear"
+            )
+            is not True
+            or identity_contract.get(
+                "combatant_info_present_hero_class_must_be_stable"
+            )
+            is not True
+            or identity_contract.get(
+                "combatant_info_present_metadata_race_must_appear"
+            )
+            is not True
+            or identity_contract.get(
+                "metadata_race_appearance_is_integrity_check_not_attribution"
+            )
+            is not True
+            or identity_contract.get("display_name_used_for_identity_or_attribution")
+            is not False
+            or identity_contract.get("display_race_used_for_identity_or_attribution")
+            is not False
+            or identity_contract.get("display_guild_used_for_identity_or_attribution")
+            is not False
+            or identity_contract.get(
+                "display_name_race_or_guild_transitions_are_diagnostic_only"
+            )
+            is not True
+            or identity_contract.get(
+                "missing_metadata_player_requires_verified_core_event_guid_evidence"
+            )
+            is not True
+            or identity_contract.get(
+                "missing_player_combatant_info_static_fields_imputed"
+            )
+            is not False
+            or identity_contract.get(
+                "missing_player_talents_gear_or_spec_inferred"
+            )
+            is not False
+            or combatant.get("identity_conflict_count") != 0
+            or combatant.get("hero_class_transition_player_count") != 0
+        ):
+            raise ChronicleExternalAdmissionError(
+                "admission instance combatant identity contract is unsafe"
+            )
+        missing_count = _integer(
+            combatant.get("missing_metadata_combatant_info_player_count"),
+            label=(
+                f"admission.instances[{index}]."
+                "missing_metadata_combatant_info_player_count"
+            ),
+        )
+        missing_rows = _array(
+            combatant.get("missing_metadata_combatant_info_players"),
+            label=(
+                f"admission.instances[{index}]."
+                "missing_metadata_combatant_info_players"
+            ),
+        )
+        if (
+            missing_count < 0
+            or missing_count != len(missing_rows)
+            or missing_count > instance_metadata_player_count
+        ):
+            raise ChronicleExternalAdmissionError(
+                "admission instance missing CombatantInfo player count mismatch"
+            )
+        missing_guids: list[str] = []
+        for missing_index, raw_missing in enumerate(missing_rows):
+            missing = _mapping(
+                raw_missing,
+                label=(
+                    f"admission.instances[{index}]."
+                    f"missing_metadata_combatant_info_players[{missing_index}]"
+                ),
+            )
+            guid = canonical_guid(
+                missing.get("guid"), label="missing CombatantInfo metadata GUID"
+            )
+            if guid in missing_guids or guid not in resolver_by_guid:
+                raise ChronicleExternalAdmissionError(
+                    "missing CombatantInfo diagnostic has an invalid metadata GUID"
+                )
+            player_metadata = _mapping(
+                resolver_by_guid[guid].get("metadata"),
+                label="missing CombatantInfo resolved metadata",
+            )
+            static_context = _mapping(
+                missing.get("combatant_info_static_context"),
+                label="missing CombatantInfo static context",
+            )
+            expected_static_context = {
+                "display_name": "UNAVAILABLE_NOT_IMPUTED",
+                "hero_class": "UNAVAILABLE_NOT_IMPUTED",
+                "display_race": "UNAVAILABLE_NOT_IMPUTED",
+                "display_guild": "UNAVAILABLE_NOT_IMPUTED",
+                "gear": "UNAVAILABLE_NOT_IMPUTED",
+                "talents": "UNAVAILABLE_NOT_IMPUTED",
+                "spec": "UNKNOWN_NOT_INFERRED_FROM_MISSING_COMBATANT_INFO",
+            }
+            observation = _mapping(
+                missing.get("verified_core_event_evidence"),
+                label="missing CombatantInfo verified core-event evidence",
+            )
+            source_count = _integer(
+                observation.get("source_event_count"), label="source_event_count"
+            )
+            target_count = _integer(
+                observation.get("target_event_count"), label="target_event_count"
+            )
+            union_count = _integer(
+                observation.get("source_or_target_event_count"),
+                label="source_or_target_event_count",
+            )
+            encounter_count = _integer(
+                observation.get("encounter_count"), label="encounter_count"
+            )
+            event_type_counts = _mapping(
+                observation.get("event_type_counts"), label="event_type_counts"
+            )
+            stream_type_counts = _mapping(
+                observation.get("stream_type_counts"), label="stream_type_counts"
+            )
+            event_type_count_sum = 0
+            for event_type, raw_count in event_type_counts.items():
+                if event_type not in set(STREAM_TO_NORMALIZED_TYPE.values()):
+                    raise ChronicleExternalAdmissionError(
+                        "missing CombatantInfo evidence has an unsupported event type"
+                    )
+                count = _integer(
+                    raw_count,
+                    label=f"missing CombatantInfo {event_type} event count",
+                )
+                if count < 0:
+                    raise ChronicleExternalAdmissionError(
+                        "missing CombatantInfo evidence has a negative event count"
+                    )
+                event_type_count_sum += count
+            stream_type_count_sum = 0
+            for stream_type, raw_count in stream_type_counts.items():
+                if stream_type not in CORE_STREAM_TYPES:
+                    raise ChronicleExternalAdmissionError(
+                        "missing CombatantInfo evidence has an unsupported stream type"
+                    )
+                count = _integer(
+                    raw_count,
+                    label=f"missing CombatantInfo {stream_type} stream count",
+                )
+                if count < 0:
+                    raise ChronicleExternalAdmissionError(
+                        "missing CombatantInfo evidence has a negative stream count"
+                    )
+                stream_type_count_sum += count
+            if (
+                missing.get("metadata_name") != player_metadata.get("name")
+                or missing.get("metadata_hero_class") != player_metadata.get("class")
+                or missing.get("metadata_race") != player_metadata.get("race")
+                or missing.get("combatant_info_status")
+                != "MISSING_FROM_ALL_METADATA_ENCOUNTER_FRAMES"
+                or missing.get("combatant_info_frame_count_searched")
+                != combatant.get("frame_count")
+                or missing.get("identity_resolution")
+                != "EXACT_METADATA_GUID_WITH_VERIFIED_CORE_EVENT_PRESENCE"
+                or dict(static_context) != expected_static_context
+                or source_count < 0
+                or target_count < 0
+                or union_count <= 0
+                or union_count < max(source_count, target_count)
+                or union_count > source_count + target_count
+                or encounter_count <= 0
+                or encounter_count > union_count
+                or event_type_count_sum != union_count
+                or stream_type_count_sum != union_count
+                or observation.get("evidence_source")
+                != "byte-exact normalized rows rederived from verified raw core streams"
+            ):
+                raise ChronicleExternalAdmissionError(
+                    "missing CombatantInfo diagnostic evidence is unsafe"
+                )
+            _sha(
+                observation.get("encounter_ids_sha256"),
+                label="missing CombatantInfo encounter ids SHA-256",
+            )
+            missing_guids.append(guid)
+        extra_count = _integer(
+            combatant.get("nonmetadata_combatant_guid_count", 0),
+            label="nonmetadata_combatant_guid_count",
+        )
+        if extra_count < 0:
+            raise ChronicleExternalAdmissionError(
+                "admission instance has a negative nonmetadata combatant count"
+            )
+        if extra_count:
+            _sha(
+                combatant.get("nonmetadata_combatant_guids_sha256"),
+                label="nonmetadata combatant GUIDs SHA-256",
+            )
+            if combatant.get("nonmetadata_combatants_added_to_player_resolver") != 0:
+                raise ChronicleExternalAdmissionError(
+                    "nonmetadata combatant was added to the metadata resolver"
+                )
+        present_metadata_count = instance_metadata_player_count - missing_count
+        if (
+            missing_guids != sorted(missing_guids)
+            or combatant.get("missing_metadata_combatant_info_guids_sha256")
+            != _sha256(_canonical_bytes(missing_guids))
+            or combatant.get("metadata_player_guid_set_equal")
+            is not (missing_count == 0 and extra_count == 0)
+            or combatant.get("metadata_player_guid_subset_of_combatant_info")
+            is not (missing_count == 0)
+            or combatant.get("combatant_info_guid_subset_of_metadata_players")
+            is not (extra_count == 0)
+            or combatant.get("unique_player_guid_count")
+            != present_metadata_count + extra_count
+            or combatant.get("metadata_name_observed_player_count")
+            != present_metadata_count
+            or combatant.get("metadata_hero_class_observed_player_count")
+            != present_metadata_count
+            or combatant.get("metadata_race_observed_player_count")
+            != present_metadata_count
+        ):
+            raise ChronicleExternalAdmissionError(
+                "admission instance CombatantInfo coverage accounting is unsafe"
+            )
+        missing_metadata_combatant_info_player_count += missing_count
+        diagnostics = _mapping(
+            combatant.get("display_transition_diagnostics"),
+            label=f"admission.instances[{index}].display_transition_diagnostics",
+        )
+        transition_counts: dict[str, int] = {}
+        for field, count_key in (
+            ("name", "display_name_transition_player_count"),
+            ("race", "display_race_transition_player_count"),
+            ("guild_name", "display_guild_transition_player_count"),
+        ):
+            count = _integer(
+                combatant.get(count_key),
+                label=f"admission.instances[{index}].{count_key}",
+            )
+            rows = _array(
+                diagnostics.get(field),
+                label=(
+                    f"admission.instances[{index}]."
+                    f"display_transition_diagnostics.{field}"
+                ),
+            )
+            if count != len(rows):
+                raise ChronicleExternalAdmissionError(
+                    "admission instance display-transition evidence count mismatch"
+                )
+            transition_counts[field] = count
+        display_name_transition_player_count += transition_counts["name"]
+        display_race_transition_player_count += transition_counts["race"]
+        display_guild_transition_player_count += transition_counts["guild_name"]
         warrior = _mapping(
             admission_instance.get("warrior_spec_evidence"),
             label=f"admission.instances[{index}].warrior_spec_evidence",
@@ -1949,6 +2571,18 @@ def load_admission_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
         "record_count": record_count,
         "metadata_player_count": metadata_player_count,
         "warrior_observation_count": warrior_observation_count,
+        "display_name_transition_player_count": (
+            display_name_transition_player_count
+        ),
+        "display_race_transition_player_count": (
+            display_race_transition_player_count
+        ),
+        "display_guild_transition_player_count": (
+            display_guild_transition_player_count
+        ),
+        "missing_metadata_combatant_info_player_count": (
+            missing_metadata_combatant_info_player_count
+        ),
         "raw_object_copy_count": 0,
         "normalized_row_copy_count": 0,
         "network_request_count": 0,

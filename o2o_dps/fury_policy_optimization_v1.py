@@ -41,10 +41,12 @@ from .fury_expert_adapters import (
     DEATH_WISH,
     EXECUTE,
     HAMSTRING,
+    SLAM,
     WHIRLWIND,
     CatFurySourceAdapter,
     ContraDeployedSourceAdapter,
     FuryExpertState,
+    WeaponMode,
 )
 from .fury_expert_closed_loop import (
     ClosedLoopBridgeLike,
@@ -108,8 +110,10 @@ class FuryPolicyParameters:
     low_level_multi_target_priority: str | None = None
     queue_cancel_margin: float = 8.0
     reserve_window_s: float = 1.3
+    single_target_priority: str = "BLOODTHIRST_FIRST"
     multi_target_priority: str = "WHIRLWIND_FIRST"
     filler: str = "WAIT"
+    two_hand_slam_mode: str = "DISABLED"
     execute_mode: str = "BLOODTHIRST_RESERVE"
     bloodrage_below: float = 30.0
     use_death_wish: bool = True
@@ -128,6 +132,11 @@ class FuryPolicyParameters:
                 raise TypeError(f"{name} must be numeric")
             if float(value) < 0:
                 raise ValueError(f"{name} must be nonnegative")
+        if self.single_target_priority not in {
+            "WHIRLWIND_FIRST",
+            "BLOODTHIRST_FIRST",
+        }:
+            raise ValueError("unsupported single_target_priority")
         if self.multi_target_priority not in {"WHIRLWIND_FIRST", "BLOODTHIRST_FIRST"}:
             raise ValueError("unsupported multi_target_priority")
         low_level_values = (
@@ -155,6 +164,8 @@ class FuryPolicyParameters:
                 raise ValueError("unsupported low_level_multi_target_priority")
         if self.filler not in {"WAIT", "HAMSTRING"}:
             raise ValueError("unsupported filler")
+        if self.two_hand_slam_mode not in {"DISABLED", "CAT_TIMING"}:
+            raise ValueError("unsupported two_hand_slam_mode")
         if self.execute_mode not in {"BLOODTHIRST_RESERVE", "EXECUTE_FIRST"}:
             raise ValueError("unsupported execute_mode")
         if isinstance(self.wait_ms, bool) or not isinstance(self.wait_ms, int):
@@ -178,8 +189,10 @@ class FuryPolicyParameters:
             f"{low_level}"
             f".cm{_slug_number(self.queue_cancel_margin)}"
             f".rw{_slug_number(self.reserve_window_s)}"
+            f".st{self.single_target_priority.casefold()}"
             f".{self.multi_target_priority.casefold()}"
             f".{self.filler.casefold()}"
+            f".slam{self.two_hand_slam_mode.casefold()}"
             f".{self.execute_mode.casefold()}"
             f".br{_slug_number(self.bloodrage_below)}"
             f".dw{int(self.use_death_wish)}"
@@ -313,6 +326,16 @@ class FuryTunedPolicyAdapter:
                 return BLOODTHIRST
             return WAIT_ACTION
 
+        if (
+            state.weapon_mode is WeaponMode.TWO_HAND
+            and params.two_hand_slam_mode == "CAT_TIMING"
+            and (not state.flurry_talent or state.flurry_active)
+            and state.mainhand_swing_remaining_s >= 2.0
+            and state.slam_remaining_s <= 0.0
+            and state.rage >= 15.0
+        ):
+            return SLAM
+
         if state.nearby_enemies > 1:
             if multi_target_priority == "WHIRLWIND_FIRST":
                 if ww_ready:
@@ -325,10 +348,16 @@ class FuryTunedPolicyAdapter:
                 if ww_ready:
                     return WHIRLWIND
         else:
-            if bt_ready:
-                return BLOODTHIRST
-            if ww_ready:
-                return WHIRLWIND
+            if params.single_target_priority == "WHIRLWIND_FIRST":
+                if ww_ready:
+                    return WHIRLWIND
+                if bt_ready:
+                    return BLOODTHIRST
+            else:
+                if bt_ready:
+                    return BLOODTHIRST
+                if ww_ready:
+                    return WHIRLWIND
 
         if (
             params.filler == "HAMSTRING"

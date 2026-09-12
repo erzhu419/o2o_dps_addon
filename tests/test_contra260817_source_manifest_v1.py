@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -141,6 +143,35 @@ class Contra260817SourceManifestV1Tests(unittest.TestCase):
         self.assertIn("multiple ordered sinks", sinks["decision_shape"])
         self.assertIn("preserve every raw sink", sinks["normalization_rule"])
         self.assertIn("not general cast-success", sinks["return_rule"])
+
+    def test_remote_runtime_can_bind_source_and_manifest_independently(self) -> None:
+        source_root = PROJECT_ROOT / "remote-fixture" / "Contra_new"
+        manifest = PROJECT_ROOT / "remote-fixture" / "manifest.json"
+        environment = os.environ.copy()
+        environment["BOC_CONTRA260817_ROOT"] = str(source_root)
+        environment["BOC_CONTRA260817_MANIFEST"] = str(manifest)
+        completed = subprocess.run(
+            (
+                sys.executable,
+                "-c",
+                (
+                    "from o2o_dps.contra260817_source_manifest_v1 import "
+                    "DEFAULT_MANIFEST,DEFAULT_SOURCE_ROOT; "
+                    "print(DEFAULT_SOURCE_ROOT); print(DEFAULT_MANIFEST)"
+                ),
+            ),
+            cwd=PROJECT_ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            completed.stdout.splitlines(),
+            [str(source_root), str(manifest)],
+        )
 
     def test_reuse_map_is_bounded_and_not_an_equivalence_claim(self) -> None:
         reuse = self.manifest["deployed_v2_reuse_map"]

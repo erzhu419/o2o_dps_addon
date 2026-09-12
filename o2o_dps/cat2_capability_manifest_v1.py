@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import sys
@@ -27,11 +28,16 @@ EXPECTED_MANIFEST_SHA256 = (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = (
-    PROJECT_ROOT
-    / "configs"
-    / "experts"
-    / "cat2_capabilities_2026_09_10_f7e659f9.json"
+DEFAULT_MANIFEST = Path(
+    os.environ.get(
+        "BOC_CAT2_CAPABILITY_MANIFEST",
+        str(
+            PROJECT_ROOT
+            / "configs"
+            / "experts"
+            / "cat2_capabilities_2026_09_10_f7e659f9.json"
+        ),
+    )
 )
 
 EXPECTED_PARTITIONS = {

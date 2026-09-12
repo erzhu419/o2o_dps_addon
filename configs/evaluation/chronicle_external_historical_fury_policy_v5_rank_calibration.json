@@ -1,0 +1,69 @@
+{
+  "schema": "chronicle_external_historical_fury_policy_v5_rank_calibration_plan/v1",
+  "status": "PREREGISTERED_NOT_EXECUTED",
+  "hypothesis": "one training-fold-fitted positive inverse temperature can improve V2 log-loss and ECE while mathematically preserving every row's known-action ranking",
+  "source": {
+    "negative_result_registry": "configs/evaluation/chronicle_external_historical_fury_policy_v4_negative_result.json",
+    "v4_plan_id": "7127597d1c57ee95638077a4d881c00e87108a5131a932649983683dfdaee312",
+    "sufficient_statistics": "V4 remote worker pickles, arm A only",
+    "stage5_partitions_reopened": false,
+    "final_v2_model_alone_is_sufficient": false,
+    "final_v2_model_blocker": "it has fitted hard counts but no component-separated held-out decision cells from which to produce leakage-free calibration rows"
+  },
+  "population": {
+    "lane": "WARRIOR_FURY",
+    "strict_controllable_labels": 182481,
+    "outer_component_count": 3,
+    "requested_fold_count": 5,
+    "effective_fold_count": 3,
+    "outer_fold_assignment": "unchanged requested fold_count=5 and split_seed=20260911 component folds from V4",
+    "same_labels_and_decision_cells_for_baseline_and_calibrated": true
+  },
+  "baseline": {
+    "feature_view": "A_FROZEN_V2_FEATURE_VIEW",
+    "smoothing_alpha": 0.5,
+    "backoff_strength": 8.0,
+    "probability_or_ranking_refit": false
+  },
+  "calibrator": {
+    "form": "q_i = p_i^beta / sum_j p_j^beta",
+    "outcome_space": "known V2 action catalog plus the held-out unknown-action bucket",
+    "ranking_scope": "known executable action catalog; the unknown bucket remains evaluation-only",
+    "parameter_count": 1,
+    "parameter": "positive inverse_temperature beta",
+    "fixed_lower_bound": 0.05,
+    "fixed_upper_bound": 20.0,
+    "optimizer": "convex derivative bisection",
+    "bisection_iterations": 80,
+    "grid_search": false,
+    "model_selection": false,
+    "rank_proof": "q_i/q_j = (p_i/p_j)^beta; beta>0 preserves strict order and ties, so lexical tie-breaking and top1/top3 are unchanged"
+  },
+  "fit_protocol": {
+    "outer_test_labels_used_for_temperature_fit": false,
+    "method": "within each outer training fold, leave one whole component out at a time, predict that component from the other outer-training components, then fit one beta to the pooled inner-OOF predictions",
+    "row_random_split": false,
+    "validation_fold_used_for_grid_or_model_choice": false,
+    "three_component_limitation": "each inner model trains on one component; retain this variance and do not change the protocol after seeing results"
+  },
+  "metrics_and_gate": {
+    "top1_accuracy": "must equal baseline exactly",
+    "top3_accuracy": "must equal baseline exactly",
+    "contextual_log_loss": "must strictly improve",
+    "expected_calibration_error": "must strictly improve",
+    "both_calibration_metrics_required": true,
+    "runner_or_deployment_authorized_by_diagnostic": false
+  },
+  "budget": {
+    "execution_authorized_now": false,
+    "remote_nodes": 1,
+    "gomaxprocs": 1,
+    "maximum_input_bytes": 110000000,
+    "maximum_cpu_seconds": 600,
+    "maximum_peak_rss_mib": 4096,
+    "maximum_outer_folds": 3,
+    "maximum_inner_component_fits": 6,
+    "stage5_partition_bytes": 0,
+    "hyperparameter_trials": 1
+  }
+}

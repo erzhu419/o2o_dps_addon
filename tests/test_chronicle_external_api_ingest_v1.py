@@ -121,6 +121,15 @@ def _metadata(
 
 
 class ContaminationContractTests(unittest.TestCase):
+    def test_rfc3339_two_digit_fraction_is_cross_version_valid(self) -> None:
+        parsed = ingest_module._parse_rfc3339(
+            "2026-08-21T11:56:34.88Z", field="started_at"
+        )
+        self.assertEqual(
+            datetime(2026, 8, 21, 11, 56, 34, 880000, tzinfo=timezone.utc),
+            parsed,
+        )
+
     def test_exact_five_labels_and_asia_shanghai_three_segment_boundary(self) -> None:
         self.assertEqual(
             classify_range_bug("南北", "2026-09-02T15:59:59Z"),

@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from o2o_dps import chronicle_external_api_ingest_v1 as ingest_v1
+from o2o_dps import chronicle_external_reconstruction_admission_v1 as admission_v1
 from o2o_dps.chronicle_external_event_normalizer_v1 import (
     CORE_STREAM_TYPES,
     build_external_core_event_normalization,
@@ -182,31 +183,61 @@ def _combatant_info_stream(
     first_timestamp_ms: int = FIRST_TIMESTAMP_MS,
     name: str = "Alice",
     names: tuple[str, ...] | None = None,
+    hero_classes: tuple[str, ...] | None = None,
+    races: tuple[str, ...] | None = None,
+    guild_names: tuple[str | None, ...] | None = None,
     extra_combatants: tuple[tuple[str, str], ...] = (),
 ) -> bytes:
     gear = _vfield(1, 19019)
     talents = _bfield(1, _varint(17) + _varint(34) + _varint(0)) + _sfield(
         2, "20305001302"
     )
-    identities = [(guid, value) for value in (names or (name,))]
-    identities.extend(extra_combatants)
-    messages = []
-    for index, (combatant_guid, combatant_name) in enumerate(identities, 1):
-        messages.append(
-            b"".join(
-                [
-                    _bfield(1, _meta(index, index - 1)),
-                    _sfield(2, combatant_guid),
-                    _sfield(3, combatant_name),
-                    _sfield(4, "Warrior"),
-                    _sfield(5, "Human"),
-                    _vfield(6, 1),
-                    _sfield(7, "南北"),
-                    _bfield(8, gear),
-                    _bfield(9, talents),
-                ]
-            )
+    primary_names = names or (name,)
+    primary_count = len(primary_names)
+    primary_classes = hero_classes or ("Warrior",) * primary_count
+    primary_races = races or ("Human",) * primary_count
+    primary_guild_names = guild_names or ("南北",) * primary_count
+    if not (
+        len(primary_classes)
+        == len(primary_races)
+        == len(primary_guild_names)
+        == primary_count
+    ):
+        raise ValueError("primary CombatantInfo field series lengths must match")
+    identities = [
+        (guid, primary_name, hero_class, race, guild_name)
+        for primary_name, hero_class, race, guild_name in zip(
+            primary_names,
+            primary_classes,
+            primary_races,
+            primary_guild_names,
+            strict=True,
         )
+    ]
+    identities.extend(
+        (combatant_guid, combatant_name, "Warrior", "Human", "南北")
+        for combatant_guid, combatant_name in extra_combatants
+    )
+    messages = []
+    for index, (
+        combatant_guid,
+        combatant_name,
+        hero_class,
+        race,
+        guild_name,
+    ) in enumerate(identities, 1):
+        fields = [
+            _bfield(1, _meta(index, index - 1)),
+            _sfield(2, combatant_guid),
+            _sfield(3, combatant_name),
+            _sfield(4, hero_class),
+            _sfield(5, race),
+            _vfield(6, 1),
+        ]
+        if guild_name is not None:
+            fields.append(_sfield(7, guild_name))
+        fields.extend((_bfield(8, gear), _bfield(9, talents)))
+        messages.append(b"".join(fields))
     return _framed_messages(
         messages,
         encounter_id=encounter_id,
@@ -215,6 +246,12 @@ def _combatant_info_stream(
 
 
 class ChronicleExternalReconstructionAdmissionTests(unittest.TestCase):
+    def test_rfc3339_two_digit_fraction_is_cross_version_valid(self) -> None:
+        parsed = admission_v1._parse_rfc3339(
+            "2026-08-21T11:56:34.88Z", label="started_at"
+        )
+        self.assertEqual(880000, parsed.microsecond)
+
     def _write_object(
         self,
         raw_root: Path,
@@ -242,6 +279,10 @@ class ChronicleExternalReconstructionAdmissionTests(unittest.TestCase):
         *,
         combatant_guid: str = PLAYER_GUID,
         combatant_names: tuple[str, ...] | None = None,
+        combatant_hero_classes: tuple[str, ...] | None = None,
+        combatant_races: tuple[str, ...] | None = None,
+        combatant_guild_names: tuple[str | None, ...] | None = None,
+        event_player_guid: str = PLAYER_GUID,
         extra_combatants: tuple[tuple[str, str], ...] = (),
     ) -> dict[str, Path | str]:
         data_root = base / "offline_data"
@@ -251,7 +292,11 @@ class ChronicleExternalReconstructionAdmissionTests(unittest.TestCase):
         for index, stream_type in enumerate(CORE_STREAM_TYPES, 1):
             reference, path = self._write_object(
                 raw_root,
-                _framed_stream(_event_message(stream_type, index)),
+                _framed_stream(
+                    _event_message(
+                        stream_type, index, player_guid=event_player_guid
+                    )
+                ),
                 suffix=f"{stream_type}.events.gz",
             )
             streams[stream_type] = {"status": "AVAILABLE", "object": reference}
@@ -262,6 +307,9 @@ class ChronicleExternalReconstructionAdmissionTests(unittest.TestCase):
             _combatant_info_stream(
                 guid=combatant_guid,
                 names=combatant_names,
+                hero_classes=combatant_hero_classes,
+                races=combatant_races,
+                guild_names=combatant_guild_names,
                 extra_combatants=extra_combatants,
             ),
             suffix="combatant_info.events.gz",
@@ -846,13 +894,84 @@ class ChronicleExternalReconstructionAdmissionTests(unittest.TestCase):
                     / "forged",
                 )
 
-    def test_combatant_metadata_guid_set_must_match_exactly(self) -> None:
+    def test_missing_combatant_info_player_with_exact_core_events_is_diagnostic(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = self._fixture(
                 Path(temporary), combatant_guid="0x00000000000000B2"
             )
+            output = (
+                Path(fixture["data_root"])
+                / "derived"
+                / "chronicle_external_reconstruction_admission"
+                / "v1"
+            )
+            result = self._build(fixture, output)
+            manifest = json.loads(Path(result["manifest_path"]).read_text("utf-8"))
+            evidence = manifest["instances"][0]["combatant_info_evidence"]
+            self.assertFalse(evidence["metadata_player_guid_set_equal"])
+            self.assertFalse(
+                evidence["metadata_player_guid_subset_of_combatant_info"]
+            )
+            self.assertEqual(
+                evidence["missing_metadata_combatant_info_player_count"], 1
+            )
+            self.assertEqual(
+                manifest["summary"][
+                    "missing_metadata_combatant_info_player_count"
+                ],
+                1,
+            )
+            missing = evidence["missing_metadata_combatant_info_players"][0]
+            self.assertEqual(missing["guid"], PLAYER_GUID)
+            self.assertEqual(missing["metadata_name"], "Alice")
+            self.assertEqual(missing["metadata_hero_class"], "WARRIOR")
+            self.assertEqual(missing["metadata_race"], "Human")
+            self.assertEqual(
+                missing["identity_resolution"],
+                "EXACT_METADATA_GUID_WITH_VERIFIED_CORE_EVENT_PRESENCE",
+            )
+            observation = missing["verified_core_event_evidence"]
+            self.assertEqual(
+                observation["source_or_target_event_count"], len(CORE_STREAM_TYPES)
+            )
+            self.assertEqual(observation["encounter_count"], 1)
+            self.assertEqual(
+                sum(observation["event_type_counts"].values()),
+                len(CORE_STREAM_TYPES),
+            )
+            self.assertEqual(
+                missing["combatant_info_static_context"]["gear"],
+                "UNAVAILABLE_NOT_IMPUTED",
+            )
+            self.assertEqual(
+                missing["combatant_info_static_context"]["spec"],
+                "UNKNOWN_NOT_INFERRED_FROM_MISSING_COMBATANT_INFO",
+            )
+            # Exercise the strict loader and row adapter: exact metadata GUID
+            # attribution remains available even when CombatantInfo is absent.
+            rows = list(iter_versioned_reconstruction_rows(result["manifest_path"]))
+            self.assertEqual(len(rows), len(CORE_STREAM_TYPES))
+            self.assertTrue(
+                any(
+                    row["external_admission"]["source_player"] is not None
+                    for row in rows
+                )
+            )
+
+    def test_missing_combatant_info_player_without_core_events_fails_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._fixture(
+                Path(temporary),
+                combatant_guid=PLAYER_GUID_2,
+                event_player_guid=PLAYER_GUID_2,
+            )
             with self.assertRaisesRegex(
-                ChronicleExternalAdmissionError, "player GUID sets differ"
+                ChronicleExternalAdmissionError,
+                "lacks verified core-event source/target evidence",
             ):
                 self._build(
                     fixture,
@@ -878,12 +997,112 @@ class ChronicleExternalReconstructionAdmissionTests(unittest.TestCase):
             instance = manifest["instances"][0]
             evidence = instance["combatant_info_evidence"]
             self.assertEqual(evidence["display_name_transition_player_count"], 1)
-            self.assertFalse(evidence["display_name_used_for_identity_or_attribution"])
+            self.assertEqual(evidence["display_race_transition_player_count"], 0)
+            self.assertEqual(evidence["display_guild_transition_player_count"], 0)
+            contract = evidence["identity_resolution_contract"]
+            self.assertFalse(
+                contract["display_name_used_for_identity_or_attribution"]
+            )
             self.assertEqual(evidence["identity_conflict_count"], 0)
             self.assertTrue(evidence["metadata_player_guid_set_equal"])
             self.assertEqual(instance["metadata_player_resolver"]["player_count"], 1)
+            diagnostic = evidence["display_transition_diagnostics"]["name"][0]
+            self.assertEqual(diagnostic["guid"], PLAYER_GUID)
+            self.assertEqual(diagnostic["metadata_value"], "Alice")
+            self.assertEqual(diagnostic["sequential_transition_count"], 1)
 
-    def test_late_joiner_is_hashed_nonresolver_while_missing_metadata_still_fails(self) -> None:
+    def test_display_race_transition_is_diagnostic_when_metadata_race_appears(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._fixture(
+                Path(temporary),
+                combatant_names=("Alice", "Alice"),
+                combatant_races=("Scourge", "Human"),
+            )
+            output = (
+                Path(fixture["data_root"])
+                / "derived"
+                / "chronicle_external_reconstruction_admission"
+                / "v1"
+            )
+            result = self._build(fixture, output)
+            manifest = json.loads(Path(result["manifest_path"]).read_text("utf-8"))
+            evidence = manifest["instances"][0]["combatant_info_evidence"]
+            self.assertEqual(evidence["metadata_race_observed_player_count"], 1)
+            self.assertEqual(evidence["hero_class_transition_player_count"], 0)
+            self.assertEqual(evidence["display_race_transition_player_count"], 1)
+            self.assertEqual(
+                manifest["summary"]["display_race_transition_player_count"], 1
+            )
+            contract = evidence["identity_resolution_contract"]
+            self.assertTrue(
+                contract["combatant_info_present_metadata_race_must_appear"]
+            )
+            self.assertTrue(
+                contract[
+                    "metadata_race_appearance_is_integrity_check_not_attribution"
+                ]
+            )
+            self.assertFalse(
+                contract["display_race_used_for_identity_or_attribution"]
+            )
+            diagnostic = evidence["display_transition_diagnostics"]["race"][0]
+            self.assertEqual(diagnostic["guid"], PLAYER_GUID)
+            self.assertEqual(diagnostic["metadata_value"], "Human")
+            self.assertEqual(diagnostic["sequential_transition_count"], 1)
+            self.assertEqual(
+                {
+                    row["value"]: row["message_count"]
+                    for row in diagnostic["observed_value_counts"]
+                },
+                {"Scourge": 1, "Human": 1},
+            )
+            # Exercise the strict loader, including aggregate transition counts.
+            self.assertEqual(
+                len(list(iter_versioned_reconstruction_rows(result["manifest_path"]))),
+                len(CORE_STREAM_TYPES),
+            )
+
+    def test_true_hero_class_transition_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._fixture(
+                Path(temporary),
+                combatant_names=("Alice", "Alice"),
+                combatant_hero_classes=("Priest", "Warrior"),
+            )
+            with self.assertRaisesRegex(
+                ChronicleExternalAdmissionError, "hero_class_transition"
+            ):
+                self._build(
+                    fixture,
+                    Path(fixture["data_root"])
+                    / "derived"
+                    / "chronicle_external_reconstruction_admission"
+                    / "v1",
+                )
+
+    def test_metadata_race_must_appear_even_though_display_race_is_nonattributing(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._fixture(
+                Path(temporary),
+                combatant_names=("Alice", "Alice"),
+                combatant_races=("Scourge", "Scourge"),
+            )
+            with self.assertRaisesRegex(
+                ChronicleExternalAdmissionError, "metadata_race_not_observed"
+            ):
+                self._build(
+                    fixture,
+                    Path(fixture["data_root"])
+                    / "derived"
+                    / "chronicle_external_reconstruction_admission"
+                    / "v1",
+                )
+
+    def test_late_joiner_is_hashed_nonresolver_without_expanding_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = self._fixture(
                 Path(temporary),

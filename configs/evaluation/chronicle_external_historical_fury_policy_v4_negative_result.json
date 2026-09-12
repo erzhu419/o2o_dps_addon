@@ -1,0 +1,43 @@
+{
+  "schema": "chronicle_external_historical_fury_policy_v4_negative_result/v1",
+  "status": "RETAIN_NEGATIVE_NO_NEXT_HPC",
+  "plan_id": "7127597d1c57ee95638077a4d881c00e87108a5131a932649983683dfdaee312",
+  "label_universe": {
+    "lane": "WARRIOR_FURY",
+    "strict_controllable_labels": 182481,
+    "outer_component_count": 3
+  },
+  "integrity": {
+    "worker_count": 84,
+    "all_gates_passed": true,
+    "arm_c_exactly_equal_to_arm_b": true,
+    "dynamic_observed_atom_count": 0,
+    "missing_values_imputed": false
+  },
+  "metrics": {
+    "arm_a_frozen_v2": {
+      "top1_accuracy": 0.3188277135701799,
+      "top3_accuracy": 0.577583419643689,
+      "contextual_log_loss": 2.4201768957261858,
+      "expected_calibration_error": 0.05112259017556897
+    },
+    "arm_b_equals_c_low_cardinality": {
+      "top1_accuracy": 0.24617357423512584,
+      "top3_accuracy": 0.5284878973701371,
+      "contextual_log_loss": 2.4074103094820156,
+      "expected_calibration_error": 0.025926702582956585
+    }
+  },
+  "decision": {
+    "low_cardinality_replacement_adopted": false,
+    "reason": "log-loss and ECE improved but top1 and top3 both declined",
+    "runner_or_deployment_authorized": false
+  },
+  "artifacts": {
+    "remote_directory": "%HPC_SHARED_ROOT%/offline_data/behavior_models/chronicle_external_historical_fury_policy/v4/utk_postfix_dev_20260903_noon",
+    "reduction_sha256": "044ec4433a2672449cc3488aba748f2f93568c8b231934cc0e22abb29d32c814",
+    "validation_sha256": "b96aa3a2ba8dd483f8e305890daa6a1537975022e1013efbabb079f8df6a3695",
+    "diagnostic_sha256": "f61fcce584b7eb9aadcc6600934c67bacbfd60eb326e218794fcf4d1d8ba5705",
+    "plan_sha256": "80fb19554167ed8948d230f9ae9f21d308448dd016c7826ea616dd19f979b434"
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "schema": "chronicle_external_historical_fury_policy_v4_feature_view/v1/ablation_plan",
+  "status": "FIXED_FIXTURE_VALIDATED_NOT_HPC_EXECUTED",
+  "label_universe": {
+    "lane": "WARRIOR_FURY",
+    "semantics": "V3 strict controllable decisions only",
+    "same_labels_required_across_arms": true,
+    "fury_pre_whitelist_reference_count": 667856,
+    "v3_strict_controllable_reference_count": 182481,
+    "v2_whitelist_reference_count_not_used_as_v4_denominator": 182911,
+    "warrior_total_reference_count_not_used_as_fury_denominator": 867659
+  },
+  "split": {
+    "unit": "unchanged Stage5 connected component of instance, guild, and player nodes",
+    "fold_count": 5,
+    "split_seed": 20260911,
+    "row_random_split": false,
+    "same_folds_required_across_arms": true
+  },
+  "learner": {
+    "algorithm": "global symmetric Dirichlet followed by fixed ordered context posterior backoff",
+    "smoothing_alpha": 0.5,
+    "backoff_strength": 8.0,
+    "unmatched_context_behavior": "retain previous posterior",
+    "missing_dynamic_context_behavior": "record MISSING_NOT_OBSERVED and omit from model matching"
+  },
+  "variants": [
+    {
+      "id": "A_FROZEN_V2_FEATURE_VIEW",
+      "contexts": ["v2.coarse", "v2.tactical", "v2.full"],
+      "purpose": "paired reference feature view on the V3 strict label universe"
+    },
+    {
+      "id": "B_V4_LOW_CARD_PREFIX",
+      "contexts": [
+        "base.wave_coarse",
+        "team.background_dps_bucket",
+        "target.has_last_observed_target",
+        "sequence.last_controllable_action",
+        "sequence.last_controllable_lane",
+        "sequence.last_gcd_action_age",
+        "sequence.observed_stance",
+        "queue.prefix_observation",
+        "queue.prefix_pending_age_when_observed"
+      ],
+      "purpose": "remove Cartesian full-key fragmentation while retaining prefix timing and HS/Cleave queue evidence"
+    },
+    {
+      "id": "C_V4_OBSERVED_DYNAMIC",
+      "contexts": [
+        "all B contexts",
+        "observed rage bucket",
+        "observed GCD readiness",
+        "observed action-specific cooldown readiness",
+        "observed aura active/stack/remaining buckets",
+        "observed execute phase",
+        "observed main/off-hand swing readiness",
+        "observed exact next-swing queue"
+      ],
+      "purpose": "measure incremental value of genuinely observed dynamic state; never synthesize absent fields"
+    }
+  ],
+  "inventory_policy": {
+    "exact_gear_enchant_gem_and_talent_snapshot": "provenance_only",
+    "included_in_B_or_C_model_context": false,
+    "reason": "V3 exact inventory eliminated held-out full-context matches"
+  },
+  "metrics": [
+    "top1_accuracy",
+    "top3_accuracy",
+    "contextual_log_loss",
+    "expected_calibration_error"
+  ],
+  "hyperparameter_search": false,
+  "execution": {
+    "hpc_instance_count": 84,
+    "currently_authorized": false,
+    "current_stage5_dynamic_state_envelope_available": false,
+    "current_stage5_native_dynamic_fields": [],
+    "current_stage5_explicitly_missing_groups": [
+      "rage",
+      "GCD remaining",
+      "action cooldown remaining",
+      "aura active stacks and remaining",
+      "target health percent and execute phase",
+      "main and off hand swing remaining",
+      "exact next-swing queue state"
+    ],
+    "currently_recoverable_prefix_queue_proxy": "HS/Cleave START observed without a later same-action GO or FAIL",
+    "next_gate": "run only after fixed fixture tests and report B/C effective-feature equality when Stage5 dynamic fields remain absent"
+  },
+  "adoption_gate": {
+    "primary_comparison": "C_V4_OBSERVED_DYNAMIC versus A_FROZEN_V2_FEATURE_VIEW",
+    "B_role": "mechanistic ablation reported but not selected as an alternative primary gate",
+    "required": "C jointly improves all four metrics on identical labels/components/folds",
+    "runner_or_deployment_authorized_by_this_plan": false
+  }
+}

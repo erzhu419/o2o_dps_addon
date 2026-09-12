@@ -47,7 +47,7 @@ ADAPTER_SCHEMA = "chronicle_external_team_background_load_dynamic_adapter/v1"
 DYNAMIC_SCHEMA = "o2o_dynamic_team_background/v1"
 STATUS = "DESCRIPTIVE_NONVOTING_NOT_COMPARISON"
 IMPLEMENTATION_REVISION = (
-    "v2.1_external_component_range_bug_boundary_nontraining_adapter"
+    "v2.2_external_component_receipt_cohort_nontraining_adapter"
 )
 MAX_WORKERS = 32
 
@@ -258,7 +258,8 @@ def _content_addressed(core: Mapping[str, Any]) -> JSONMap:
 def _verify_content_address(value: Mapping[str, Any], *, label: str) -> str:
     address = _mapping(value.get("content_address"), label=f"{label}.content_address")
     if (
-        address.get("algorithm") != "sha256"
+        set(address) != {"algorithm", "scope", "sha256"}
+        or address.get("algorithm") != "sha256"
         or address.get("scope") != "canonical JSON excluding content_address"
     ):
         raise ChronicleExternalTeamBackgroundGeneratorV2Error(
@@ -342,6 +343,7 @@ class _InputInstance:
     entry: Mapping[str, Any]
     partition_path: Path
     component_by_node: Mapping[str, str]
+    contamination: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -354,6 +356,7 @@ class _InputClosure:
     file_sha256: str
     component_by_node: Mapping[str, str]
     instances: tuple[_InputInstance, ...]
+    cohort_receipt_binding: Mapping[str, Any]
 
 
 def _component_index(manifest: Mapping[str, Any]) -> dict[str, str]:
@@ -414,6 +417,17 @@ def _load_input_closure(path_value: str | Path) -> _InputClosure:
             "model addressed manifest is missing or differs"
         )
     root = _data_root(stable)
+    model_input_closure = _mapping(
+        manifest.get("input_closure"), label="model input_closure"
+    )
+    cohort_receipt_binding = deepcopy(
+        dict(
+            _mapping(
+                model_input_closure.get("cohort_receipt"),
+                label="model cohort_receipt binding",
+            )
+        )
+    )
     component_by_node = _component_index(manifest)
     entries = _array(manifest.get("instances"), label="model instances")
     order = _array(manifest.get("instance_order"), label="model instance_order")
@@ -431,6 +445,9 @@ def _load_input_closure(path_value: str | Path) -> _InputClosure:
                 "model instances are not in declared order"
             )
         partition = _mapping(entry.get("partition"), label="model partition")
+        contamination = _mapping(
+            entry.get("contamination_lane"), label="model contamination lane"
+        )
         partition_path = _resolve_relative(
             stable.parent,
             partition.get("path"),
@@ -444,6 +461,7 @@ def _load_input_closure(path_value: str | Path) -> _InputClosure:
                 entry=deepcopy(dict(entry)),
                 partition_path=partition_path,
                 component_by_node=component_by_node,
+                contamination=deepcopy(dict(contamination)),
             )
         )
     return _InputClosure(
@@ -455,6 +473,7 @@ def _load_input_closure(path_value: str | Path) -> _InputClosure:
         file_sha256=_sha256_bytes(payload),
         component_by_node=component_by_node,
         instances=tuple(instances),
+        cohort_receipt_binding=cohort_receipt_binding,
     )
 
 
@@ -547,19 +566,44 @@ def _contamination(wave: Mapping[str, Any]) -> JSONMap:
         raise ChronicleExternalTeamBackgroundGeneratorV2Error(
             "contamination label is outside the raid-level contract"
         )
-    expected_candidate = label in TRAINING_CONTAMINATION_LABELS
+    expected_candidate = source.get("candidate_filter_passed")
+    if type(expected_candidate) is not bool:
+        raise ChronicleExternalTeamBackgroundGeneratorV2Error(
+            "model receipt cohort candidate must be boolean"
+        )
+    expected_assignment = (
+        "TRAINING_CANDIDATE"
+        if expected_candidate
+        else "DESCRIPTIVE_NONTRAINING"
+    )
     if (
-        source.get("candidate_filter_passed") is not expected_candidate
-        or source.get("time_field") != "started_at"
+        source.get("time_field") != "started_at"
         or source.get("uploaded_at_used") is not False
         or source.get("player_name_used") is not False
+        or source.get("raw_label_candidate_filter_passed")
+        is not (label in TRAINING_CONTAMINATION_LABELS)
+        or source.get("candidate_authority")
+        != "BOUND_COHORT_RECEIPT_EXACT_INSTANCE_MEMBERSHIP"
+        or source.get("cohort_assignment") != expected_assignment
     ):
         raise ChronicleExternalTeamBackgroundGeneratorV2Error(
             "model contamination lane was widened or changed"
         )
+    receipt_sha = _sha(
+        source.get("cohort_receipt_content_sha256"),
+        label="cohort receipt content SHA",
+    )
+    cohort_reason = _text(source.get("cohort_reason"), label="cohort reason")
     return {
         "label": label,
         "training_candidate": expected_candidate,
+        "raw_label_candidate_filter_passed": source[
+            "raw_label_candidate_filter_passed"
+        ],
+        "candidate_authority": source["candidate_authority"],
+        "cohort_assignment": expected_assignment,
+        "cohort_reason": cohort_reason,
+        "cohort_receipt_content_sha256": receipt_sha,
         "time_field": "started_at",
         "started_at": source.get("started_at"),
         "uploaded_at_used": False,
@@ -728,10 +772,17 @@ def _diagnostic_damage(
 
 
 def _compile_block(
-    wave: Mapping[str, Any], *, component_by_node: Mapping[str, str]
+    wave: Mapping[str, Any],
+    *,
+    component_by_node: Mapping[str, str],
+    expected_contamination: Mapping[str, Any],
 ) -> JSONMap:
     model_v2._validate_model_wave(
-        wave, instance_id=_wave_identity(_mapping(wave.get("wave"), label="wave"))["instance_id"]
+        wave,
+        instance_id=_wave_identity(_mapping(wave.get("wave"), label="wave"))[
+            "instance_id"
+        ],
+        expected_contamination=expected_contamination,
     )
     model_wave_sha = _verify_content_address(wave, label="model wave")
     identity = _wave_identity(_mapping(wave.get("wave"), label="wave"))
@@ -1055,16 +1106,35 @@ def _validate_block(
         block.get("contamination_lane"), label="block contamination"
     )
     label = _text(contamination.get("label"), label="contamination.label")
+    training_candidate = contamination.get("training_candidate")
+    if type(training_candidate) is not bool:
+        raise ChronicleExternalTeamBackgroundGeneratorV2Error(
+            "block receipt cohort candidate must be boolean"
+        )
+    expected_assignment = (
+        "TRAINING_CANDIDATE"
+        if training_candidate
+        else "DESCRIPTIVE_NONTRAINING"
+    )
     if (
         label not in ALL_CONTAMINATION_LABELS
-        or contamination.get("training_candidate")
+        or contamination.get("raw_label_candidate_filter_passed")
         is not (label in TRAINING_CONTAMINATION_LABELS)
+        or contamination.get("candidate_authority")
+        != "BOUND_COHORT_RECEIPT_EXACT_INSTANCE_MEMBERSHIP"
+        or contamination.get("cohort_assignment") != expected_assignment
+        or not isinstance(contamination.get("cohort_reason"), str)
+        or not contamination.get("cohort_reason")
         or contamination.get("player_name_used") is not False
         or contamination.get("named_player_blacklist_or_weighting_used") is not False
     ):
         raise ChronicleExternalTeamBackgroundGeneratorV2Error(
             "block contamination contract differs from raid-level rule"
         )
+    _sha(
+        contamination.get("cohort_receipt_content_sha256"),
+        label="block cohort receipt content SHA",
+    )
     roster = _array(block.get("roster_player_guids"), label="roster_player_guids")
     if roster != sorted(set(roster)) or any(
         not isinstance(value, str) or not value for value in roster
@@ -1373,7 +1443,9 @@ def _build_partition(
                             )
                         prior_wave = wave_order
                         block = _compile_block(
-                            wave, component_by_node=context.component_by_node
+                            wave,
+                            component_by_node=context.component_by_node,
+                            expected_contamination=context.contamination,
                         )
                         payload = _canonical_bytes(block) + b"\n"
                         output_handle.write(payload)
@@ -1448,6 +1520,7 @@ def _build_partition(
         entry_core = {
             "instance_id": context.instance_id,
             "status": STATUS,
+            "model_contamination_lane": deepcopy(dict(context.contamination)),
             "model_input": {
                 "instance_entry_content_sha256": _verify_content_address(
                     context.entry, label="model instance entry"
@@ -1639,10 +1712,21 @@ def _manifest_summary(entries: Sequence[Mapping[str, Any]]) -> JSONMap:
     result.update(
         {
             "instance_count": len(entries),
+            "training_candidate_instance_count": sum(
+                _mapping(
+                    entry.get("model_contamination_lane"),
+                    label="model contamination lane",
+                ).get("candidate_filter_passed")
+                is True
+                for entry in entries
+            ),
             "negative_damage_added": 0,
             "voting_eligible": False,
             "comparison_ready": False,
         }
+    )
+    result["descriptive_nontraining_instance_count"] = (
+        result["instance_count"] - result["training_candidate_instance_count"]
     )
     return result
 
@@ -1702,7 +1786,10 @@ def build_external_team_background_generator(
                     "schema": model_v2.SCHEMA,
                     "implementation_revision": model_v2.IMPLEMENTATION_REVISION,
                     "status": model_v2.STATUS,
-                }
+                },
+                "cohort_receipt": deepcopy(
+                    dict(closure.cohort_receipt_binding)
+                ),
             },
             "instance_order": [entry["instance_id"] for entry in entries],
             "split_graph": deepcopy(closure.manifest["split_graph"]),
@@ -1714,7 +1801,11 @@ def build_external_team_background_generator(
                 "guid_suffix_inference_used": False,
                 "named_player_blacklist_or_weighting_used": False,
                 "contamination_scope": "raid_instance",
-                "training_candidate_labels": sorted(
+                "training_candidate_authority": (
+                    "BOUND_COHORT_RECEIPT_EXACT_INSTANCE_MEMBERSHIP"
+                ),
+                "raw_contamination_label_may_expand_training_cohort": False,
+                "raw_label_candidate_labels": sorted(
                     TRAINING_CONTAMINATION_LABELS
                 ),
                 "nontraining_labels": sorted(NONTRAINING_CONTAMINATION_LABELS),
@@ -1914,7 +2005,11 @@ def _model_wave_bindings(
                 raise ChronicleExternalTeamBackgroundGeneratorV2Error(
                     "bound model row is not canonical JSONL"
                 )
-            model_v2._validate_model_wave(wave, instance_id=context.instance_id)
+            model_v2._validate_model_wave(
+                wave,
+                instance_id=context.instance_id,
+                expected_contamination=context.contamination,
+            )
             identity = _mapping(wave.get("wave"), label="bound model wave identity")
             key = _wave_key(identity)
             if key in bindings:
@@ -1942,6 +2037,7 @@ def _model_wave_bindings(
                     wave, context.component_by_node
                 ),
                 "roster_player_guids": roster,
+                "contamination_lane": _contamination(wave),
             }
     if (
         len(bindings) != expected_count
@@ -1991,11 +2087,15 @@ def load_external_team_background_generator_manifest(
                 f"background {label} manifest is missing or differs"
             )
     root = _data_root(stable)
+    input_closure = _mapping(manifest.get("input_closure"), label="input_closure")
     binding = _mapping(
-        _mapping(manifest.get("input_closure"), label="input_closure").get(
+        input_closure.get(
             "team_model_manifest"
         ),
         label="team_model_manifest binding",
+    )
+    receipt_binding = _mapping(
+        input_closure.get("cohort_receipt"), label="cohort_receipt binding"
     )
     model_path = _resolve_relative(
         root,
@@ -2015,6 +2115,10 @@ def load_external_team_background_generator_manifest(
     ):
         raise ChronicleExternalTeamBackgroundGeneratorV2Error(
             "live team-model input differs from background input closure"
+        )
+    if dict(receipt_binding) != dict(closure.cohort_receipt_binding):
+        raise ChronicleExternalTeamBackgroundGeneratorV2Error(
+            "background cohort receipt binding differs from the strict model"
         )
     entries = [
         _mapping(raw, label="background instance entry")
@@ -2040,6 +2144,15 @@ def load_external_team_background_generator_manifest(
                 "background instance order/set differs from bound model"
             )
         source = model_by_id[instance_id]
+        if dict(
+            _mapping(
+                entry.get("model_contamination_lane"),
+                label="background model contamination lane",
+            )
+        ) != dict(source.contamination):
+            raise ChronicleExternalTeamBackgroundGeneratorV2Error(
+                "background instance cohort assignment differs from strict model"
+            )
         source_waves = _model_wave_bindings(source)
         model_input = _mapping(entry.get("model_input"), label="model_input")
         if (
@@ -2103,6 +2216,8 @@ def load_external_team_background_generator_manifest(
                     or block.get("component_id") != source_wave["component_id"]
                     or block.get("roster_player_guids")
                     != source_wave["roster_player_guids"]
+                    or block.get("contamination_lane")
+                    != source_wave["contamination_lane"]
                 ):
                     raise ChronicleExternalTeamBackgroundGeneratorV2Error(
                         "background block differs from its exact bound model wave"
@@ -2199,6 +2314,17 @@ def load_external_team_background_generator_manifest(
         raise ChronicleExternalTeamBackgroundGeneratorV2Error(
             "background manifest summary differs from instance entries"
         )
+    if (
+        expected_summary.get("instance_count")
+        != receipt_binding.get("descriptive_instance_count")
+        or expected_summary.get("training_candidate_instance_count")
+        != receipt_binding.get("training_instance_count")
+        or expected_summary.get("descriptive_nontraining_instance_count")
+        != receipt_binding.get("descriptive_nontraining_instance_count")
+    ):
+        raise ChronicleExternalTeamBackgroundGeneratorV2Error(
+            "background summary differs from the exact receipt cohort"
+        )
     identity = _mapping(
         manifest.get("identity_and_contamination_contract"),
         label="identity_and_contamination_contract",
@@ -2210,6 +2336,10 @@ def load_external_team_background_generator_manifest(
         identity.get("player_name_used") is not False
         or identity.get("guid_suffix_inference_used") is not False
         or identity.get("named_player_blacklist_or_weighting_used") is not False
+        or identity.get("training_candidate_authority")
+        != "BOUND_COHORT_RECEIPT_EXACT_INSTANCE_MEMBERSHIP"
+        or identity.get("raw_contamination_label_may_expand_training_cohort")
+        is not False
         or scientific.get("voting_eligible") is not False
         or scientific.get("comparison_ready") is not False
         or scientific.get("superiority_claim") is not False

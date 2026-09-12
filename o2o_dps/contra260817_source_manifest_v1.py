@@ -25,9 +25,14 @@ DEFAULT_SOURCE_ROOT = Path(
         str(PROJECT_ROOT.parent / "Contra_new"),
     )
 )
-DEFAULT_MANIFEST = (
-    PROJECT_ROOT
-    / "configs/experts/contra260817_source_manifest_91baa120.json"
+DEFAULT_MANIFEST = Path(
+    os.environ.get(
+        "BOC_CONTRA260817_MANIFEST",
+        str(
+            PROJECT_ROOT
+            / "configs/experts/contra260817_source_manifest_91baa120.json"
+        ),
+    )
 )
 
 SCHEMA = "contra260817_source_manifest/v1"

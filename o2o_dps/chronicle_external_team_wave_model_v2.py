@@ -28,6 +28,7 @@ import re
 import tempfile
 from typing import Any, Iterable, Mapping, Sequence
 
+from . import chronicle_external_api_manifest_union_v1 as union_v1
 from .chronicle_external_event_normalizer_v1 import STREAM_ORDER
 from .chronicle_external_team_timeline_v2 import (
     CONTAMINATION_CUTOFF,
@@ -50,7 +51,7 @@ PARTITION_RECORD_SCHEMA = "chronicle_external_team_wave_model_wave/v2"
 KIND = "chronicle_external_team_wave_model_manifest"
 STATUS = "DESCRIPTIVE_NONVOTING_NOT_COMPARISON"
 IMPLEMENTATION_REVISION = (
-    "v2.4_external_action_prefix_range_bug_boundary_20260903_noon_loo"
+    "v2.5_external_action_prefix_range_bug_boundary_20260903_noon_receipt_cohort_loo"
 )
 MAX_WORKERS = 32
 
@@ -214,9 +215,13 @@ def _content_addressed(value: Mapping[str, Any]) -> dict[str, Any]:
 
 def _verify_content_address(value: Mapping[str, Any], *, label: str) -> str:
     address = _mapping(value.get("content_address"), label=f"{label}.content_address")
-    if address.get("algorithm") != "sha256":
+    if (
+        set(address) != {"algorithm", "scope", "sha256"}
+        or address.get("algorithm") != "sha256"
+        or address.get("scope") != "canonical JSON excluding content_address"
+    ):
         raise ChronicleExternalTeamWaveModelV2Error(
-            f"{label} content-address algorithm must be sha256"
+            f"{label} content-address contract is unsupported"
         )
     expected = _sha(address.get("sha256"), label=f"{label}.content_address.sha256")
     core = {key: child for key, child in value.items() if key != "content_address"}
@@ -309,7 +314,14 @@ def _guild_observed_identity(provenance: Mapping[str, Any]) -> tuple[str | None,
     return None, "UNKNOWN_EXPLICIT"
 
 
-def _contamination(provenance: Mapping[str, Any]) -> dict[str, Any]:
+def _contamination(
+    provenance: Mapping[str, Any],
+    *,
+    instance_id: str,
+    receipt_content_sha256: str,
+    training_instance_ids: frozenset[str],
+    nontraining_reason_by_id: Mapping[str, str],
+) -> dict[str, Any]:
     temporal = _mapping(
         provenance.get("temporal_and_guild_provenance"),
         label="instance temporal_and_guild_provenance",
@@ -330,6 +342,20 @@ def _contamination(provenance: Mapping[str, Any]) -> dict[str, Any]:
         raise ChronicleExternalTeamWaveModelV2Error(
             "uploaded_at must not enter contamination"
         )
+    receipt_training_candidate = instance_id in training_instance_ids
+    cohort_assignment = (
+        "TRAINING_CANDIDATE"
+        if receipt_training_candidate
+        else "DESCRIPTIVE_NONTRAINING"
+    )
+    cohort_reason = (
+        "BOUND_INVENTORY_EXPLICIT_TRAINING_CANDIDATE"
+        if receipt_training_candidate
+        else _text(
+            nontraining_reason_by_id.get(instance_id),
+            label="descriptive nontraining cohort reason",
+        )
+    )
     return {
         "label": label,
         "started_at": temporal.get("started_at"),
@@ -337,8 +363,15 @@ def _contamination(provenance: Mapping[str, Any]) -> dict[str, Any]:
         "uploaded_at_used": False,
         "guild_context": contamination.get("guild_context"),
         "guild_evidence": contamination.get("guild_evidence"),
-        "candidate_filter_passed": label in DEFAULT_CANDIDATE_CONTAMINATION_LABELS,
+        "candidate_filter_passed": receipt_training_candidate,
+        "raw_label_candidate_filter_passed": (
+            label in DEFAULT_CANDIDATE_CONTAMINATION_LABELS
+        ),
         "candidate_labels": sorted(DEFAULT_CANDIDATE_CONTAMINATION_LABELS),
+        "candidate_authority": "BOUND_COHORT_RECEIPT_EXACT_INSTANCE_MEMBERSHIP",
+        "cohort_assignment": cohort_assignment,
+        "cohort_reason": cohort_reason,
+        "cohort_receipt_content_sha256": receipt_content_sha256,
         "voting_authorized": False,
         "player_name_used": False,
     }
@@ -364,9 +397,206 @@ class InputClosure:
     content_sha256: str
     file_sha256: str
     instances: tuple[InputInstance, ...]
+    cohort_receipt: Mapping[str, Any]
+    cohort_receipt_path: Path
+    cohort_receipt_binding: Mapping[str, Any]
+    training_instance_ids: frozenset[str]
+    descriptive_nontraining_instance_ids: frozenset[str]
 
 
-def _load_input_closure(path_value: str | Path) -> InputClosure:
+@dataclass(frozen=True)
+class _CohortClosure:
+    document: Mapping[str, Any]
+    path: Path
+    binding: Mapping[str, Any]
+    descriptive_instance_ids: tuple[str, ...]
+    training_instance_ids: frozenset[str]
+    descriptive_nontraining_instance_ids: frozenset[str]
+    nontraining_reason_by_id: Mapping[str, str]
+
+
+def _cohort_ids(
+    cohort: Mapping[str, Any], *, label: str
+) -> tuple[str, ...]:
+    raw_ids = _array(cohort.get("instance_ids"), label=f"{label}.instance_ids")
+    instance_ids = tuple(
+        _safe_component(value, label=f"{label}.instance_ids[{index}]")
+        for index, value in enumerate(raw_ids)
+    )
+    if instance_ids != tuple(sorted(set(instance_ids))):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            f"{label} instance IDs must be unique and sorted"
+        )
+    if cohort.get("instance_count") != len(instance_ids):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            f"{label} instance count differs from its IDs"
+        )
+    expected_ids_sha = _sha256_bytes(_canonical_bytes(list(instance_ids)) + b"\n")
+    if (
+        cohort.get("instance_ids_hash_contract") != "canonical JSON array plus LF"
+        or cohort.get("instance_ids_sha256") != expected_ids_sha
+    ):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            f"{label} instance ID hash contract differs"
+        )
+    return instance_ids
+
+
+def _load_cohort_closure(
+    path_value: str | Path, *, data_root: Path
+) -> _CohortClosure:
+    requested = Path(path_value).expanduser().resolve()
+    expected_parent = (data_root / Path(union_v1.OUTPUT_DIRECTORY)).resolve()
+    if (
+        not requested.is_file()
+        or requested.is_symlink()
+        or requested.parent != expected_parent
+    ):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "cohort receipt is outside its immutable manifest directory"
+        )
+    try:
+        payload_before = requested.read_bytes()
+        audit = union_v1.audit_manifest_union_receipt(
+            requested, data_root=data_root
+        )
+        payload_after = requested.read_bytes()
+    except (OSError, union_v1.ChronicleExternalManifestUnionError) as error:
+        raise ChronicleExternalTeamWaveModelV2Error(
+            f"cohort receipt strict full-source replay failed: {error}"
+        ) from error
+    if payload_before != payload_after:
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "cohort receipt changed during strict full-source replay"
+        )
+    try:
+        document = json.loads(payload_before.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ChronicleExternalTeamWaveModelV2Error(
+            f"cohort receipt is not JSON: {error}"
+        ) from error
+    receipt = _mapping(document, label="cohort receipt")
+    if payload_before != _canonical_bytes(receipt) + b"\n":
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "cohort receipt is not canonical JSON"
+        )
+    if (
+        receipt.get("schema") != union_v1.SCHEMA
+        or receipt.get("kind") != union_v1.KIND
+        or receipt.get("implementation_revision") != union_v1.IMPLEMENTATION_REVISION
+    ):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "cohort receipt schema/kind/revision is unsupported"
+        )
+    try:
+        # The union publisher intentionally hashes its canonical JSON document
+        # including the terminal LF.  That contract differs from this model's
+        # own content-addressed artifacts and must be verified by the producer.
+        content_sha = union_v1._verify_content_address(
+            receipt, label="cohort receipt"
+        )
+    except union_v1.ChronicleExternalManifestUnionError as error:
+        raise ChronicleExternalTeamWaveModelV2Error(
+            f"cohort receipt content address is invalid: {error}"
+        ) from error
+    if requested.name != f"{union_v1.MANIFEST_PREFIX}.{content_sha}.manifest.json":
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "cohort receipt filename/content address mismatch"
+        )
+    cohorts = _mapping(receipt.get("cohorts"), label="cohort receipt.cohorts")
+    descriptive = _mapping(cohorts.get("descriptive"), label="descriptive cohort")
+    training = _mapping(cohorts.get("training"), label="training cohort")
+    nontraining = _mapping(
+        cohorts.get("descriptive_nontraining"), label="descriptive nontraining cohort"
+    )
+    descriptive_ids = _cohort_ids(descriptive, label="descriptive cohort")
+    training_ids = frozenset(_cohort_ids(training, label="training cohort"))
+    nontraining_ids = frozenset(
+        _cohort_ids(nontraining, label="descriptive nontraining cohort")
+    )
+    if (
+        training_ids & nontraining_ids
+        or training_ids | nontraining_ids != frozenset(descriptive_ids)
+    ):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "receipt training/nontraining cohorts do not partition descriptive IDs"
+        )
+    reason_by_id: dict[str, str] = {}
+    for index, raw_reason in enumerate(
+        _array(nontraining.get("reasons"), label="descriptive nontraining reasons")
+    ):
+        reason = _mapping(raw_reason, label=f"nontraining reason[{index}]")
+        instance_id = _safe_component(
+            reason.get("instance_id"), label=f"nontraining reason[{index}].instance_id"
+        )
+        rendered = _text(reason.get("reason"), label="nontraining reason")
+        if instance_id in reason_by_id:
+            raise ChronicleExternalTeamWaveModelV2Error(
+                "receipt repeats a descriptive nontraining reason"
+            )
+        reason_by_id[instance_id] = rendered
+    if set(reason_by_id) != set(nontraining_ids):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "receipt reasons do not cover the exact nontraining cohort"
+        )
+    raw_union = _mapping(receipt.get("raw_union"), label="receipt.raw_union")
+    raw_union_sha = _sha(
+        raw_union.get("file_sha256"), label="receipt raw union file SHA"
+    )
+    expected_audit = {
+        "status": "PASS_STRICT_FULL_SOURCE_REPLAY",
+        "receipt_content_sha256": content_sha,
+        "raw_union_manifest_sha256": raw_union_sha,
+        "descriptive_instance_count": len(descriptive_ids),
+        "training_instance_count": len(training_ids),
+        "descriptive_nontraining_instance_count": len(nontraining_ids),
+        "network_requests_made": 0,
+        "training_or_comparison_authorized": False,
+    }
+    if any(audit.get(key) != value for key, value in expected_audit.items()):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "cohort receipt audit result differs from the loaded receipt"
+        )
+    file_sha = _sha256_bytes(payload_before)
+    binding = {
+        "content_addressed_path": _relative(
+            requested, data_root, label="cohort receipt"
+        ),
+        "schema": union_v1.SCHEMA,
+        "kind": union_v1.KIND,
+        "implementation_revision": union_v1.IMPLEMENTATION_REVISION,
+        "content_sha256": content_sha,
+        "file_sha256": file_sha,
+        "size_bytes": len(payload_before),
+        "raw_union_file_sha256": raw_union_sha,
+        "raw_union_path": _text(raw_union.get("path"), label="raw union path"),
+        "raw_union_size_bytes": _nonnegative_integer(
+            raw_union.get("size_bytes"), label="raw union size"
+        ),
+        "descriptive_instance_count": len(descriptive_ids),
+        "descriptive_instance_ids_sha256": descriptive.get("instance_ids_sha256"),
+        "training_instance_count": len(training_ids),
+        "training_instance_ids_sha256": training.get("instance_ids_sha256"),
+        "descriptive_nontraining_instance_count": len(nontraining_ids),
+        "descriptive_nontraining_instance_ids_sha256": nontraining.get(
+            "instance_ids_sha256"
+        ),
+        "audit_status": "PASS_STRICT_FULL_SOURCE_REPLAY",
+    }
+    return _CohortClosure(
+        document=deepcopy(dict(receipt)),
+        path=requested,
+        binding=binding,
+        descriptive_instance_ids=descriptive_ids,
+        training_instance_ids=training_ids,
+        descriptive_nontraining_instance_ids=nontraining_ids,
+        nontraining_reason_by_id=reason_by_id,
+    )
+
+
+def _load_input_closure(
+    path_value: str | Path, *, cohort_receipt_path: str | Path
+) -> InputClosure:
     requested = Path(path_value).expanduser().resolve()
     try:
         manifest, manifest_path = load_external_team_timeline_manifest(requested)
@@ -400,11 +630,29 @@ def _load_input_closure(path_value: str | Path) -> InputClosure:
             "timeline content-addressed manifest is missing or differs"
         )
     root = _data_root(manifest_path)
+    cohort = _load_cohort_closure(cohort_receipt_path, data_root=root)
+    timeline_input_closure = _mapping(
+        manifest.get("input_closure"), label="timeline input_closure"
+    )
+    timeline_raw = _mapping(
+        timeline_input_closure.get("raw_api_manifest"),
+        label="timeline raw_api_manifest",
+    )
+    receipt_raw = _mapping(cohort.document.get("raw_union"), label="receipt raw_union")
+    for key in ("file_sha256", "path", "schema", "size_bytes"):
+        if timeline_raw.get(key) != receipt_raw.get(key):
+            raise ChronicleExternalTeamWaveModelV2Error(
+                f"timeline raw union differs from cohort receipt {key}"
+            )
     raw_entries = _array(manifest.get("instances"), label="timeline instances")
     order = _array(manifest.get("instance_order"), label="timeline instance_order")
     if len(raw_entries) != len(order) or not raw_entries:
         raise ChronicleExternalTeamWaveModelV2Error(
             "timeline instance order and entries differ"
+        )
+    if tuple(order) != cohort.descriptive_instance_ids:
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "timeline instances differ from the receipt descriptive cohort"
         )
     instances: list[InputInstance] = []
     for index, raw_entry in enumerate(raw_entries):
@@ -436,7 +684,15 @@ def _load_input_closure(path_value: str | Path) -> InputClosure:
                 entry=deepcopy(dict(entry)),
                 partition_path=partition_path,
                 provenance=deepcopy(dict(provenance)),
-                contamination=_contamination(provenance),
+                contamination=_contamination(
+                    provenance,
+                    instance_id=instance_id,
+                    receipt_content_sha256=str(
+                        cohort.binding["content_sha256"]
+                    ),
+                    training_instance_ids=cohort.training_instance_ids,
+                    nontraining_reason_by_id=cohort.nontraining_reason_by_id,
+                ),
                 source_binding_sha256=_sha256_bytes(_canonical_bytes(source_binding)),
             )
         )
@@ -448,6 +704,13 @@ def _load_input_closure(path_value: str | Path) -> InputClosure:
         content_sha256=content_sha,
         file_sha256=file_sha,
         instances=tuple(instances),
+        cohort_receipt=cohort.document,
+        cohort_receipt_path=cohort.path,
+        cohort_receipt_binding=cohort.binding,
+        training_instance_ids=cohort.training_instance_ids,
+        descriptive_nontraining_instance_ids=(
+            cohort.descriptive_nontraining_instance_ids
+        ),
     )
 
 
@@ -1850,6 +2113,16 @@ def _manifest_summary(entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         for entry in entries
     )
     result["contamination_label_counts"] = dict(sorted(labels.items()))
+    result["training_candidate_instance_count"] = sum(
+        _mapping(entry.get("contamination_lane"), label="contamination lane").get(
+            "candidate_filter_passed"
+        )
+        is True
+        for entry in entries
+    )
+    result["descriptive_nontraining_instance_count"] = (
+        len(entries) - result["training_candidate_instance_count"]
+    )
     result["compressed_partition_bytes"] = sum(
         _nonnegative_integer(
             _mapping(entry.get("partition"), label="instance partition").get(
@@ -1930,6 +2203,7 @@ def _parallel_builds(
 def build_external_team_wave_model(
     *,
     timeline_manifest_path: str | Path = DEFAULT_TIMELINE_MANIFEST,
+    cohort_receipt_path: str | Path,
     output_directory: str | Path = DEFAULT_OUTPUT_DIRECTORY,
     workers: int = 1,
 ) -> dict[str, Any]:
@@ -1939,7 +2213,9 @@ def build_external_team_wave_model(
         raise ChronicleExternalTeamWaveModelV2Error(
             f"workers must be an integer from 1 through {MAX_WORKERS}"
         )
-    closure = _load_input_closure(timeline_manifest_path)
+    closure = _load_input_closure(
+        timeline_manifest_path, cohort_receipt_path=cohort_receipt_path
+    )
     output = _under(
         Path(output_directory), closure.data_root, label="team-wave model output"
     )
@@ -1990,6 +2266,9 @@ def build_external_team_wave_model(
                     "implementation_revision": TIMELINE_IMPLEMENTATION_REVISION,
                     "status": TIMELINE_STATUS,
                 },
+                "cohort_receipt": deepcopy(
+                    dict(closure.cohort_receipt_binding)
+                ),
                 "instance_ids_sha256": _sha256_bytes(
                     _canonical_bytes(
                         [context.instance_id for context in closure.instances]
@@ -2065,6 +2344,18 @@ def build_external_team_wave_model(
                 "uploaded_at_used": False,
                 "player_name_used_for_contamination_or_spec": False,
                 "contamination_rule_recomputed_by_model": False,
+                "training_candidate_authority": (
+                    "BOUND_COHORT_RECEIPT_EXACT_INSTANCE_MEMBERSHIP"
+                ),
+                "raw_contamination_label_may_expand_training_cohort": False,
+                "cohort_receipt_strict_full_source_replay": True,
+                "descriptive_instance_count": len(closure.instances),
+                "training_candidate_instance_count": len(
+                    closure.training_instance_ids
+                ),
+                "descriptive_nontraining_instance_count": len(
+                    closure.descriptive_nontraining_instance_ids
+                ),
                 "legacy_single_cutoff_compatibility_alias": (
                     CONTAMINATION_CUTOFF
                 ),
@@ -2249,7 +2540,12 @@ def _validate_transition(
         )
 
 
-def _validate_model_wave(record: Mapping[str, Any], *, instance_id: str) -> dict[str, int]:
+def _validate_model_wave(
+    record: Mapping[str, Any],
+    *,
+    instance_id: str,
+    expected_contamination: Mapping[str, Any],
+) -> dict[str, int]:
     if (
         record.get("schema") != PARTITION_RECORD_SCHEMA
         or record.get("implementation_revision") != IMPLEMENTATION_REVISION
@@ -2263,6 +2559,18 @@ def _validate_model_wave(record: Mapping[str, Any], *, instance_id: str) -> dict
     if wave.get("instance_id") != instance_id:
         raise ChronicleExternalTeamWaveModelV2Error(
             "model wave crossed its instance partition"
+        )
+    raid_provenance = _mapping(
+        record.get("raid_provenance"), label="model raid_provenance"
+    )
+    if dict(
+        _mapping(
+            raid_provenance.get("contamination"),
+            label="model raid contamination",
+        )
+    ) != dict(expected_contamination):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "model wave cohort assignment differs from the bound receipt"
         )
     trace = [
         _mapping(value, label="exact trace row")
@@ -2361,6 +2669,37 @@ def _validate_model_wave(record: Mapping[str, Any], *, instance_id: str) -> dict
         if spec.get("voting_authorized") is not False:
             raise ChronicleExternalTeamWaveModelV2Error(
                 "spec lane unexpectedly authorizes voting"
+            )
+        player_contamination = _mapping(
+            player_record.get("contamination_lane"),
+            label="model player contamination_lane",
+        )
+        if dict(player_contamination) != dict(expected_contamination):
+            raise ChronicleExternalTeamWaveModelV2Error(
+                "model player cohort assignment differs from the bound receipt"
+            )
+        expected_candidate = expected_contamination.get(
+            "candidate_filter_passed"
+        ) is True
+        eligibility = _mapping(
+            player_record.get("eligibility_observation"),
+            label="model player eligibility_observation",
+        )
+        if (
+            eligibility.get("team_behavior_candidate_filter_passed")
+            is not expected_candidate
+            or eligibility.get("historical_fury_candidate_filter_passed")
+            is not (
+                expected_candidate and partition_key == "WARRIOR_FURY"
+            )
+            or eligibility.get("arms_diagnostic_candidate_filter_passed")
+            is not (
+                expected_candidate and partition_key == "WARRIOR_ARMS"
+            )
+            or eligibility.get("voting_authorized") is not False
+        ):
+            raise ChronicleExternalTeamWaveModelV2Error(
+                "model player eligibility differs from receipt/spec assignment"
             )
         if partition_key == "WARRIOR_FURY":
             fury_count += 1
@@ -2621,11 +2960,15 @@ def load_external_team_wave_model_manifest(
                 f"model {label} manifest is missing or differs"
             )
     root = _data_root(stable)
+    input_closure = _mapping(manifest.get("input_closure"), label="input_closure")
     timeline_binding = _mapping(
-        _mapping(manifest.get("input_closure"), label="input_closure").get(
+        input_closure.get(
             "timeline_manifest"
         ),
         label="timeline_manifest binding",
+    )
+    receipt_binding = _mapping(
+        input_closure.get("cohort_receipt"), label="cohort_receipt binding"
     )
     timeline_path = _resolve_relative(
         root,
@@ -2633,7 +2976,15 @@ def load_external_team_wave_model_manifest(
         root,
         label="bound timeline stable manifest",
     )
-    closure = _load_input_closure(timeline_path)
+    receipt_path = _resolve_relative(
+        root,
+        receipt_binding.get("content_addressed_path"),
+        root,
+        label="bound cohort receipt",
+    )
+    closure = _load_input_closure(
+        timeline_path, cohort_receipt_path=receipt_path
+    )
     if (
         closure.content_sha256 != timeline_binding.get("content_sha256")
         or closure.file_sha256 != timeline_binding.get("file_sha256")
@@ -2647,6 +2998,10 @@ def load_external_team_wave_model_manifest(
     ):
         raise ChronicleExternalTeamWaveModelV2Error(
             "live timeline input differs from model input closure"
+        )
+    if dict(receipt_binding) != dict(closure.cohort_receipt_binding):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "live cohort receipt differs from model input closure"
         )
     entries = [
         _mapping(value, label="model instance entry")
@@ -2667,6 +3022,13 @@ def load_external_team_wave_model_manifest(
                 "model instance order/set differs from bound timeline"
             )
         timeline_context = timeline_by_id[instance_id]
+        entry_contamination = _mapping(
+            entry.get("contamination_lane"), label="model instance contamination lane"
+        )
+        if dict(entry_contamination) != dict(timeline_context.contamination):
+            raise ChronicleExternalTeamWaveModelV2Error(
+                "model instance cohort assignment differs from bound receipt"
+            )
         timeline_input = _mapping(entry.get("timeline_input"), label="timeline_input")
         if (
             timeline_input.get("instance_entry_content_sha256")
@@ -2734,7 +3096,11 @@ def load_external_team_wave_model_manifest(
                             "model partition wave order is not strict"
                         )
                     prior_wave = wave_order
-                    observed = _validate_model_wave(row, instance_id=instance_id)
+                    observed = _validate_model_wave(
+                        row,
+                        instance_id=instance_id,
+                        expected_contamination=timeline_context.contamination,
+                    )
                     for key, amount in observed.items():
                         if key != "damage_amount" and key != "dead_marker_damage_added":
                             totals[key] += amount
@@ -2797,6 +3163,40 @@ def load_external_team_wave_model_manifest(
         raise ChronicleExternalTeamWaveModelV2Error(
             "model manifest summary differs from instance entries"
         )
+    summary = _mapping(manifest.get("summary"), label="model summary")
+    if (
+        summary.get("instance_count") != len(closure.instances)
+        or summary.get("training_candidate_instance_count")
+        != len(closure.training_instance_ids)
+        or summary.get("descriptive_nontraining_instance_count")
+        != len(closure.descriptive_nontraining_instance_ids)
+    ):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "model summary differs from the exact receipt cohort"
+        )
+    contamination_contract = _mapping(
+        manifest.get("spec_and_contamination_contract"),
+        label="spec_and_contamination_contract",
+    )
+    if (
+        contamination_contract.get("training_candidate_authority")
+        != "BOUND_COHORT_RECEIPT_EXACT_INSTANCE_MEMBERSHIP"
+        or contamination_contract.get(
+            "raw_contamination_label_may_expand_training_cohort"
+        )
+        is not False
+        or contamination_contract.get("cohort_receipt_strict_full_source_replay")
+        is not True
+        or contamination_contract.get("descriptive_instance_count")
+        != len(closure.instances)
+        or contamination_contract.get("training_candidate_instance_count")
+        != len(closure.training_instance_ids)
+        or contamination_contract.get("descriptive_nontraining_instance_count")
+        != len(closure.descriptive_nontraining_instance_ids)
+    ):
+        raise ChronicleExternalTeamWaveModelV2Error(
+            "model receipt cohort contract was weakened"
+        )
     graph = _mapping(manifest.get("split_graph"), label="split_graph")
     if (
         graph.get("required_split_unit") != "connected component"
@@ -2828,6 +3228,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeline-manifest", type=Path, default=DEFAULT_TIMELINE_MANIFEST
     )
+    parser.add_argument("--cohort-receipt", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIRECTORY)
     parser.add_argument(
         "--workers",
@@ -2843,6 +3244,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         result = build_external_team_wave_model(
             timeline_manifest_path=args.timeline_manifest,
+            cohort_receipt_path=args.cohort_receipt,
             output_directory=args.output_dir,
             workers=args.workers,
         )

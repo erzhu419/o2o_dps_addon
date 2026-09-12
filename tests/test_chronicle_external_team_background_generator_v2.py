@@ -8,7 +8,9 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
+from o2o_dps import chronicle_external_api_manifest_union_v1 as union_v1
 from o2o_dps import chronicle_external_team_background_generator_v2 as generator_v2
 from o2o_dps.chronicle_external_team_timeline_v2 import (
     build_external_team_timeline,
@@ -40,7 +42,11 @@ from tests.test_chronicle_external_team_timeline_v2 import (
     _complete_input_closure,
     _timeline_rows,
 )
-from tests.test_chronicle_external_team_wave_model_v2 import _multi_timeline
+from tests.test_chronicle_external_team_wave_model_v2 import (
+    _fake_receipt_audit,
+    _multi_timeline,
+    _write_cohort_receipt,
+)
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -82,7 +88,12 @@ def _raid_request(target_count: int) -> dict[str, object]:
     }
 
 
-def _single_model(base: Path, *, negative_damage: bool = False) -> Path:
+def _single_model(
+    base: Path,
+    *,
+    negative_damage: bool = False,
+    receipt_nontraining: bool = False,
+) -> Path:
     rows = _timeline_rows()
     # Keep PLAYER_2 friendly, so its later DMG is an exact teammate event.  The
     # event intentionally remains after the historical DEAD marker.
@@ -99,8 +110,20 @@ def _single_model(base: Path, *, negative_damage: bool = False) -> Path:
             base / "offline_data" / "derived" / "external_timeline" / "single"
         ),
     )
+    timeline_manifest = json.loads(
+        Path(timeline["manifest_path"]).read_text(encoding="utf-8")
+    )
+    receipt = _write_cohort_receipt(
+        Path(timeline["manifest_path"]),
+        nontraining_instance_ids=(
+            {timeline_manifest["instance_order"][0]}
+            if receipt_nontraining
+            else None
+        ),
+    )
     model = build_external_team_wave_model(
         timeline_manifest_path=timeline["manifest_path"],
+        cohort_receipt_path=receipt,
         output_directory=(
             base / "offline_data" / "derived" / "external_model" / "single"
         ),
@@ -112,6 +135,7 @@ def _multi_model(base: Path) -> Path:
     timeline = _multi_timeline(base)
     model = build_external_team_wave_model(
         timeline_manifest_path=timeline["manifest_path"],
+        cohort_receipt_path=timeline["cohort_receipt_path"],
         output_directory=(
             base / "offline_data" / "derived" / "external_model" / "multi"
         ),
@@ -155,6 +179,15 @@ def _recursive_keys(value: object) -> set[str]:
 
 
 class ChronicleExternalTeamBackgroundGeneratorV2Tests(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = mock.patch.object(
+            union_v1,
+            "audit_manifest_union_receipt",
+            side_effect=_fake_receipt_audit,
+        )
+        self.receipt_audit = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_schedule_semantics_are_invariant_to_player_display_names(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -185,10 +218,18 @@ class ChronicleExternalTeamBackgroundGeneratorV2Tests(unittest.TestCase):
             }
             renamed = _content_addressed(wave_core)
             first = generator_v2._compile_block(
-                original, component_by_node=component_by_node
+                original,
+                component_by_node=component_by_node,
+                expected_contamination=original["raid_provenance"][
+                    "contamination"
+                ],
             )
             second = generator_v2._compile_block(
-                renamed, component_by_node=component_by_node
+                renamed,
+                component_by_node=component_by_node,
+                expected_contamination=renamed["raid_provenance"][
+                    "contamination"
+                ],
             )
             self.assertEqual(
                 first["schedule_semantic_sha256"],
@@ -225,6 +266,11 @@ class ChronicleExternalTeamBackgroundGeneratorV2Tests(unittest.TestCase):
             manifest, stable = load_external_team_background_generator_manifest(
                 result["manifest_path"]
             )
+            model_manifest = json.loads(model.read_text(encoding="utf-8"))
+            self.assertEqual(
+                model_manifest["input_closure"]["cohort_receipt"],
+                manifest["input_closure"]["cohort_receipt"],
+            )
             self.assertEqual(Path(result["manifest_path"]), stable)
             self.assertFalse(manifest["scientific_boundaries"]["comparison_ready"])
             self.assertFalse(manifest["scientific_boundaries"]["voting_eligible"])
@@ -259,7 +305,7 @@ class ChronicleExternalTeamBackgroundGeneratorV2Tests(unittest.TestCase):
                 component_id=component,
                 focal_player_guid=PLAYER_1,
                 seed=20260911,
-                draw_index=2,
+                draw_index=0,
             )
             validate_external_team_background_draw(draw)
             self.assertEqual([10], [row["damage"] for row in draw["schedule"]])
@@ -511,6 +557,123 @@ class ChronicleExternalTeamBackgroundGeneratorV2Tests(unittest.TestCase):
                     focal_player_guid=PLAYER_1,
                     seed=1,
                 )
+
+    def test_raw_clean_receipt_nontraining_mask_propagates_and_cannot_draw(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            model = _single_model(base, receipt_nontraining=True)
+            result = build_external_team_background_generator(
+                team_model_manifest_path=model,
+                output_directory=(
+                    base
+                    / "offline_data"
+                    / "derived"
+                    / "background"
+                    / "receipt_nontraining"
+                ),
+            )
+            manifest, stable = load_external_team_background_generator_manifest(
+                result["manifest_path"]
+            )
+            self.assertEqual(
+                0, manifest["summary"]["training_candidate_instance_count"]
+            )
+            self.assertEqual(
+                1, manifest["summary"]["descriptive_nontraining_instance_count"]
+            )
+            receipt_sha = manifest["input_closure"]["cohort_receipt"][
+                "content_sha256"
+            ]
+            blocks = _blocks(stable)
+            self.assertTrue(blocks)
+            for block in blocks:
+                lane = block["contamination_lane"]
+                self.assertTrue(lane["raw_label_candidate_filter_passed"])
+                self.assertFalse(lane["training_candidate"])
+                self.assertEqual("DESCRIPTIVE_NONTRAINING", lane["cohort_assignment"])
+                self.assertEqual(receipt_sha, lane["cohort_receipt_content_sha256"])
+            component_id = blocks[0]["component_id"]
+            with self.assertRaisesRegex(
+                ChronicleExternalTeamBackgroundGeneratorV2Error,
+                "no clean whole-wave block",
+            ):
+                draw_external_team_background_schedule(
+                    generator_manifest_path=stable,
+                    component_id=component_id,
+                    focal_player_guid=PLAYER_1,
+                    seed=1,
+                )
+
+    def test_old_revision_stale_receipt_binding_and_replay_tamper_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            model = _single_model(base)
+            result = build_external_team_background_generator(
+                team_model_manifest_path=model,
+                output_directory=(
+                    base / "offline_data" / "derived" / "background" / "fail_closed"
+                ),
+            )
+            stable = Path(result["manifest_path"])
+            original = json.loads(stable.read_text(encoding="utf-8"))
+
+            old_core = {
+                key: deepcopy(value)
+                for key, value in original.items()
+                if key != "content_address"
+            }
+            old_core["implementation_revision"] = "v2.1_pre_receipt_binding"
+            old_revision = _content_addressed(old_core)
+            old_path = stable.parent / "old-revision.manifest.json"
+            old_path.write_bytes(_canonical_bytes(old_revision) + b"\n")
+            with self.assertRaisesRegex(
+                ChronicleExternalTeamBackgroundGeneratorV2Error,
+                "unsupported background manifest",
+            ):
+                load_external_team_background_generator_manifest(old_path)
+
+            address_tamper = deepcopy(original)
+            address_tamper["content_address"]["unexpected"] = True
+            address_tamper_path = stable.parent / "address-tamper.manifest.json"
+            address_tamper_path.write_bytes(_canonical_bytes(address_tamper) + b"\n")
+            with self.assertRaisesRegex(
+                ChronicleExternalTeamBackgroundGeneratorV2Error,
+                "unsupported content-address contract",
+            ):
+                load_external_team_background_generator_manifest(address_tamper_path)
+
+            with mock.patch.object(
+                union_v1,
+                "audit_manifest_union_receipt",
+                side_effect=union_v1.ChronicleExternalManifestUnionError(
+                    "synthetic bound-source tamper"
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ChronicleExternalTeamBackgroundGeneratorV2Error,
+                    "strict full-source replay failed.*bound-source tamper",
+                ):
+                    load_external_team_background_generator_manifest(stable)
+
+            stale_core = {
+                key: deepcopy(value)
+                for key, value in original.items()
+                if key != "content_address"
+            }
+            stale_core["input_closure"]["cohort_receipt"]["file_sha256"] = "e" * 64
+            stale = _content_addressed(stale_core)
+            stale_payload = _canonical_bytes(stale) + b"\n"
+            stale_addressed = stable.with_name(
+                "chronicle_external_team_background_generator_v2."
+                f"{stale['content_address']['sha256']}.manifest.json"
+            )
+            stable.write_bytes(stale_payload)
+            stale_addressed.write_bytes(stale_payload)
+            with self.assertRaisesRegex(
+                ChronicleExternalTeamBackgroundGeneratorV2Error,
+                "cohort receipt binding differs",
+            ):
+                load_external_team_background_generator_manifest(stable)
 
     def test_input_partition_tamper_and_output_path_escape_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

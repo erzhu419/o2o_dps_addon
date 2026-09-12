@@ -91,6 +91,13 @@ DEFAULT_FROZEN_GATE_SHA256 = (
 DEFAULT_CAT2_PROFILE_SHA256 = (
     "e5c17c343a46f14565a413920e635e455ad161654fb3c9aab6d9db8efff8875a"
 )
+# These fields were added to FuryPolicyParameters after the v1 held-out gate
+# was frozen.  Their defaults exactly preserve the old candidate's action
+# rules, but they are not part of the frozen parameter document or identity.
+_POST_FREEZE_BEHAVIOR_PRESERVING_DEFAULTS = {
+    "single_target_priority": "BLOODTHIRST_FIRST",
+    "two_hand_slam_mode": "DISABLED",
+}
 CAT2_ID = Cat2SavedProfileSourceAdapterV1.expert_id
 
 
@@ -701,19 +708,36 @@ def reconstruct_frozen_corpus(
         )
     if selected.get("family_count") != len(corpus.families):
         raise FuryCurrentCat2HeldoutReplayError("frozen family count is inconsistent")
+    frozen_candidate_parameters = candidate.get("parameters")
+    if not isinstance(frozen_candidate_parameters, Mapping):
+        raise FuryCurrentCat2HeldoutReplayError(
+            "frozen candidate parameters are missing"
+        )
     candidate_parameters = load_candidate_parameters(candidate)
-    if candidate.get("parameters") != asdict(candidate_parameters):
+    canonical_frozen_parameters = asdict(candidate_parameters)
+    for name, expected in _POST_FREEZE_BEHAVIOR_PRESERVING_DEFAULTS.items():
+        if (
+            name in frozen_candidate_parameters
+            or canonical_frozen_parameters.pop(name, None) != expected
+        ):
+            raise FuryCurrentCat2HeldoutReplayError(
+                "post-freeze candidate defaults no longer preserve v1 behavior"
+            )
+    if dict(frozen_candidate_parameters) != canonical_frozen_parameters:
         raise FuryCurrentCat2HeldoutReplayError(
             "frozen candidate parameters are not canonical"
         )
+    frozen_candidate_policy_id = candidate.get("policy_id")
+    if not isinstance(frozen_candidate_policy_id, str) or not frozen_candidate_policy_id:
+        raise FuryCurrentCat2HeldoutReplayError("frozen candidate policy ID is missing")
 
     input_contract = {
         "manifest_snapshot": copy.deepcopy(dict(manifest_meta)),
         "instance_split": copy.deepcopy(dict(split_meta)),
         "selection_contract": copy.deepcopy(dict(selection)),
         "selected_families": actual_metadata,
-        "candidate_policy_id": candidate_parameters.policy_id,
-        "candidate_parameters": asdict(candidate_parameters),
+        "candidate_policy_id": frozen_candidate_policy_id,
+        "candidate_parameters": copy.deepcopy(dict(frozen_candidate_parameters)),
         "validation_seeds": list(seeds),
     }
     return corpus, input_contract
@@ -900,6 +924,7 @@ def evaluate_supplemental_replay(
     corpus: SelectedCorpus,
     *,
     candidate_parameters: FuryPolicyParameters,
+    candidate_policy_id: str | None = None,
     cat2_snapshot: Mapping[str, Any],
     validation_seeds: Iterable[int],
     progress: Callable[[Mapping[str, Any]], None] | None = None,
@@ -908,6 +933,10 @@ def evaluate_supplemental_replay(
 
     seeds = _seed_tuple(validation_seeds, "validation_seeds")
     candidate = FuryTunedPolicyAdapter(candidate_parameters)
+    if candidate_policy_id is not None:
+        if not candidate_policy_id:
+            raise FuryCurrentCat2HeldoutReplayError("candidate policy ID is empty")
+        candidate.expert_id = candidate_policy_id
     cat2 = Cat2SavedProfileSourceAdapterV1(cat2_snapshot)
     adapters = (
         CatFurySourceAdapter(),
@@ -1261,6 +1290,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 bridge,
                 evaluation_corpus,
                 candidate_parameters=candidate_parameters,
+                candidate_policy_id=str(input_contract["candidate_policy_id"]),
                 cat2_snapshot=cat2_snapshot,
                 validation_seeds=evaluation_seeds,
                 progress=lambda value: print(

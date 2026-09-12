@@ -64,6 +64,52 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _combatant_identity_evidence(
+    *, player_count: int, message_count: int
+) -> dict[str, object]:
+    return {
+        "status": "VERIFIED_LOCAL_OFFICIAL_STREAM",
+        "message_count": message_count,
+        "unique_player_guid_count": player_count,
+        "identity_conflict_count": 0,
+        "metadata_player_guid_set_equal": True,
+        "metadata_player_guid_subset_of_combatant_info": True,
+        "combatant_info_guid_subset_of_metadata_players": True,
+        "missing_metadata_combatant_info_player_count": 0,
+        "missing_metadata_combatant_info_guids_sha256": _sha256(
+            _canonical_bytes([])
+        ),
+        "missing_metadata_combatant_info_players": [],
+        "metadata_name_observed_player_count": player_count,
+        "metadata_hero_class_observed_player_count": player_count,
+        "metadata_race_observed_player_count": player_count,
+        "hero_class_transition_player_count": 0,
+        "display_name_transition_player_count": 0,
+        "display_race_transition_player_count": 0,
+        "display_guild_transition_player_count": 0,
+        "display_transition_diagnostics": {
+            "name": [],
+            "race": [],
+            "guild_name": [],
+        },
+        "identity_resolution_contract": {
+            "attribution_key": "metadata exact canonical player GUID",
+            "combatant_info_present_metadata_name_must_appear": True,
+            "combatant_info_present_metadata_hero_class_must_appear": True,
+            "combatant_info_present_hero_class_must_be_stable": True,
+            "combatant_info_present_metadata_race_must_appear": True,
+            "metadata_race_appearance_is_integrity_check_not_attribution": True,
+            "missing_metadata_player_requires_verified_core_event_guid_evidence": True,
+            "missing_player_combatant_info_static_fields_imputed": False,
+            "missing_player_talents_gear_or_spec_inferred": False,
+            "display_name_used_for_identity_or_attribution": False,
+            "display_race_used_for_identity_or_attribution": False,
+            "display_guild_used_for_identity_or_attribution": False,
+            "display_name_race_or_guild_transitions_are_diagnostic_only": True,
+        },
+    }
+
+
 def _class_row(
     index: int,
     *,
@@ -409,7 +455,13 @@ def _write_fixture(base: Path, rows: list[dict[str, object]]) -> Path:
         "implementation_revision": ADMISSION_IMPLEMENTATION_REVISION,
         "status": ADMISSION_STATUS,
         "admission_validation_contract": {
-            "normalized_rows_byte_exact_canonical_rederived": True
+            "normalized_rows_byte_exact_canonical_rederived": True,
+            "combatant_exact_guid_is_only_attribution_key": True,
+            "combatant_info_present_hero_class_stable_and_metadata_matched": True,
+            "combatant_info_present_metadata_race_observed_as_integrity_check": True,
+            "combatant_display_race_transition_is_diagnostic_only": True,
+            "missing_combatant_info_metadata_player_requires_verified_core_event_guid_evidence": True,
+            "missing_combatant_info_static_fields_not_imputed": True,
         },
         "inputs": {
             "raw_api_manifest": {
@@ -465,10 +517,9 @@ def _write_fixture(base: Path, rows: list[dict[str, object]]) -> Path:
                     "players": players,
                     "name_or_class_inference_used": False,
                 },
-                "combatant_info_evidence": {
-                    "status": "VERIFIED_LOCAL_OFFICIAL_STREAM",
-                    "message_count": 2,
-                },
+                "combatant_info_evidence": _combatant_identity_evidence(
+                    player_count=2, message_count=2
+                ),
                 "warrior_spec_evidence": {
                     "observation_count": 2,
                     "declared_counts": {"Arms": 0, "Fury": 2, "Other_or_unknown": 0},
@@ -492,6 +543,10 @@ def _write_fixture(base: Path, rows: list[dict[str, object]]) -> Path:
             "record_count": len(rows),
             "metadata_player_count": len(players),
             "warrior_observation_count": 2,
+            "display_name_transition_player_count": 0,
+            "display_race_transition_player_count": 0,
+            "display_guild_transition_player_count": 0,
+            "missing_metadata_combatant_info_player_count": 0,
             "raw_object_copy_count": 0,
             "normalized_row_copy_count": 0,
             "network_request_count": 0,
@@ -619,10 +674,9 @@ def _write_two_instance_fixture(
                 "players": players,
                 "name_or_class_inference_used": False,
             },
-            "combatant_info_evidence": {
-                "status": "VERIFIED_LOCAL_OFFICIAL_STREAM",
-                "message_count": 1,
-            },
+            "combatant_info_evidence": _combatant_identity_evidence(
+                player_count=1, message_count=1
+            ),
             "warrior_spec_evidence": {
                 "observation_count": 1,
                 "declared_counts": {"Arms": 1, "Fury": 0, "Other_or_unknown": 0},
@@ -639,6 +693,10 @@ def _write_two_instance_fixture(
         "record_count": len(_default_rows()) + len(second_rows),
         "metadata_player_count": 3,
         "warrior_observation_count": 3,
+        "display_name_transition_player_count": 0,
+        "display_race_transition_player_count": 0,
+        "display_guild_transition_player_count": 0,
+        "missing_metadata_combatant_info_player_count": 0,
         "raw_object_copy_count": 0,
         "normalized_row_copy_count": 0,
         "network_request_count": 0,

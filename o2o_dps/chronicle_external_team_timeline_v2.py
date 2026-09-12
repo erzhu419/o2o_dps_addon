@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from copy import deepcopy
 from dataclasses import dataclass, field
 import gzip
@@ -348,6 +348,39 @@ class InputContext:
     reconstruction_source_context: Any
     warrior_spec_by_guid: Mapping[str, Mapping[str, Any]]
     source_binding: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class PartitionInputContext:
+    """Small, spawn-safe per-instance view used by process workers.
+
+    ``InputContext`` retains the complete validated manifest closure for the
+    coordinator.  Sending it to every Windows worker would redundantly pickle
+    the same multi-megabyte documents.  Partition construction needs only the
+    instance-local fields below.
+    """
+
+    instance_id: str
+    admission_stable: Path
+    admission_instance: Mapping[str, Any]
+    reconstruction_instance: Mapping[str, Any]
+    reconstruction_stable: Path
+    reconstruction_source_context: Any
+    warrior_spec_by_guid: Mapping[str, Mapping[str, Any]]
+    source_binding: Mapping[str, Any]
+
+
+def _partition_input_context(context: InputContext) -> PartitionInputContext:
+    return PartitionInputContext(
+        instance_id=context.instance_id,
+        admission_stable=context.admission_stable,
+        admission_instance=context.admission_instance,
+        reconstruction_instance=context.reconstruction_instance,
+        reconstruction_stable=context.reconstruction_stable,
+        reconstruction_source_context=context.reconstruction_source_context,
+        warrior_spec_by_guid=context.warrior_spec_by_guid,
+        source_binding=context.source_binding,
+    )
 
 
 def _index_by_instance(
@@ -1813,7 +1846,7 @@ def _summary_totals(waves: Sequence[Mapping[str, Any]]) -> dict[str, int]:
 
 
 def _build_instance_partition(
-    context: InputContext, *, output_directory: Path
+    context: InputContext | PartitionInputContext, *, output_directory: Path
 ) -> PartitionBuild:
     encounter_entries = _array(
         context.reconstruction_instance.get("encounters"),
@@ -2068,17 +2101,17 @@ def _build_instance_partitions_parallel(
     results: list[PartitionBuild | None] = [None] * len(contexts)
     failure: BaseException | None = None
     effective_workers = min(workers, len(contexts))
-    with ThreadPoolExecutor(
+    worker_contexts = tuple(_partition_input_context(context) for context in contexts)
+    with ProcessPoolExecutor(
         max_workers=effective_workers,
-        thread_name_prefix="chronicle-team-timeline-v2",
     ) as executor:
         futures = {
             executor.submit(
                 _build_instance_partition,
-                context,
+                worker_contexts[index],
                 output_directory=output_directory,
             ): index
-            for index, context in enumerate(contexts)
+            for index in range(len(contexts))
         }
         for future in as_completed(futures):
             index = futures[future]
