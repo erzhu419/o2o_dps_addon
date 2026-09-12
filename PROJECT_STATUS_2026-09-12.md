@@ -135,6 +135,8 @@ Warrior 主实验使用 `wowsims-turtle`。动态桥已经支持：
 
 需要特别说明：协议中“准备了 1000 final seeds”不等于已经执行正式 1000-seed final confirmation。正式 final 只允许在候选与协议封存后，收集与当前 50 raid/组件不相交的 **恰好 50 个完整新 UTK raids**，并覆盖至少 20 个新的 guild/player leakage components；当前 84 个描述性 corpus 和 68 个训练 cohort 不能回填充当这批 final corpus。
 
+当前 `fury_multiseed_protocol_v3.json` 仍是 `DRAFT_BLOCKED`，`scientific_runs_started=false`；256/256/1000 是预注册的开发、选择与最终预算，不是已经发生的策略成绩。当前 Cat、两版 Contra 和 Chronicle historical baseline 也都尚未获得该正式协议的 `comparison_eligible=true`。
+
 ## 4. 用户要求如何改变了项目
 
 | 用户要求 | 已做改变 | 尚未完成 |
@@ -184,7 +186,7 @@ Warrior 主实验使用 `wowsims-turtle`。动态桥已经支持：
 
 ### 5.3 singleton-health 小型 smoke
 
-另一个仅 9 rollout 的单族 singleton-health smoke 中，候选同样输给 Cat；规划中的 144-rollout 扩展并未启动。这是独立于 absolute-seed 回放的目标生命语义诊断。
+另一个仅 1 family × 1 seed × 3 health × 3 policies = 9 rollouts 的 singleton-health smoke 中，candidate-Cat 加权 DPS 差为 −382.585196，TTK 胜/平/负为 1/0/2；smoke 失败，规划中的 144-rollout 扩展并未启动。这是独立于 absolute-seed 回放的目标生命语义诊断。
 
 ### 5.4 最近策略搜索与 3 × 256-seed Horizon-v2 确认
 
@@ -218,6 +220,8 @@ Warrior 主实验使用 `wowsims-turtle`。动态桥已经支持：
 | 离线高手 | 只有行为预测校准；尚无同装备 dynamic simulator lane | **不可比** |
 
 因此，算法已经找到“对 Contra_new 有明显改善、对 Cat 非常接近”的参数化策略，但没找到通过双 baseline 门禁的策略。当前正确产物是 `NO_SELECTION`，不是把 `ww_wait_cat_timing` 强行当作新 brain。即使合成 lanes 使用同一 simulator request/装备/天赋和 matched seeds，也没有真实客户端 exact proc/runtime fidelity 或历史玩家同装备对照。
+
+“同装备”只能在各自实验内部理解：旧 duration/literal 回放使用旧 proc-free clean-dual profile，最新 Horizon-v2 使用当前削骨之刃 loadout，不能把两批绝对 DPS 横向相减；而历史高手目前没有任何同装备 DPS lane。
 
 ## 6. 本次完整并行队友响应训练
 
