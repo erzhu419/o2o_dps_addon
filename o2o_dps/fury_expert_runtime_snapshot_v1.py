@@ -30,10 +30,16 @@ from .cat_deployed_source_manifest_v1 import (
     load_manifest as load_cat_manifest,
 )
 from .import_savedvariables import SavedVariablesImportError, _LuaTable, _Parser
+from .wowsims_profile import (
+    ProfileSelection,
+    WowsimsProfileError,
+    build_wowsims_profile,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "fury_expert_runtime_snapshot/v1"
+IMPLEMENTATION_REVISION = "v1.1_same_character_savedvariables_and_build_capture"
 DEFAULT_WOWSIMS_PROFILE = PROJECT_ROOT / "configs/wowsims/fury_warrior_live.json"
 DEFAULT_WOWSIMS_METADATA = (
     PROJECT_ROOT / "configs/wowsims/fury_warrior_live.metadata.json"
@@ -371,6 +377,213 @@ def _fixed_build(profile: Mapping[str, Any], metadata: Mapping[str, Any]) -> dic
     }
 
 
+def _load_build_capture_record(
+    metadata: Mapping[str, Any],
+) -> tuple[dict[str, Any], Path, int]:
+    source = metadata.get("source")
+    if not isinstance(source, Mapping):
+        raise FuryExpertRuntimeSnapshotError(
+            "wowsims metadata lacks its static build capture source"
+        )
+    raw_path = source.get("calibration_jsonl")
+    line_number = source.get("line_number")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise FuryExpertRuntimeSnapshotError(
+            "wowsims metadata source lacks calibration_jsonl"
+        )
+    if isinstance(line_number, bool) or not isinstance(line_number, int) or line_number <= 0:
+        raise FuryExpertRuntimeSnapshotError(
+            "wowsims metadata source line_number must be positive"
+        )
+    candidate = Path(raw_path).expanduser()
+    capture_path = (
+        candidate.resolve()
+        if candidate.is_absolute()
+        else (PROJECT_ROOT / candidate).resolve()
+    )
+    try:
+        with capture_path.open("r", encoding="utf-8") as handle:
+            line = next(
+                (value for index, value in enumerate(handle, start=1) if index == line_number),
+                None,
+            )
+    except (OSError, UnicodeDecodeError) as error:
+        raise FuryExpertRuntimeSnapshotError(
+            f"cannot read static build capture {capture_path}: {error}"
+        ) from error
+    if line is None:
+        raise FuryExpertRuntimeSnapshotError(
+            f"static build capture has no line {line_number}: {capture_path}"
+        )
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError as error:
+        raise FuryExpertRuntimeSnapshotError(
+            f"static build capture line {line_number} is not JSON: {error}"
+        ) from error
+    if not isinstance(record, dict):
+        raise FuryExpertRuntimeSnapshotError("static build capture record must be an object")
+    if record.get("event") != source.get("event") or record.get("sequence") != source.get(
+        "sequence"
+    ):
+        raise FuryExpertRuntimeSnapshotError(
+            "wowsims metadata source pointer does not match the build capture record"
+        )
+    return record, capture_path, line_number
+
+
+def _same_character_context(
+    *,
+    cat_path: Path,
+    contra_path: Path,
+    profile: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    if cat_path.parent != contra_path.parent:
+        raise FuryExpertRuntimeSnapshotError(
+            "Cat and Contra SavedVariables must come from the same character directory"
+        )
+    savedvariables = cat_path.parent
+    if savedvariables.name.casefold() != "savedvariables":
+        raise FuryExpertRuntimeSnapshotError(
+            "Cat and Contra inputs must be inside a character SavedVariables directory"
+        )
+    if cat_path.name.casefold() != "cat.lua" or contra_path.name.casefold() != "contra.lua":
+        raise FuryExpertRuntimeSnapshotError(
+            "runtime inputs must be the Cat.lua and Contra.lua character files"
+        )
+    character_directory = savedvariables.parent
+    realm_directory = character_directory.parent
+    if not character_directory.name or not realm_directory.name:
+        raise FuryExpertRuntimeSnapshotError(
+            "SavedVariables path lacks realm and character directories"
+        )
+
+    capture, capture_path, line_number = _load_build_capture_record(metadata)
+    state = capture.get("state")
+    if not isinstance(state, Mapping):
+        raise FuryExpertRuntimeSnapshotError("static build capture lacks state")
+    identity = state.get("characterIdentity")
+    if not isinstance(identity, Mapping):
+        raise FuryExpertRuntimeSnapshotError(
+            "static build capture lacks characterIdentity"
+        )
+    capture_name = identity.get("name")
+    if capture_name != character_directory.name:
+        raise FuryExpertRuntimeSnapshotError(
+            "static build capture character does not match the SavedVariables directory"
+        )
+    if identity.get("classFile") != "WARRIOR":
+        raise FuryExpertRuntimeSnapshotError(
+            "static build capture is not a Warrior"
+        )
+    player_guid = state.get("playerGUID")
+    if not isinstance(player_guid, str) or not player_guid.strip():
+        raise FuryExpertRuntimeSnapshotError(
+            "static build capture lacks playerGUID"
+        )
+
+    observed = metadata.get("observed_character")
+    observed_identity = observed.get("identity") if isinstance(observed, Mapping) else None
+    if not isinstance(observed_identity, Mapping):
+        raise FuryExpertRuntimeSnapshotError(
+            "wowsims metadata lacks observed_character.identity"
+        )
+    for field in ("classFile", "raceFile", "level"):
+        if observed_identity.get(field) != identity.get(field):
+            raise FuryExpertRuntimeSnapshotError(
+                f"wowsims metadata observed identity differs from build capture on {field}"
+            )
+    counts = observed.get("static_counts")
+    if not isinstance(counts, Mapping):
+        raise FuryExpertRuntimeSnapshotError(
+            "wowsims metadata lacks observed static_counts"
+        )
+    for field in ("equipment", "talents"):
+        rows = state.get(field)
+        if not isinstance(rows, list) or counts.get(field) != len(rows):
+            raise FuryExpertRuntimeSnapshotError(
+                f"wowsims metadata {field} count differs from build capture"
+            )
+
+    selection = ProfileSelection(
+        path=capture_path,
+        line_number=line_number,
+        record=dict(capture),
+        selection_mode="runtime_snapshot_exact_source_record",
+    )
+    try:
+        recomputed_request, recomputed_metadata = build_wowsims_profile(
+            profile, selection
+        )
+    except WowsimsProfileError as error:
+        raise FuryExpertRuntimeSnapshotError(
+            f"cannot recompute fixed build from its capture: {error}"
+        ) from error
+    try:
+        supplied_player = profile["raid"]["parties"][0]["players"][0]
+        recomputed_player = recomputed_request["raid"]["parties"][0]["players"][0]
+        supplied_options = supplied_player["warrior"]["options"]
+        recomputed_options = recomputed_player["warrior"]["options"]
+    except (KeyError, IndexError, TypeError) as error:
+        raise FuryExpertRuntimeSnapshotError(
+            "wowsims profile lacks the first Warrior player static projection"
+        ) from error
+    for field in ("race", "class", "equipment", "talentsString"):
+        if supplied_player.get(field) != recomputed_player.get(field):
+            raise FuryExpertRuntimeSnapshotError(
+                f"fixed build {field} differs from the exact static capture projection"
+            )
+    if supplied_options.get("ravagerRank") != recomputed_options.get("ravagerRank"):
+        raise FuryExpertRuntimeSnapshotError(
+            "fixed build ravagerRank differs from the exact static capture projection"
+        )
+    recomputed_mapped = recomputed_metadata.get("mapped")
+    supplied_mapped = metadata.get("mapped")
+    if not isinstance(recomputed_mapped, Mapping) or not isinstance(
+        supplied_mapped, Mapping
+    ):
+        raise FuryExpertRuntimeSnapshotError("wowsims mapped metadata is malformed")
+    for field in (
+        "race",
+        "class",
+        "equipment_slots",
+        "talents_string",
+        "talent_trees",
+    ):
+        if supplied_mapped.get(field) != recomputed_mapped.get(field):
+            raise FuryExpertRuntimeSnapshotError(
+                f"wowsims mapped metadata differs from static capture on {field}"
+            )
+
+    semantic_capture = {
+        "character_identity": dict(identity),
+        "player_guid": player_guid,
+        "equipment": state.get("equipment"),
+        "talents": state.get("talents"),
+    }
+    context_core = {
+        "realm_directory": realm_directory.name,
+        "character_directory": character_directory.name,
+        "player_guid": player_guid,
+        "build_capture_semantic_sha256": sha256_json(semantic_capture),
+    }
+    return {
+        "status": "BOUND_SAME_CHARACTER_DIRECTORY_AND_BUILD_CAPTURE",
+        **context_core,
+        "character_context_id": sha256_json(context_core),
+        "savedvariables_parent_contract": (
+            "CAT_AND_CONTRA_SHARE_EXACT_REALM_CHARACTER_SAVEDVARIABLES_PARENT"
+        ),
+        "build_capture_source": {
+            "logical_path": str(metadata["source"]["calibration_jsonl"]),
+            "line_number": line_number,
+            "event": capture.get("event"),
+            "sequence": capture.get("sequence"),
+        },
+    }
+
+
 def capture_runtime_snapshot(
     *,
     cat_savedvariables: str | Path,
@@ -384,8 +597,8 @@ def capture_runtime_snapshot(
 ) -> dict[str, Any]:
     """Read and bind all supplied mutable files into one deterministic record."""
 
-    cat_bytes, _ = _stable_read(cat_savedvariables, "Cat SavedVariables")
-    contra_bytes, _ = _stable_read(contra_savedvariables, "Contra SavedVariables")
+    cat_bytes, cat_path = _stable_read(cat_savedvariables, "Cat SavedVariables")
+    contra_bytes, contra_path = _stable_read(contra_savedvariables, "Contra SavedVariables")
     profile_bytes, _ = _stable_read(wowsims_profile, "wowsims profile")
     metadata_bytes, _ = _stable_read(wowsims_metadata, "wowsims metadata")
     config_bytes, _ = _stable_read(config_wtf, "Config.wtf")
@@ -404,9 +617,16 @@ def capture_runtime_snapshot(
     profile = _strict_json(profile_bytes, "wowsims profile")
     metadata = _strict_json(metadata_bytes, "wowsims metadata")
     np_settings = _nampower_settings(config_bytes)
+    character_context = _same_character_context(
+        cat_path=cat_path,
+        contra_path=contra_path,
+        profile=profile,
+        metadata=metadata,
+    )
 
     document: dict[str, Any] = {
         "schema": SCHEMA,
+        "implementation_revision": IMPLEMENTATION_REVISION,
         "authority": {
             "state": "LOCAL_MUTABLE_RUNTIME_IDENTITY_CAPTURE",
             "source_execution_observed": False,
@@ -421,6 +641,7 @@ def capture_runtime_snapshot(
             ).hexdigest(),
             "cat_toc_closure_sha256": manifest["identity"]["toc_closure"]["sha256"],
         },
+        "character_context": character_context,
         "inputs": {
             "cat_savedvariables": {
                 "logical_path": "%WOW_CHARACTER_SAVEDVARIABLES%\\Cat.lua",

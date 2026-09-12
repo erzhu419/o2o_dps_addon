@@ -1824,3 +1824,69 @@ claim follows from it. The next controlled step is a full current-contract
 External V2 rebuild from the 84-instance descriptive union while preserving
 the frozen 68-instance training mask, followed by its own strict validation;
 only a later authorized stage may train or compare policies.
+
+## Build-conditioned roadmap admission checkpoint (2026-09-12)
+
+The GPT6 second diagnosis/implementation plan is now the active architecture,
+but its stages remain evidence-gated. `historical_build_catalog_v1` turns the
+84-instance CombatantInfo corpus into causal player/raid/build segments;
+`wowsims_mechanics_coverage_registry_v1` separates known definitions,
+implemented effects, calibrated scopes, and comparison eligibility;
+`build_request_composer_v1` composes character, raid, encounter, execution,
+and objective inputs without inheriting a template character. Cosmetic shirt
+and tabard evidence is retained but cannot block simulator execution.
+
+The current catalog has 91,577 segments, including 19,014 Warrior segments.
+No Warrior build is yet admitted for execution because build 7272's Chronicle
+talent strings use client `GetTalentInfo(tab,index)` order and no exact
+position map has yet been admitted. The representative selector therefore
+returns `BLOCKED_NO_ELIGIBLE_BUILDS`; it never averages equipment or silently
+uses raw talent indices. On the next in-game `/reload`, BrainOfCat writes one
+complete rank-0-inclusive talent tree and client-build snapshot directly to
+`WoW/CustomData/BrainOfCatStaticProfiles.jsonl`. Because this append-only file
+is shared by characters while its sequence counter is per-character, the
+consumer requires the expected player GUID and client build, filters on both,
+and then selects that character's last physical record. The position mapper
+accepts Chronicle order only from a pinned recorder-self serializer row;
+multi-player rank-shape agreement remains diagnostic and cannot admit a map.
+That evidence is consumed before the registry and catalog are rebuilt.
+
+```powershell
+python -m o2o_dps.p0_static_admission_pipeline_v1 `
+  --expected-player-guid 0x0000000000654E8A `
+  --expected-client-build 7272
+```
+
+`historical_fury_expert_cohort_v2` has frozen an identity/performance-only
+post-fix cohort from the exact DPS index: 936 observations, 111 exact-GUID
+Fury players, and 24 raids. It does not invent action requests, queue intent,
+or a complete expert from DPS rankings. A separate
+`historical_warrior_reference_cohort_v1` pins `托尼牛`, `桃姬儿`, and
+`围观群众三爷` by exact GUID: the 30 clean observations are all Arms from
+one September 9 raid, while 110 pre-fix observations remain excluded.
+`historical_named_warrior_episode_adapter_v1` has joined that raid to the local
+External-V2 stream: 55 waves become 165 exact-GUID Arms episodes with 4,076
+server-observed START events and 13,321 GO/FAIL outcomes. Of the START events,
+3,980 map to ontology-confirmed controllable actions and may serve only as a
+server-timestamped policy-label proxy; 96 unmapped START events remain
+unclassified observations with `policy_decision_label=false`. GO/FAIL is
+outcome only, and every feature snapshot is a strict prefix. Client requests,
+next-swing queue set/replace/cancel, and target-switch intent are not observed
+and are never inferred from these events. These remain historical Arms
+observations without a matched build/team counterfactual, not a Fury policy
+lane.
+
+```powershell
+python -m o2o_dps.historical_named_warrior_episode_adapter_v1
+```
+
+`fair_baseline_gate_v1` is deliberately declaration-only. It checks whether
+Cat, deployed Contra, Contra260817, the historical expert, and the candidate
+declare the same character/raid/encounter/execution/objective/seeds, but it
+does not open receipts and therefore never admits evidence. Its current result
+is `REFUSE_COMPARISON` (0/5 admitted). A future evidence gate v2 must validate
+producer artifacts and the complete scenario-by-seed-by-lane closure. Frozen
+protocol v3 still names the old `4c70ae...` character context while the
+corrected same-character runtime snapshot is `e52f07...`. Readable
+user-supplied Contra source resolves source visibility; it does not by itself
+prove client-runtime parity or full Raid-B coverage.

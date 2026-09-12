@@ -35,7 +35,12 @@ CONTENT_ADDRESS_ALGORITHM = "sha256-canonical-json-v1"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ADDONS_ROOT = PROJECT_ROOT.parents[1]
 DEFAULT_PROTOCOL = PROJECT_ROOT / "configs/evaluation/fury_multiseed_protocol_v2.json"
-DEFAULT_EXPERT_MANIFEST = PROJECT_ROOT / "configs/experts/fury_experts_v1.json"
+# V3 is a frozen historical report.  Keep its exact expert-registry bytes
+# separate from the living registry used by newer runtime-bound work.
+DEFAULT_EXPERT_MANIFEST = (
+    PROJECT_ROOT
+    / "configs/experts/fury_experts_v1.baseline_readiness_v3_frozen.json"
+)
 DEFAULT_RUNTIME_SNAPSHOT = (
     PROJECT_ROOT
     / "offline_data/expert_runtime_snapshots/v1"

@@ -88,9 +88,12 @@ def _write(path: Path, value: bytes | str) -> None:
 
 class FuryExpertRuntimeSnapshotV1Tests(unittest.TestCase):
     def _inputs(self, root: Path) -> dict[str, Path]:
+        savedvariables = (
+            root / "Account" / "RealmOne" / "CharacterOne" / "SavedVariables"
+        )
         paths = {
-            "cat_savedvariables": root / "Cat.lua",
-            "contra_savedvariables": root / "Contra.lua",
+            "cat_savedvariables": savedvariables / "Cat.lua",
+            "contra_savedvariables": savedvariables / "Contra.lua",
             "wowsims_profile": root / "profile.json",
             "wowsims_metadata": root / "metadata.json",
             "config_wtf": root / "Config.wtf",
@@ -99,23 +102,73 @@ class FuryExpertRuntimeSnapshotV1Tests(unittest.TestCase):
         }
         _write(paths["cat_savedvariables"], _cat_source())
         _write(paths["contra_savedvariables"], _contra_source())
+        equipment = [{} for _ in range(17)]
+        equipment[0] = {"id": 1}
+        equipment[14] = {"id": 2}
         player = {
             "name": "FuryResearchCharacter",
             "race": "RaceGnome",
-            "talentsString": "30205020332-05050005025010051",
-            "equipment": {"items": [{"id": 1}, {"id": 2}]},
-            "warrior": {"options": {"ravagerRank": 2}},
+            "class": "ClassWarrior",
+            "talentsString": "3",
+            "equipment": {"items": equipment},
+            "warrior": {"options": {"ravagerRank": 0}},
         }
         profile = {"raid": {"parties": [{"players": [player]}]}}
         metadata = {
             "mapped": {
                 "name": player["name"],
                 "race": player["race"],
+                "class": player["class"],
                 "talents_string": player["talentsString"],
+                "equipment_slots": 17,
+                "talent_trees": {"arms": "3", "fury": "", "protection": ""},
             },
-            "source": {"event": "STATIC_PROFILE_CAPTURED"},
-            "talent_option_mappings": [{"semantic": "ravager", "value": 2}],
+            "source": {
+                "calibration_jsonl": str(root / "calibration.jsonl"),
+                "line_number": 1,
+                "event": "STATIC_PROFILE_CAPTURED",
+                "sequence": 7,
+            },
+            "observed_character": {
+                "identity": {
+                    "name": player["name"],
+                    "classFile": "WARRIOR",
+                    "raceFile": "Gnome",
+                    "level": 60,
+                },
+                "static_counts": {"equipment": 2, "talents": 1},
+            },
+            "talent_option_mappings": [],
         }
+        capture = {
+            "event": "STATIC_PROFILE_CAPTURED",
+            "sequence": 7,
+            "state": {
+                "playerGUID": "0x00000000000000A1",
+                "characterIdentity": {
+                    "name": "CharacterOne",
+                    "classFile": "WARRIOR",
+                    "raceFile": "Gnome",
+                    "level": 60,
+                },
+                "equipment": [
+                    {"slot": 1, "link": "|Hitem:1:0:0:0|h[Test Head]|h"},
+                    {"slot": 16, "link": "|Hitem:2:0:0:0|h[Test Weapon]|h"},
+                ],
+                "talents": [
+                    {
+                        "tab": 1,
+                        "index": 1,
+                        "tier": 1,
+                        "column": 1,
+                        "name": "Improved Heroic Strike",
+                        "rank": 3,
+                        "maxRank": 3,
+                    }
+                ],
+            },
+        }
+        _write(root / "calibration.jsonl", json.dumps(capture) + "\n")
         _write(paths["wowsims_profile"], json.dumps(profile))
         _write(paths["wowsims_metadata"], json.dumps(metadata))
         _write(
@@ -140,7 +193,14 @@ class FuryExpertRuntimeSnapshotV1Tests(unittest.TestCase):
         self.assertFalse(
             result["contra_current_profile"]["adapter_core_projection"]["xuanfeng"]
         )
-        self.assertEqual(result["fixed_character_build"]["equipment_slot_count"], 2)
+        self.assertEqual(result["fixed_character_build"]["equipment_slot_count"], 17)
+        self.assertEqual(
+            result["character_context"]["status"],
+            "BOUND_SAME_CHARACTER_DIRECTORY_AND_BUILD_CAPTURE",
+        )
+        self.assertEqual(
+            result["character_context"]["character_directory"], "CharacterOne"
+        )
         self.assertEqual(result["nampower_cvars"]["NP_QueueSpellsOnCooldown"], "0")
         self.assertFalse(result["authority"]["comparison_eligible"])
         self.assertTrue(result["remaining_blockers"])
@@ -191,7 +251,48 @@ class FuryExpertRuntimeSnapshotV1Tests(unittest.TestCase):
             metadata = json.loads(inputs["wowsims_metadata"].read_text())
             metadata["mapped"]["race"] = "RaceOrc"
             inputs["wowsims_metadata"].write_text(json.dumps(metadata))
-            with self.assertRaisesRegex(FuryExpertRuntimeSnapshotError, "does not match"):
+            with self.assertRaisesRegex(FuryExpertRuntimeSnapshotError, "differs"):
+                capture_runtime_snapshot(**inputs)
+
+    def test_cross_character_savedvariables_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = self._inputs(root)
+            other = root / "Account" / "RealmOne" / "Other" / "SavedVariables" / "Contra.lua"
+            _write(other, _contra_source())
+            inputs["contra_savedvariables"] = other
+            with self.assertRaisesRegex(
+                FuryExpertRuntimeSnapshotError, "same character directory"
+            ):
+                capture_runtime_snapshot(**inputs)
+
+    def test_build_capture_character_must_match_savedvariables_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = self._inputs(root)
+            capture_path = root / "calibration.jsonl"
+            capture = json.loads(capture_path.read_text(encoding="utf-8"))
+            capture["state"]["characterIdentity"]["name"] = "Other"
+            capture_path.write_text(json.dumps(capture) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                FuryExpertRuntimeSnapshotError,
+                "build capture character does not match",
+            ):
+                capture_runtime_snapshot(**inputs)
+
+    def test_same_counts_but_different_profile_equipment_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = self._inputs(root)
+            profile = json.loads(inputs["wowsims_profile"].read_text(encoding="utf-8"))
+            profile["raid"]["parties"][0]["players"][0]["equipment"]["items"][0] = {
+                "id": 999
+            }
+            inputs["wowsims_profile"].write_text(json.dumps(profile), encoding="utf-8")
+            with self.assertRaisesRegex(
+                FuryExpertRuntimeSnapshotError,
+                "equipment differs from the exact static capture projection",
+            ):
                 capture_runtime_snapshot(**inputs)
 
 

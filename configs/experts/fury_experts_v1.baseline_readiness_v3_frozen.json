@@ -57,7 +57,7 @@
       "expert_id": "contra.deployed.fury.raid_a",
       "role": "DEPLOYED",
       "provenance_kind": "SOURCE_DERIVED",
-      "availability": "RUNTIME_BOUND_RAID_A_SOURCE_TRANSLATION",
+      "availability": "BOUNDED_SOURCE_TRANSLATION",
       "eligible_for_independent_vote": true,
       "authority": {
         "toc": "%WOW_ADDONS_ROOT%\\Contra\\Contra.toc",
@@ -70,32 +70,8 @@
       "frozen_profile": {
         "mode": "副本模式",
         "xuanfeng": false,
-        "burst": false,
-        "survival": false,
-        "interrupt": false,
-        "legacy_lowercase_baofa": true,
-        "legacy_lowercase_shengcun": true,
+        "baofa": true,
         "autoselect": false
-      },
-      "source_verification": {
-        "schema": "deployed_contra_source_verification/v1",
-        "loaded_source_closure_sha256": "9effdc685cd39cb922acda9969eb210e0ee0cbbfcb98ba7b40db0611e32e9b5a",
-        "source_manifest_sha256": "8b340237a5f291a6b271e74e19805d82db6b748e3c81a587f4c99073d6c531a9",
-        "archive_result": "INSTALLED_AND_ARCHIVE_LOADED_SOURCE_EQUIVALENT",
-        "source_visibility_blocked": false
-      },
-      "runtime_binding": {
-        "schema": "deployed_contra_runtime_binding/v1",
-        "binding_sha256": "951b8faaec9d830a84c9b5ebe5ae3472be112077d173313b88592227b821271f",
-        "runtime_snapshot_sha256": "e52f071463b8c154dbd54acff2ff9a48604c62889d39a105b0092801a5753609",
-        "character_context_id": "f94e1fdd4237e5d09fc10a12ec6ae082c61d64989edefb139cc70a37e652e317",
-        "build_capture_semantic_sha256": "e98ccc9df02a3328e3f40ac6bcc6086896fef8809cd4f6ede3727c5df6716519",
-        "same_character_configuration_bound": true,
-        "same_character_runtime_parity_proven": false,
-        "queue_on_swing": true,
-        "queue_spells_on_cooldown": false,
-        "retry_server_rejected_spells": false,
-        "case_sensitive_buttons_consumed": true
       },
       "source_refs": [
         "Contra_ALL.lua:31277-31346",
@@ -103,8 +79,8 @@
         "Contra_ALL.lua:32049-32074",
         "Contra_ALL.lua:36383-36431"
       ],
-      "bounded_scope": "runtime-bound v7 implements raid-A two-hand boss/dummy and dual-wield bodies with supplied prelude-helper outputs; source also has three non-boss max-health branches pending state reconstruction",
-      "known_boundary": "source visibility is resolved and Contra remains a required strong baseline. Raid-B multi-target and enabled Burst/Survive helper bodies are explicit blockers; public macro entry and exact client acceptance are not yet proven. UnitHealthMax, true health percent, classification, and loadout-derived ZSSDW must be reconstructed before non-boss branches can be ranked; the LastCastName disjunction is preserved as written"
+      "bounded_scope": "current adapter implements raid-A two-hand boss/dummy and dual-wield bodies with supplied prelude-helper outputs; source also has three non-boss max-health branches pending state reconstruction",
+      "known_boundary": "Contra remains a required strong baseline. UnitHealthMax, true health percent, classification, and loadout-derived ZSSDW must be reconstructed before the non-boss branches can be ranked; the LastCastName disjunction is preserved as written"
     },
     {
       "expert_id": "contra_new.fury.candidate",

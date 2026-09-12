@@ -1,0 +1,39 @@
+{
+  "schema": "historical_warrior_reference_players/v1",
+  "implementation_revision": "historical_warrior_reference_players_v1.0_named_guid_pins",
+  "instance_name": "Upper Tower of Karazhan",
+  "selection": {
+    "identity_seed": "exact_character_name_then_pinned_exact_character_guid",
+    "identity_after_resolution": "exact_character_guid_only",
+    "raid_date_field": "started_at",
+    "started_at_not_before_local": "2026-09-03T12:00:00+08:00",
+    "accepted_contamination_labels": [
+      "POSTFIX_KNOWN_CLEAN"
+    ],
+    "pre_fix_rows": "COUNT_AS_EXCLUDED_EVIDENCE_NEVER_SELECT"
+  },
+  "players": [
+    {
+      "requested_name": "托尼牛",
+      "expected_character_guid": "0x000000000056DEB3",
+      "purpose": "user_nominated_postfix_warrior_identity_performance_and_raid_reference"
+    },
+    {
+      "requested_name": "桃姬儿",
+      "expected_character_guid": "0x00000000007395BF",
+      "purpose": "user_nominated_postfix_warrior_identity_performance_and_raid_reference"
+    },
+    {
+      "requested_name": "围观群众三爷",
+      "expected_character_guid": "0x000000000055DA7A",
+      "purpose": "user_nominated_postfix_warrior_reference_with_explicit_prefix_contamination_exclusion"
+    }
+  ],
+  "use_boundaries": {
+    "identity_and_raid_reference": true,
+    "fury_policy_baseline": false,
+    "action_trace_available": false,
+    "queue_intent_available": false,
+    "direct_same_spec_dps_win_loss": false
+  }
+}

@@ -19,6 +19,17 @@ directories under `D:\WOW\Interface\AddOns`, not the research copies nested in
   directory as well as the filename.
 - `Contra.lua` is single-line minified/obfuscated Lua source, not Lua bytecode.
 
+The user-supplied `Contra_pirate.zip` is not a fourth Contra version. The
+source verifier found all 20 non-directory archive members byte-identical to
+the installed sibling package, including the TOC-loaded `Contra_ALL.lua`.
+`deployed_contra_source_manifest_v1` now pins that loaded closure as
+`9effdc685cd39cb922acda9969eb210e0ee0cbbfcb98ba7b40db0611e32e9b5a`
+and the source manifest as
+`8b340237a5f291a6b271e74e19805d82db6b748e3c81a587f4c99073d6c531a9`.
+This removes source visibility or "decryption" as a reason to exclude the
+installed Contra policy. The archive remains a local third-party input and is
+not published by this repository.
+
 The nested minified `Contra.lua` and nested readable `Contra_ALL.lua` have a
 high-confidence match for the Warrior rotation, macro dispatch, and talent
 segments after lexical normalization, but the whole files are not equivalent.
@@ -27,6 +38,30 @@ artifact. In particular, its queued Warrior action path and access table differ
 from both nested files. Current expert labels must therefore come from the
 installed file or from an opt-in black-box action trace, never from an assumed
 whole-file equivalence.
+
+The current Warrior runtime snapshot is bound separately from source identity.
+For snapshot `e52f071463b8c154dbd54acff2ff9a48604c62889d39a105b0092801a5753609`,
+the effective table is `ContraDB.Warrior.Buttons`. The deployed Lua reads the
+case-sensitive keys `Burst`, `Survive`, and `interrupt`; those keys are absent,
+so all three runtime gates are false. The older projection that substituted
+lower-case `baofa`/`shengcun` was wrong. `xuanfeng` is false, and the five
+captured Nampower queue CVars exactly match the values initialized by the
+loaded source. The resulting runtime binding is
+`951b8faaec9d830a84c9b5ebe5ae3472be112077d173313b88592227b821271f`.
+The generator now requires Cat and Contra SavedVariables from the same
+character directory and recomputes the complete equipment/talent/static
+profile projection from the exact CustomData capture. This proves the bound
+configuration is for one character; it still does not prove exact Lua client
+runtime parity.
+
+The additive v7 adapter consumes that binding on every proposal and has an
+isolated request/build/seed/dynamic-load cache identity. It currently covers
+the translated Raid-A controller only. Raid-B is a separate multi-target body
+and remains `RAID_B_CONTROLLER_NOT_IMPLEMENTED_V7`; enabled Burst or Survive
+helpers also remain explicit blockers until their bodies are translated. Thus
+the deployed policy is now source-comparable inside the implemented Raid-A
+domain, while public macro entry, exact client acceptance, and full controller
+coverage remain separate validation work.
 
 ## `Contra_new` expert value
 

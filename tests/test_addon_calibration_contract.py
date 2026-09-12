@@ -442,6 +442,22 @@ class AddonCalibrationContractTests(unittest.TestCase):
         self.assertIn("tooltipText = CaptureBagItemTooltip", source)
         self.assertIn("state.equipment = CaptureEquipment(true)", source)
         self.assertIn("state.talents = CaptureTalents(true)", source)
+        self.assertIn(
+            "state.talentDefinitions = CaptureTalents(false, true)", source
+        )
+        self.assertIn(
+            'state.fieldProvenance.talentDefinitions = "OBSERVED_FULL_TALENT_TREE_API"',
+            source,
+        )
+        self.assertIn('state.fieldProvenance.clientBuild = "OBSERVED_GETBUILDINFO_API"', source)
+        self.assertIn("local clientVersion, clientBuild, clientBuildDate, interfaceVersion = GetBuildInfo()", source)
+        self.assertIn(
+            'logger.StaticProfileExportFileName = "BrainOfCatStaticProfiles.jsonl"',
+            source,
+        )
+        self.assertIn('record.exportTransport = "nampower_customdata_jsonl"', source)
+        self.assertIn('staticProfileExportFrame:RegisterEvent("PLAYER_LOGIN")', source)
+        self.assertIn('"automatic_player_login"', source)
         self.assertIn("itemInfo = CaptureItemInfo(link)", source)
         self.assertIn("local function ResetTooltipTextRegions(tooltip)", source)
         tooltip_capture = source.split(
@@ -624,6 +640,17 @@ local final
             len(local_names),
             200,
             "CalibrationTasks.lua outer chunk reached Vanilla Lua's local-variable "
+            f"limit: count={len(local_names)}, tail={local_names[-12:]}",
+        )
+
+    def test_logger_chunk_stays_below_vanilla_lua_local_limit(self) -> None:
+        local_names = _lua_chunk_top_level_local_names(
+            LOGGER.read_text(encoding="utf-8")
+        )
+        self.assertLess(
+            len(local_names),
+            200,
+            "CalibrationLogger.lua outer chunk reached Vanilla Lua's local-variable "
             f"limit: count={len(local_names)}, tail={local_names[-12:]}",
         )
 
