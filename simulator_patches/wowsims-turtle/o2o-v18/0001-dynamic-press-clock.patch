@@ -1,0 +1,272 @@
+diff --git a/sim/o2o/environment.go b/sim/o2o/environment.go
+index 02a6dd6..550f112 100644
+--- a/sim/o2o/environment.go
++++ b/sim/o2o/environment.go
+@@ -225,6 +225,7 @@ type pressClockRuntime struct {
+ 	index    int64
+ 	ready    bool
+ 	nextTime time.Duration
++	pending  *core.PendingAction
+ }
+ 
+ func New(request *proto.RaidSimRequest, seed int64) (*Environment, error) {
+@@ -320,13 +321,12 @@ func (env *Environment) player() core.Agent {
+ 
+ // ConfigurePressClock opts this environment into a fixed external key schedule.
+ // Configure it before any policy action; the default interactive mode is unchanged.
++// In dynamic-v3, every tick remains a policy opportunity even with no
++// attackable target; the default mode's central no-policy idle is not entered.
+ func (env *Environment) ConfigurePressClock(periodMS, phaseMS int64) error {
+ 	if env.finished || env.pressClock != nil {
+ 		return errors.New("press clock requires a live, unconfigured environment")
+ 	}
+-	if env.dynamicV3 != nil || env.dynamicTeamResponse != nil {
+-		return errors.New("press clock does not yet integrate dynamic idle or responsive team wakes")
+-	}
+ 	if periodMS <= 0 || periodMS > 60_000 || phaseMS < 0 || phaseMS >= periodMS {
+ 		return errors.New("press clock requires period_ms in 1..60000 and phase_ms in 0..period_ms-1")
+ 	}
+@@ -346,10 +346,19 @@ func (env *Environment) ConfigurePressClock(periodMS, phaseMS int64) error {
+ 
+ func (env *Environment) schedulePress() {
+ 	clock := env.pressClock
+-	env.sim.AddPendingAction(&core.PendingAction{
++	if clock == nil || clock.pending != nil || clock.ready || env.finished {
++		return
++	}
++	// An idle window can end between physical ticks. Keep the original grid;
++	// neither the environment wake nor GCD readiness grants an extra key.
++	if clock.nextTime < env.sim.CurrentTime {
++		clock.nextTime += ((env.sim.CurrentTime - clock.nextTime + clock.period - 1) / clock.period) * clock.period
++	}
++	action := &core.PendingAction{
+ 		NextActionAt: clock.nextTime,
+ 		Priority:     core.ActionPriorityLow,
+ 		OnAction: func(sim *core.Simulation) {
++			clock.pending = nil
+ 			if env.finished {
+ 				return
+ 			}
+@@ -357,7 +366,9 @@ func (env *Environment) schedulePress() {
+ 			clock.index++
+ 			sim.NeedsInput = true
+ 		},
+-	})
++	}
++	clock.pending = action
++	env.sim.AddPendingAction(action)
+ }
+ 
+ // FinishPress closes exactly one physical-key opportunity, even if its only
+@@ -376,7 +387,7 @@ func (env *Environment) FinishPress() error {
+ }
+ 
+ func (env *Environment) inputOpportunityOpen() bool {
+-	return env.sim.NeedsInput && (env.pressClock == nil || env.pressClock.ready)
++	return env.sim.NeedsInput && (env.pressClock == nil || (env.pressClock.ready && !env.dynamicTeamResponseWakeReadyV1()))
+ }
+ 
+ // AdvanceUntilDecision processes events until the policy is asked for another
+@@ -387,12 +398,15 @@ func (env *Environment) AdvanceUntilDecision() (bool, error) {
+ 		return true, nil
+ 	}
+ 	if env.pressClock != nil {
++		if env.dynamicTeamResponseWakeReadyV1() {
++			return false, nil
++		}
+ 		if env.pressClock.ready {
+ 			return false, errors.New("finish_press is required before advancing to another key")
+ 		}
+ 		for !env.pressClock.ready {
+ 			if env.dynamicTeamResponseWakeReadyV1() {
+-				return false, errors.New("responsive team wake requires separate internal processing in press-clock mode")
++				return false, nil
+ 			}
+ 			if env.sim.Step() {
+ 				env.finished = true
+@@ -402,6 +416,9 @@ func (env *Environment) AdvanceUntilDecision() (bool, error) {
+ 				env.finishDynamicIdleAdvanceV3(DynamicIdleAdvanceSimulatorTerminal)
+ 				return true, nil
+ 			}
++			if env.finished {
++				return true, nil
++			}
+ 		}
+ 		return false, nil
+ 	}
+@@ -825,6 +842,7 @@ func (env *Environment) State() State {
+ 		WakeReady:              env.dynamicTeamResponseWakeReadyStateV1(),
+ 	}
+ 	if clock := env.pressClock; clock != nil {
++		state.NeedsInput = env.inputOpportunityOpen() && !env.finished
+ 		state.PressClock = &PressClockState{
+ 			PeriodMS: clock.period.Milliseconds(), PhaseMS: clock.phaseMS,
+ 			PressIndex: clock.index, Ready: clock.ready,
+diff --git a/sim/o2o/press_clock_test.go b/sim/o2o/press_clock_test.go
+index 22e825c..5322ad3 100644
+--- a/sim/o2o/press_clock_test.go
++++ b/sim/o2o/press_clock_test.go
+@@ -140,3 +140,163 @@ func TestPressClockBusyGCDUsesNativeOnSwingQueueAcceptance(t *testing.T) {
+ 		t.Fatalf("next queue opportunity was not the next external tick: time=%d err=%v", env.State().TimeMS, err)
+ 	}
+ }
++
++func TestPressClockDynamicV3KeepsTicksAcrossUnattackableWindow(t *testing.T) {
++	config := boundDynamicV3Config(t, DynamicRetargetRequireExplicit, 200,
++		[]float64{1000},
++		[]BackgroundDamageEventV1{
++			{ScheduleIndex: 0, TimeMS: 25, TargetIndex: 0, EventID: "blocked", Damage: 100},
++			{ScheduleIndex: 1, TimeMS: 100, TargetIndex: 0, EventID: "restored", Damage: 50},
++		},
++		[]DynamicAttackabilityEventV2{
++			{ScheduleIndex: 0, TimeMS: 0, TargetIndex: 0, Attackable: false},
++			{ScheduleIndex: 1, TimeMS: 100, TargetIndex: 0, Attackable: true},
++		}, nil)
++	env := newDynamicV3TestEnvironment(t, config, 1001)
++	env.player().GetCharacter().AutoAttacks.CancelAutoSwing(env.sim)
++	if err := env.ConfigurePressClock(50, 0); err != nil {
++		t.Fatal(err)
++	}
++	for index, at := range []int64{0, 50, 100} {
++		finished, err := env.AdvanceUntilDecision()
++		if err != nil || finished {
++			t.Fatalf("press %d did not arrive: finished=%t err=%v", index+1, finished, err)
++		}
++		state := env.State()
++		if state.TimeMS != at || !state.NeedsInput || state.PressClock == nil ||
++			!state.PressClock.Ready || state.PressClock.PressIndex != int64(index+1) {
++			t.Fatalf("physical tick shifted or suppressed: %+v", state)
++		}
++		if index < 2 && state.NumTargets != 0 {
++			t.Fatalf("unattackable target appeared before transition: %+v", state)
++		}
++		if index == 2 && (state.NumTargets != 1 || state.DynamicTeamBackground.BackgroundDamageApplied != 50) {
++			t.Fatalf("same-time environment effects did not precede key: %+v", state)
++		}
++		if err := env.FinishPress(); err != nil {
++			t.Fatal(err)
++		}
++	}
++	idle, err := env.DynamicIdleAdvanceReceiptsV3(0)
++	if err != nil || len(idle.Receipts) != 0 {
++		t.Fatalf("press mode incorrectly entered no-policy auto-idle: batch=%+v err=%v", idle, err)
++	}
++	background, err := env.DynamicDamageReceiptsV1(0)
++	if err != nil || len(background.Receipts) != 2 ||
++		background.Receipts[0].Status != DynamicDamageCanceledTargetUnattackable ||
++		background.Receipts[1].Status != DynamicDamageApplied {
++		t.Fatalf("background did not follow attackability order: batch=%+v err=%v", background, err)
++	}
++}
++
++func TestPressClockDynamicV3TerminatesDuringUnattackableInterval(t *testing.T) {
++	config := boundDynamicV3Config(t, DynamicRetargetNextAliveCyclic, 150,
++		[]float64{1000}, nil,
++		[]DynamicAttackabilityEventV2{{ScheduleIndex: 0, TimeMS: 0, TargetIndex: 0, Attackable: false}}, nil)
++	env := newDynamicV3TestEnvironment(t, config, 1002)
++	env.player().GetCharacter().AutoAttacks.CancelAutoSwing(env.sim)
++	if err := env.ConfigurePressClock(100, 0); err != nil {
++		t.Fatal(err)
++	}
++	for _, at := range []int64{0, 100} {
++		finished, err := env.AdvanceUntilDecision()
++		if err != nil || finished || env.State().TimeMS != at || !env.State().PressClock.Ready {
++			t.Fatalf("missing no-target physical tick %d: finished=%t state=%+v err=%v", at, finished, env.State(), err)
++		}
++		if err := env.FinishPress(); err != nil {
++			t.Fatal(err)
++		}
++	}
++	finished, err := env.AdvanceUntilDecision()
++	state := env.State()
++	if err != nil || !finished || !state.Finished || state.NeedsInput || state.TimeMS != 150 || state.PressClock.Ready {
++		t.Fatalf("horizon did not terminate before the next physical tick: finished=%t state=%+v err=%v", finished, state, err)
++	}
++}
++
++func TestPressClockResponsiveWakeIsInternalBeforeSameTimePress(t *testing.T) {
++	config := boundDynamicV4Config(t, DynamicRetargetNextAliveCyclic, 300,
++		[]float64{1000}, []float64{1000},
++		[]BackgroundDamageEventV1{{ScheduleIndex: 0, TimeMS: 100, TargetIndex: 0, EventID: "fixed", Damage: 5}})
++	env := newDynamicV4TestEnvironment(t, config)
++	env.player().GetCharacter().AutoAttacks.CancelAutoSwing(env.sim)
++	if err := env.ConfigurePressClock(100, 0); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	digest := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
++	if _, err := env.ArmDynamicTeamWakeV1(DynamicTeamWakeRequestV1{
++		Schema: DynamicTeamWakeSchemaV1, ModelContentSHA256: digest, WakeID: "wake", TimeMS: 100,
++	}); err != nil {
++		t.Fatal(err)
++	}
++	if err := env.FinishPress(); err != nil {
++		t.Fatal(err)
++	}
++	finished, err := env.AdvanceUntilDecision()
++	wake := env.State()
++	if err != nil || finished || wake.TimeMS != 100 || wake.WakeReady == nil || wake.NeedsInput ||
++		wake.PressClock.Ready || wake.PressClock.PressIndex != 1 || wake.DynamicTeamBackground.BackgroundDamageApplied != 5 {
++		t.Fatalf("responsive wake created a policy key or preceded fixed damage: finished=%t state=%+v err=%v", finished, wake, err)
++	}
++	if _, err := env.StartAttack(); err == nil {
++		t.Fatal("policy control was accepted at an internal responsive wake")
++	}
++	target := int32(0)
++	if _, err := env.EmitDynamicTeamEventV1(DynamicTeamEventRequestV1{
++		Schema: DynamicTeamEventSchemaV1, ModelContentSHA256: digest, WakeID: "wake",
++		EventID: "event", ActorGUID: "0xF100000001", EventType: "DMG", TargetIndex: &target, RequestedDamage: 10,
++	}); err != nil {
++		t.Fatal(err)
++	}
++	finished, err = env.AdvanceUntilDecision()
++	press := env.State()
++	if err != nil || finished || press.TimeMS != 100 || !press.NeedsInput ||
++		!press.PressClock.Ready || press.PressClock.PressIndex != 2 || press.DynamicTeamBackground.BackgroundDamageApplied != 15 {
++		t.Fatalf("same-time press did not follow responsive event exactly once: finished=%t state=%+v err=%v", finished, press, err)
++	}
++}
++
++func TestPressClockOffGridResponsiveWakeDoesNotShiftNextPress(t *testing.T) {
++	config := boundDynamicV3Config(t, DynamicRetargetNextAliveCyclic, 200,
++		[]float64{1000}, nil, nil, nil)
++	env := newDynamicV3TestEnvironment(t, config, 1003)
++	env.player().GetCharacter().AutoAttacks.CancelAutoSwing(env.sim)
++	if err := env.ConfigurePressClock(100, 0); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	digest := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
++	if _, err := env.ArmDynamicTeamWakeV1(DynamicTeamWakeRequestV1{
++		Schema: DynamicTeamWakeSchemaV1, ModelContentSHA256: digest, WakeID: "off-grid", TimeMS: 50,
++	}); err != nil {
++		t.Fatal(err)
++	}
++	if err := env.FinishPress(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	wake := env.State()
++	if wake.TimeMS != 50 || wake.WakeReady == nil || wake.NeedsInput || wake.PressClock.Ready || wake.PressClock.PressIndex != 1 {
++		t.Fatalf("off-grid wake became an external key: %+v", wake)
++	}
++	if _, err := env.EmitDynamicTeamEventV1(DynamicTeamEventRequestV1{
++		Schema: DynamicTeamEventSchemaV1, ModelContentSHA256: digest, WakeID: "off-grid",
++		EventID: "off-grid-event", ActorGUID: "0xF100000001", EventType: "START",
++	}); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	press := env.State()
++	if press.TimeMS != 100 || !press.NeedsInput || !press.PressClock.Ready || press.PressClock.PressIndex != 2 {
++		t.Fatalf("internal wake shifted the fixed next key: %+v", press)
++	}
++}

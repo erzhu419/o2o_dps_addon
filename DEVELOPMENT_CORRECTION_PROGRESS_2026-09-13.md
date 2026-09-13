@@ -69,3 +69,9 @@
 - Contra_new 的顺劈成功排队不消耗决策；runner 现用明确标注的固定 100 ms 代理安排下一次宏调用，并记录每路仿真调用时刻。本机 seed `2026091401` 四路均终局：Cat 4900、Contra_new 5439、部署 Contra Raid-B 2426、候选 5838 有效伤害；`comparison_ready=false`。这是模型单 seed，不取代上面的旧版 `UNSUPPORTED` 记录。
 - 修正前 v4.3 适配器的 node001 独立 `2026091801..1832` 开发批次，32/32 四路终局、0/32 通过公平比较门禁。候选相对 Cat 为 −233.84（SE 235.42，14 胜 18 负），相对 Contra_new +280.82（SE 186.86，21 胜 11 负），相对部署 Contra Raid-B +1500.70（SE 177.47，29 胜 3 负）有效伤害。四路平均仿真调用次数依次为 Cat 14.44、Contra_new 73.72、部署 Contra 105.00、候选 17.06；它们不是共同的物理按键机会，不能据此给四方真实胜负排序。逐 seed panel 只留远端 `node001/attempt-20260913-raidb-fourway-proxy-002/AddOns/BrainOfCat/o2o-dps/results/raid-b-fourway-proxy-2026091801-n32.json`，本地未拉原始数据或 checkpoint。
 - 同键旋风斩之后的 `IsCurrentAction` 是动态值：等价动作客户端探针看到它改变。v4.4 已把适配器按源顺序改成动态顺劈 guard：旋风斩接受后会继续解释顺劈调用，拒绝时保留原队列、不提交新顺劈；40 项本机相关测试通过。上述远端批次仍是 v4.3，不用作 v4.4 的确认集。Go 已加入默认关闭的外生按键时钟核心及 bridge 命令，Go 两包回归通过；Python bridge 也可配置/结束单次机会并校验回执。四路 runner 尚未接入，动态 idle/响应队友路径明确不支持此时钟；策略尚不部署到 Cat2。
+
+## 外生按键时钟继续施工
+
+- v18 Go 增量使动态 v3 波次和响应式队友事件可与固定按键网格并行：不可攻击窗口仍逐 tick 给策略机会，GCD ready／目标恢复／队友 wake 不额外造键；默认模式不变。Go `sim/o2o` 与 bridge 两包全回归通过，增量补丁存于 `simulator_patches/wowsims-turtle/o2o-v18/`。Windows 新桥 `bin/o2obridge.press-v18.exe` 独立构建，未覆盖旧版。
+- 原生桥烟测确认动态 0/100/200/300ms 网格；500ms 同刻两条队友事件先结算，仍只有一次按键。Cat 和零残差 Cat 的独立非投票 pilot 在同 seed、100ms、1 秒静态单目标场景中均走 11 次完全相同的提案与 sink 回执；目标 HP 未知，结局严格标为 `DURATION_CENSORED_NONVOTING`，不是 Upper Kara 击杀或优势。
+- 仍缺 Contra_new、部署 Contra Raid-B 和候选的共同按键 runner，以及四路相同场景的终局门禁；无可攻击目标时原生 `AvailableActions/Apply` 仍拦截自施法，必须先修该机制或把相关波次标为 unsupported。未运行新的四方 seed 搜索、未部署 Cat2；下一步先补其余 lane 的一次一键 source 调用，再以全新 seed 做可比开发 panel。

@@ -136,10 +136,17 @@ class SourceFittedTeamRetargetBridgeV1:
 
     def _resume_to_policy(self, state: Mapping[str, Any]) -> dict[str, Any]:
         live = self._drain(state)
-        while live.get("finished") is not True and live.get("needs_input") is not True:
+        while live.get("finished") is not True:
+            clock = live.get("press_clock")
+            if isinstance(clock, Mapping):
+                if clock.get("ready") is True:
+                    break
+            elif live.get("needs_input") is True:
+                break
             # A responsive wake interrupts the simulator's outstanding wait
-            # or event traversal.  Resume that traversal, never expose the
-            # halfway state as a candidate decision.
+            # or event traversal. With an opt-in press clock, needs_input may
+            # already be true at a non-press wake; only the scheduled press
+            # returns control to the policy. Press ownership stays upstream.
             live = self._drain(self._bridge.advance())
         return live
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from o2o_dps.development_wave_team_retarget_v1 import (
@@ -13,6 +14,89 @@ from o2o_dps.development_wave_team_retarget_v1 import (
 
 
 class DevelopmentWaveTeamRetargetV1Test(unittest.TestCase):
+    @staticmethod
+    def _fake_state(time_ms: int, *, ready: bool, wake: bool = False,
+                    press_clock: bool = True) -> dict:
+        state = {
+            "time_ms": time_ms, "finished": False, "needs_input": True,
+            "wake_ready": {"wake_id": "team-0"} if wake else None,
+            "dynamic_target_semantics": {"targets": [
+                {"target_index": 0, "dead": False, "attackable": True},
+            ]},
+        }
+        if press_clock:
+            state["press_clock"] = {"ready": ready}
+        return state
+
+    @staticmethod
+    def _fake_bridge(after_emit: dict, after_advance: dict | None = None):
+        class FakeBridge:
+            def __init__(self):
+                self.current = after_emit
+                self.calls = []
+
+            def state(self):
+                return self.current
+
+            def advance(self):
+                self.calls.append("advance")
+                if after_advance is None:
+                    raise AssertionError("unexpected advance")
+                self.current = after_advance
+                return self.current
+
+            def _request(self, command, *, responsive):
+                self.calls.append(command)
+                self.current = after_emit
+                return {"responsive_team_event": {
+                    "target_index": responsive["target_index"],
+                    "status": "APPLIED", "time_ms": self.current["time_ms"],
+                    "applied_damage": responsive["requested_damage"],
+                    "killed": False, "actor_guid": responsive["actor_guid"],
+                }}
+
+        return FakeBridge()
+
+    def test_non_press_wake_is_serviced_before_next_press(self) -> None:
+        woke = self._fake_state(150, ready=False, wake=True)
+        after_emit = self._fake_state(150, ready=False)
+        at_press = self._fake_state(200, ready=True)
+        bridge = self._fake_bridge(after_emit, at_press)
+        event = SimpleNamespace(time_ms=150, schedule_index=0, event_id="e0",
+                                target_index=0, damage=7)
+        wrapper = SourceFittedTeamRetargetBridgeV1(bridge, (event,), "source")
+
+        result = wrapper._resume_to_policy(woke)
+
+        self.assertEqual(result["time_ms"], 200)
+        self.assertTrue(result["press_clock"]["ready"])
+        self.assertEqual(bridge.calls, ["emit_dynamic_team_event", "advance"])
+        self.assertEqual(wrapper._receipts[0]["time_ms"], 150)
+
+    def test_same_time_wake_is_serviced_before_press_returns(self) -> None:
+        woke = self._fake_state(200, ready=True, wake=True)
+        after_emit = self._fake_state(200, ready=True)
+        bridge = self._fake_bridge(after_emit)
+        event = SimpleNamespace(time_ms=200, schedule_index=0, event_id="e0",
+                                target_index=0, damage=7)
+        wrapper = SourceFittedTeamRetargetBridgeV1(bridge, (event,), "source")
+
+        result = wrapper._resume_to_policy(woke)
+
+        self.assertEqual(result["time_ms"], 200)
+        self.assertTrue(result["press_clock"]["ready"])
+        self.assertEqual(bridge.calls, ["emit_dynamic_team_event"])
+
+    def test_no_clock_still_returns_at_needs_input(self) -> None:
+        state = self._fake_state(150, ready=False, press_clock=False)
+        bridge = self._fake_bridge(state)
+        event = SimpleNamespace(time_ms=200, schedule_index=0, event_id="e0",
+                                target_index=0, damage=7)
+        wrapper = SourceFittedTeamRetargetBridgeV1(bridge, (event,), "source")
+
+        self.assertEqual(wrapper._resume_to_policy(state)["time_ms"], 150)
+        self.assertEqual(bridge.calls, [])
+
     def test_source_case_has_no_fixed_duplicate_damage(self) -> None:
         case, scenario, events = build_retarget_wave_case_v1(20260913)
         self.assertEqual(len(case.case_spec["required_target_ids"]), 2)

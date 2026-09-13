@@ -19,7 +19,7 @@ from dataclasses import dataclass, replace
 import hashlib
 import json
 import re
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from .cat_fury_full_policy_readiness_v4 import (
     ADAPTER_CONTRACT_SHA256,
@@ -435,6 +435,7 @@ def execute_cat_fury_ordered_sinks_v5(
     *,
     attempt_id_prefix: str | None = None,
     result_bearing_action_keys: Sequence[str] = (),
+    wait_executor: Callable[..., JSONMap] | None = None,
 ) -> JSONMap:
     """Submit one exact Cat source invocation and return its typed ledger."""
 
@@ -545,7 +546,7 @@ def execute_cat_fury_ordered_sinks_v5(
 
     wait_event: JSONMap | None = None
     if decision.gcd == WAIT_ACTION:
-        wait_event = _execute_wait(
+        wait_event = (wait_executor or _execute_wait)(
             bridge, decision, current, blocked=blocked, consumed=consumed
         )
         current = dict(wait_event.pop("_state"))
