@@ -572,3 +572,45 @@ Chronicle 天赋字符串的位置顺序是 Turtle 客户端 `GetTalentInfo(tab,
 本阶段联合回归 37/37 OK；只运行了一个 Windows 本地 smoke 和本地流式/账本 ETL，没有网络请求、HPC 调度、训练或 Cat/Contra 比较。所有 policy-value、comparison、training、HPC、deployment 与 superiority 授权仍为 false；游戏内无需 `/reload`。
 
 下一阶段不是扩大 seed 数，而是补足 value-ready 的因果接口：在 policy observation 中屏蔽未来 registry/HP，区分 max HP 与窗口起点 current HP，恢复窗口起点的怒气、姿态、GCD/CD、双手挥击、queue、自身 aura/proc 和候选已拥有 debuff checkpoint；随后把会随目标死亡与候选动作变化的队友响应接入 bridge，并用留出 source wave/component 验证。完成这些门禁后，才允许 exact-source Cat/部署 Contra/Contra_new/historical prototype 的 matched policy-value rollouts，再决定是否向 node001–006 派发搜索。
+
+## 14. 2026-09-13：因果 policy 视图、窗口 checkpoint 与响应式队友 bridge
+
+上一节列出的三项接口工作已经落地，但真实历史窗口的完整 checkpoint 仍未识别，所以本阶段只发布 development-only 基础设施，不发布新的策略胜负结果。
+
+`policy_observation_causal_projection_v1.py` 将 simulator 的完整状态明确留在 control plane，另行生成 policy plane 输入。目标只有在显式 prefix introduction registry 指定的时点后才可见；current HP 只由窗口起点的 exact current/max baseline 与运行时已经发生的 candidate/background damage 重算，不读取 simulator 原始 HP。未来 target rows、完整 schedule/count、config digest、idle/control 字段、假设性 armor、外层 `historical_prior` 与 `optimizer_parameters` 均不进入 policy；`available_actions` 只按当前时刻的 typed action 字段重建，额外字段直接拒绝。尚未引入的目标若在 raw simulator 中已经 `attackable=true` 也会直接拒绝。共同前缀但未来 registry、HP、伤害日程和外层 prior 不同的环境会产生逐字节相同的 policy 输入和 Cat2 决策。
+
+因果调用者使用独立新版本，不改写已经冻结的实验身份：Cat2_new 为 feedback v7 / paired adapter v4，historical clone 为 v3，source-bound smoke runner 为 v3。Cat2 policy 只看到连续 local index 与确定性 `policy-target-NNNNNN` token；adapter 私下将它恰好一次转换成冻结 v5 executor 已有的 global unit binding，`(0,2)` 非连续可见目标已实测。v7 每次决策保留 raw control input、重投影后的 causal input、路由前 intent、路由后 intent 和 routing receipt；validator 会重新投影并重演路由。historical clone v3 同样从 v2 retained epoch/step 状态重建每个决策的 raw state 后重新投影，不接受只重新寻址的自报摘要。旧 feedback v6、paired v3、historical clone v2 与 smoke v1/v2 源码及旧测试均保持 HEAD 原字节。
+
+窗口起点证据由 `historical_fury_source_bound_prefix_checkpoint_v1.py` 从 Chronicle 的 `resource_change`、`aura` 和 `aura_cast` 流重建，边界严格限定在首个绑定决策的 EventMeta 顺序之前。真实结果为 9 行、0 行 exact-checkpoint-ready，manifest content SHA 为 `16feaebff5f7ff8ae2fed368deba8850bbea1d8ba505a7c894828e622d6f29e8`：
+
+| checkpoint 字段 | exact | partial | missing |
+|---|---:|---:|---:|
+| stance | 9/9 | 0 | 0 |
+| self aura/proc | 0 | 9/9 | 0 |
+| candidate-owned existing debuff | 0 | 9/9 | 0 |
+| max HP、current HP | 0 | 0 | 9/9 |
+| absolute rage | 0 | 0 | 9/9 |
+| GCD/CD remaining | 0 | 0 | 9/9 |
+| MH/OH swing remaining | 0 | 0 | 9/9 |
+| queued next-swing action | 0 | 0 | 9/9 |
+
+这不是“没有读取到任何状态”：严格前缀中实际保留了 20,648 条 aura、4,390 条 aura-cast 和 5,139 条 resource-change 事件；但 resource-change 只有增量、没有窗口前的绝对 rage 基线，aura/debuff 也不能证明完整集合。缺失项保持 `null/MISSING`，没有以 0、未来后缀或 simulator 假设回填。historical source-bound runner v3 只能从同 segment 的已验证 checkpoint 派生 registry，并要求 exact strict-prefix max/current HP；现有 0/9 覆盖使它在 native bridge 启动前失败，dynamic HP hypothesis 即使改标签也不能冒充 exact。Go dynamic-v4 已能分别载入 target maximum/current HP，但尚不能恢复中途角色的 rage、GCD/CD、双持挥击、queue 和 aura/proc 快照，因此“数据可见”与“simulator 可恢复”两层都继续 fail-closed。
+
+simulator 侧发布 dynamic-v4 与响应式队友事件链：
+
+- `maximum_health` 决定 encounter 最大生命，`current_health` 单独恢复窗口起点 lifecycle；二者在 typed Python wire、Go state 和 worker checkpoint 中交叉核对。
+- responsive wake 以绝对 deadline 进入 Go 调度；同毫秒顺序固定为 target semantics、fixed background、responsive teammate、environment wake、candidate。零延迟 wake 在当前毫秒 arm 时也会立即暂停 simulator，emit 后恢复原 `NeedsInput`，不会被 `AdvanceUntilDecision` 越过。
+- 每个 actor/sequence/phase 使用独立 RNG substream；adapter 的机制层能把 candidate damage 以及有来源证明时的 fixed-background damage 同步到队友模型前缀，随后只从当前 alive 且 attackable 的目标重新采样，因而 candidate 提前击杀会改变后续队友目标与 kill-clock。当前 source-bound worker 不允许二者混用：现有 fixed event 没有 actor/source scope，无法证明它排除了响应式模型中的队友，非空 fixed-background schedule 会在 bridge load 前拒绝，以免同一队友伤害双计。
+- 多 actor deadline 不会在单次 wake 后丢失；全目标暂不可攻击会生成显式取消，目标已死亡后的 terminal synthetic fixed event 也会取消但不伪造 damage ordinal。`background_events_processed` 与真正进入 HP ledger 的 `background_damage_applications_processed` 已拆开。
+
+当前可重建的累计 simulator 补丁为 v14，基于 upstream `64cfa6ae…`，覆盖 73 个 source paths；patch SHA 为 `ce28b6d5b2ce19a4de44077a1a8d0c2ff6450ae9f39e7ce88d4f9c256d5cb78a`，1,531,899 bytes / 44,436 lines。干净 checkout apply-check、73/73 当前源文件比对、数据库生成和 targeted Go tests 均通过。v13 不作为可用补丁发布，只在本节保留否决原因：其 current-time zero-delay wake 没有置 `NeedsInput=true`，直接调用 advance 可能越过 ready wake；重复的未提交 v13 patch 已删除。Windows v14 bridge SHA 为 `f3be3f6670c34f986d9ad99a617e6432201f7b49e65ab116e258be5ad18a1ecc`；二进制是 ignored 本机构建物，不进入 Git。
+
+学习模型到运行时的开发态小内存路径已在合成模型上闭合：HPC result loader 校验 reducer schema/revision/content address 和 Stage5 component 声明，B/C/D 可一次性物化为 normalized SQLite；长期 rollout worker 只读打开 node-local SQLite，并把同一个原子 `LoadedResponsiveTeammateModelV1`（模型与 provenance 不可拆配）交给 adapter。B/C/D 的测试模型各 100 个 seeds 与原内存 sampler 的 RNG 输出一致，不需要每个 worker 解压巨型 reducer。这不表示正式 128 MiB reducer 已转换或在 node 上执行。
+
+真正的 source-bound 执行入口当前只接纳 D。B/C 的训练 context 使用候选玩家 START/GO/FAIL/DMG 强度，而 bridge 目前只有 candidate damage receipts；在完整候选 server-event prefix 接入前，B/C 会在 base bridge load 前拒绝。D 不使用这组强度特征，worker 会在 dynamic-v4 generation 建立后绑定 branch，自动消费 ready wake、emit/rearm，并在正常和异常退出时关闭 SQLite。实际 prefix digest 绑定 runtime 起点、角色 metadata/live-prefix/current target、focal candidate、target GUID/index、introduction/HP registries 和 current-source evidence；未来 dynamic config 由独立 branch digest 绑定，不污染共同 prefix identity。runtime、registry 或 focal 任一变化后复用旧 prefix digest 都会在 bridge load 前失败。
+
+真实 v14 + SQLite + D 的端到端 smoke 已实际发出 responsive DMG，并验证 `wait` 本身不推进时间、`advance` 在返回 policy 前消费 wake，以及同毫秒多 actor rearm。它使用合成 actor/HP/runtime prefix，只验证 wire/lifecycle。当前尚无编译器把真实 Stage5 strict-prefix 的 actor last event/mark/target、过去 3 秒活动和 target lifecycle 恢复进 `DynamicTeamRuntimeV1`；worker 也只支持窗口起点已经全部引入的目标，未来 target arrival/跨波 runtime 尚未实现。因此这不表示正式 reducer 已转换或实测，不表示真实 held-out wave 已执行，也不构成 source-wave teammate fidelity。
+
+最终定向回归包括 causal caller / historical checkpoint 79/79 和 dynamic-v4 / responsive v14 38/38；完整 Python 回归为 2180 tests / 1190.906 s 全部通过，既有条件跳过 2 个。Go 的 core/o2o/bridge/Warrior/item/database targeted suite 通过；v14 同毫秒 wake 另有原生 Go 回归。没有网络请求、服务器大文件拉取、node001–006 任务、训练、Cat/Contra 比较或游戏内修改，也不需要 `/reload`。真实 checkpoint 是 0/9，因此 comparison、training、voting、deployment 与 superiority authorization 全部仍为 false；当前不能声称新策略优于 Cat、Contra 或离线高手。
+
+下一步采用“未来真实 raid 的轻量 Shadow checkpoint + 同一 pull 内离线严格重放”，而不是扩大 seeds 或继续榨旧 Chronicle。旧 9 个窗口永久保留为 partial/offline-prior cohort；新 raid 另建 exact-checkpoint cohort。先纯离线实现 `brainofcat_shadow_checkpoint/v1` schema、validator/importer、Chronicle 严格时间/GUID join、checkpoint→simulator player-state restore 接口和旧 9 wave pull-origin feasibility manifest；然后插件只需一次 `/reload`，正常打一场 Upper Kara raid，按事件增量加周期 checkpoint 写 CustomData，不需要每波或结束时 reload。checkpoint 至少记录 absolute rage、stance、GCD/相关 CD、MH/OH swing anchor/remaining、queue、self aura/proc、所有 prefix-visible hostile 的 max/current HP/attackable，以及 candidate-owned debuff。此后再构造真实 teammate runtime、future target arrival 与 B/C 的 START/GO/FAIL causal receipt，完成 held-out 单 wave matched baseline 后才决定是否派发六节点搜索。
