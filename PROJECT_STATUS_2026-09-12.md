@@ -502,3 +502,31 @@ Chronicle 天赋字符串的位置顺序是 Turtle 客户端 `GetTalentInfo(tab,
 - 本报告所述自有源码、配置和测试随当前 Git HEAD 发布；第三方源码、离线原始数据和本机/服务器运行产物不进入仓库。
 - 最新 `/reload` 只完成 source seq `24282` / build `7272` 的 P0 静态接纳；Shadow/静态检查仍不授权实机部署。当前没有任何新候选接管 Cat2_new，也没有“击败 Cat”的新证据。
 - `cat_fury_full_policy_readiness_v4.py` 中的 Cat SavedVariables 默认路径是冻结历史字节的有意例外；为了便携性修改它会改变既有 source identity。新调用者应通过 CLI/config 显式传入 Cat root/SavedVariables 路径，而不是更新历史 pin。
+
+## 12. 2026-09-13：exact-source 环境证据闭合 v1
+
+新增 `historical_fury_source_bound_environment_evidence_v1.py`，把 9 个 exact-source Fury segment 同时绑定到 expert episode、External-V2 reconstruction 与 team timeline。它逐分区流式核验逻辑 SHA、字节数和记录数，只解码身份命中的记录；本轮实际读取 4 个相关 timeline 分区并保留 9 个命中 wave（单分区最多 4 个），没有网络请求、仿真或 HPC 任务。
+
+真实重建结果：
+
+| 指标 | 结果 |
+|---|---:|
+| exact-source requests / READY | 9 / 0 |
+| 绑定的专家决策 | 608 |
+| reconstruction voting targets | 548 |
+| 已观察死亡 / 右删失目标 | 489 / 59 |
+| 单一 generic target 与历史 registry 不符 | 9/9 |
+| 20.001 秒诊断窗覆盖全部绑定决策 | 3/9 |
+| 最后绑定决策前已见多个目标 | 8/9 |
+| 窗内 exact-player LOO damage events | 39,866 |
+| 事件时 nonvoting、事后才归入目标的目标 | 57 |
+| 保留的目标 classification transitions | 1,103 |
+| 位于 materialized union 窗外的减甲 START/GO 候选 | 662 |
+
+独立复核后已修正完整 EventMeta 边界：旧的纯毫秒比较曾把最后决策同毫秒但顺序更晚的 5 条 exact-player 伤害计入窗口，共 8,439 damage；新版排除了其中 4 条 LOO 和 1 条 focal 事件。减甲候选现在明确拆成执行 union 与 full-wave retrospective 两层；unattributed voting damage 仍不进入 exact-player runtime schedule，但会贡献目标 registry 证据。classification transition、event-time voting lifecycle 与 retrospective final-identity lifecycle 也已分开，不再用事后分类悄悄回填因果 lane。
+
+分堆证据发布两种 registry scope 和 0/1.5/3/5 秒 gap sensitivity：full reconstruction wave 分别给出 event-time voting 与 final-identity retrospective 分支；last-bound-decision 前已见目标只使用真正的 strict-prefix lifecycle，存活目标在截止点右删失，不读取未来后缀。全部标为 hypothesis，不选择 simulator truth。死亡标记早于末次伤害时，区间终点取二者 EventMeta 顺序较晚者。same-entry leave-instance-out kill-budget prior 只使用“已死亡且观察治疗为 0”的其他实例样本；带治疗死亡不再混入 HP 先验。
+
+因此状态保持 `EVIDENCE_AUDIT_COMPLETE_NOT_EXECUTABLE`：exact initial/max HP、基础/外生护甲、精确可攻击区间和会响应候选策略的 team kill-clock 仍未识别；`derived_request_template` 与 `dynamic_load_config` 均为空，simulator/HPC/training/comparison/deployment/superiority 均未授权。当前内容地址 manifest 为 `a5dbcff04f310897f949fd8b850f4b8fdf96a5089fea7598e94ddf3af2713ccf`，partition logical SHA 为 `eeb8a36a85ff9af7cb099e20c87954e5960292bf63ac050694ef46d9a4e589f4`；派生产物继续留在 ignored offline-data 目录。
+
+相关 source-bound dynamic/prototype/runner、timeline、episode 与新证据层联合回归为 38/38 OK。下一步是在这个冻结证据层上预注册显式的执行窗、target-registry、HP prior、外生 armor 与 attackability 假设分支，发布 development-only v2 对；完成 counterfactual team kill-clock 验证前仍不启动六节点大规模搜索。本阶段不需要游戏内 `/reload`。
