@@ -253,6 +253,33 @@ def _rehash(report: dict[str, object]) -> None:
 
 
 class Contra260817FuryFullPolicyV3Tests(unittest.TestCase):
+    def test_prequeued_cleave_without_prior_whirlwind_keeps_source_guard(self) -> None:
+        decision = Contra260817FuryFullPolicyAdapterV3().propose(
+            _state(
+                count=2,
+                rage=100.0,
+                target_distance_yards=10.0,
+                queued_swing=SwingQueueOp.CLEAVE,
+            )
+        )
+        self.assertNotIn("顺劈斩", [sink.value for sink in decision.raw_sink_order])
+        self.assertIn(
+            "IsCurrentAction_returned_true",
+            [row["reason"] for row in decision.metadata["helper_no_sink_attempts"]],
+        )
+
+    def test_missing_cleave_actionbar_slot_precedes_current_action_check(self) -> None:
+        state = replace(
+            _state(count=2, rage=100.0, queued_swing=SwingQueueOp.CLEAVE),
+            cleave_probe_texture_present=False,
+        )
+        decision = Contra260817FuryFullPolicyAdapterV3().propose(state)
+        self.assertNotIn("顺劈斩", [sink.value for sink in decision.raw_sink_order])
+        self.assertIn(
+            "Warrior_Cleave_texture_not_found",
+            [row["reason"] for row in decision.metadata["helper_no_sink_attempts"]],
+        )
+
     def test_identity_layers_are_distinct_and_readiness_is_typed_blocked(self) -> None:
         report = build_readiness_report_v3()
 

@@ -37,6 +37,7 @@ from .contra260817_fury_ordered_sink_executor_v4 import (
     SOURCE_REENTRY_CLOCK_SCHEMA_V4,
     SOURCE_REENTRY_RETRY_MS_V4,
     SOURCE_REENTRY_TIMING_AUTHORITY_V4,
+    _source_reentry_trigger_v4,
     Contra260817ItemActionBindingV4,
     Contra260817SimulatorControlFacadeV4,
     Contra260817TargetBindingV4,
@@ -64,7 +65,7 @@ JSONMap = dict[str, Any]
 ROLLOUT_SCHEMA_V4 = "contra260817_fury_full_policy_simulator_rollout/v4"
 ROLLOUT_CONTENT_SCHEMA_V4 = "contra260817_fury_full_policy_rollout_content/v4"
 RECEIPT_BUNDLE_SCHEMA_V4 = "contra260817_source_simulator_receipt_bundle/v4"
-IMPLEMENTATION_REVISION = "v4.2_contra260817_post_gcd_rejection_ledger"
+IMPLEMENTATION_REVISION = "v4.3_contra260817_accepted_queue_reentry"
 
 
 class Contra260817FuryFullPolicyRolloutV4Error(RuntimeError):
@@ -653,17 +654,42 @@ def _audit_ordered_execution_v4(
         accepted_action = _accepted_consuming_gcd_v4(event, raw)
         if accepted_action is not None:
             prior_consuming_gcd = (order, accepted_action)
+    skipped_cleave_guard = any(
+        isinstance(row, Mapping)
+        and row.get("operation") == "Contra.IsHeroicStrikActive"
+        and row.get("value") == "顺劈斩"
+        and row.get("reason") == "IsCurrentAction_returned_true"
+        for row in proposal.metadata.get("helper_no_sink_attempts", [])
+    )
+    accepted_whirlwind = any(
+        isinstance(event, Mapping)
+        and isinstance(event.get("source_sink"), Mapping)
+        and event["source_sink"].get("channel") == "gcd"
+        and event["source_sink"].get("value") == "旋风斩"
+        and isinstance(event.get("simulator_acceptance"), Mapping)
+        and event["simulator_acceptance"].get("status") == "ACCEPTED"
+        for event in events
+    )
+    if skipped_cleave_guard and accepted_whirlwind:
+        add(
+            "CONTRA260817_INTRA_INVOCATION_QUEUE_GUARD_NOT_REEVALUATED",
+            "source adapter froze pre-key IsCurrentAction for Cleave after accepted Whirlwind; the equivalent client probe observed it change within the key",
+            fatal=False,
+        )
+    reentry_trigger = _source_reentry_trigger_v4(events)
     reentry_expected = (
         proposal.gcd != WAIT_ACTION
-        and execution.get("execution_blocked") is False
+        or reentry_trigger == "ACCEPTED_SWING_QUEUE_NONCONSUMING"
+    ) and (
+        execution.get("execution_blocked") is False
         and execution.get("decision_consumed") is False
-        and _all_sinks_typed_rejected_nonconsuming_v4(events)
+        and reentry_trigger is not None
     )
     reentry = execution.get("source_reentry_clock")
     if reentry_expected != isinstance(reentry, Mapping):
         add(
             "CONTRA260817_V4_SOURCE_REENTRY_CLOCK_MISMATCH",
-            "typed rejected invocation did not produce exactly one source reentry clock",
+            "nonconsuming source invocation did not produce exactly one source reentry clock",
             fatal=True,
         )
     elif isinstance(reentry, Mapping):
@@ -683,7 +709,7 @@ def _audit_ordered_execution_v4(
         )
         valid_reentry = (
             reentry.get("schema") == SOURCE_REENTRY_CLOCK_SCHEMA_V4
-            and reentry.get("trigger") == "ALL_SOURCE_SINKS_TYPED_REJECTED_NONCONSUMING"
+            and reentry.get("trigger") == reentry_trigger
             and reentry.get("timing_authority") == SOURCE_REENTRY_TIMING_AUTHORITY_V4
             and reentry.get("requested_ms") == SOURCE_REENTRY_RETRY_MS_V4
             and reentry.get("exact_client_cadence") is False
@@ -782,6 +808,10 @@ def _receipt_bundle_v4(
             ],
             "run_order_and_disposition_complete": ordered_complete,
             "source_reentry_count": len(reentry_clocks),
+            "accepted_queue_reentry_count": sum(
+                row.get("trigger") == "ACCEPTED_SWING_QUEUE_NONCONSUMING"
+                for row in reentry_clocks
+            ),
             "source_reentry_timing_authority": SOURCE_REENTRY_TIMING_AUTHORITY_V4,
             "source_reentry_retry_ms": SOURCE_REENTRY_RETRY_MS_V4,
             "source_reentry_exact_client_cadence": False,
@@ -971,10 +1001,11 @@ def run_contra260817_fury_full_policy_rollout_v4(
         _append_blocker_once(
             blockers,
             "CONTRA260817_SOURCE_REENTRY_CADENCE_FIXED_100MS_PROXY",
-            "rejected source invocations use a fixed runner-side 100 ms reentry cadence",
+            "nonconsuming source invocations use a fixed runner-side 100 ms reentry cadence",
             execution_fatal=False,
             evidence={
                 "count": source_reentry_count,
+                "accepted_queue_count": result["contra260817_v4_receipts"]["operation"]["accepted_queue_reentry_count"],
                 "timing_authority": SOURCE_REENTRY_TIMING_AUTHORITY_V4,
                 "requested_ms": SOURCE_REENTRY_RETRY_MS_V4,
             },
@@ -1151,6 +1182,7 @@ def validate_contra260817_fury_full_policy_rollout_v4(
     ):
         raise Contra260817FuryFullPolicyRolloutV4Error("Contra operation receipt mismatch")
     observed_reentry_count = 0
+    observed_accepted_queue_reentry_count = 0
     observed_post_gcd_rejection_count = 0
     for index, step in enumerate(raw.get("steps") or []):
         if not isinstance(step, Mapping):
@@ -1224,11 +1256,14 @@ def validate_contra260817_fury_full_policy_rollout_v4(
             accepted_action = _accepted_consuming_gcd_v4(event, source_sink)
             if accepted_action is not None:
                 prior_consuming_gcd = (order, accepted_action)
+        reentry_trigger = _source_reentry_trigger_v4(events)
         reentry_expected = (
             proposal.get("gcd", {}).get("action") != WAIT_ACTION
-            and execution.get("execution_blocked") is False
+            or reentry_trigger == "ACCEPTED_SWING_QUEUE_NONCONSUMING"
+        ) and (
+            execution.get("execution_blocked") is False
             and execution.get("decision_consumed") is False
-            and _all_sinks_typed_rejected_nonconsuming_v4(events)
+            and reentry_trigger is not None
         )
         reentry = execution.get("source_reentry_clock")
         if reentry_expected != isinstance(reentry, Mapping):
@@ -1237,6 +1272,9 @@ def validate_contra260817_fury_full_policy_rollout_v4(
             )
         if isinstance(reentry, Mapping):
             observed_reentry_count += 1
+            observed_accepted_queue_reentry_count += (
+                reentry.get("trigger") == "ACCEPTED_SWING_QUEUE_NONCONSUMING"
+            )
             final_state = execution.get("final_state")
             scheduled_at = reentry.get("scheduled_at_time_ms")
             idle = final_state.get("dynamic_idle_advance") if isinstance(final_state, Mapping) else None
@@ -1253,7 +1291,7 @@ def validate_contra260817_fury_full_policy_rollout_v4(
             )
             if (
                 reentry.get("schema") != SOURCE_REENTRY_CLOCK_SCHEMA_V4
-                or reentry.get("trigger") != "ALL_SOURCE_SINKS_TYPED_REJECTED_NONCONSUMING"
+                or reentry.get("trigger") != reentry_trigger
                 or reentry.get("timing_authority") != SOURCE_REENTRY_TIMING_AUTHORITY_V4
                 or reentry.get("requested_ms") != SOURCE_REENTRY_RETRY_MS_V4
                 or reentry.get("exact_client_cadence") is not False
@@ -1278,6 +1316,10 @@ def validate_contra260817_fury_full_policy_rollout_v4(
     if operation.get("source_reentry_count") != observed_reentry_count:
         raise Contra260817FuryFullPolicyRolloutV4Error(
             "Contra source reentry receipt count mismatch"
+        )
+    if operation.get("accepted_queue_reentry_count") != observed_accepted_queue_reentry_count:
+        raise Contra260817FuryFullPolicyRolloutV4Error(
+            "Contra accepted queue reentry receipt count mismatch"
         )
     if (
         operation.get("post_gcd_source_rejection_count")

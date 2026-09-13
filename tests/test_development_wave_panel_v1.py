@@ -8,6 +8,7 @@ from o2o_dps.development_wave_panel_v1 import (
     DEFAULT_BINDING,
     DEFAULT_BRIDGE,
     _bridge_platform,
+    _decision_opportunities,
     run_development_wave_panel_v1,
 )
 
@@ -22,6 +23,43 @@ class DevelopmentBridgePlatformTests(unittest.TestCase):
                 "platform.machine", return_value=machine
             ):
                 self.assertEqual(expected, _bridge_platform())
+
+
+class DecisionOpportunitySummaryTests(unittest.TestCase):
+    def test_source_step_timing_counts_zero_and_short_reentry_separately(self) -> None:
+        artifact = {
+            "decision_count": 5,
+            "steps": [
+                {"simulator_state_before": {"time_ms": time_ms}}
+                for time_ms in (0, 0, 50, 150, 150)
+            ],
+        }
+        summary = _decision_opportunities(artifact)
+        self.assertEqual("OBSERVED_SIMULATOR_INVOCATIONS", summary["status"])
+        self.assertEqual(5, summary["invocation_count"])
+        self.assertEqual(2, summary["same_millisecond_reentry_count"])
+        self.assertEqual(1, summary["positive_sub_100ms_interval_count"])
+        self.assertEqual(75.0, summary["positive_interval_median_ms"])
+        self.assertEqual([0, 0, 50, 150, 150], summary["first_8_times_ms"])
+
+    def test_cat2new_decision_timing_uses_its_own_retained_shape(self) -> None:
+        summary = _decision_opportunities({
+            "decisions": [{"time_ms": 100}, {"time_ms": 200}],
+        })
+        self.assertEqual("decisions.time_ms", summary["source"])
+        self.assertEqual(2, summary["invocation_count"])
+        self.assertEqual(0, summary["positive_sub_100ms_interval_count"])
+
+    def test_missing_or_partial_timing_is_not_counted_as_zero(self) -> None:
+        self.assertEqual("NOT_OBSERVED", _decision_opportunities({})["status"])
+        self.assertEqual(
+            "NOT_OBSERVED",
+            _decision_opportunities({"steps": [{"decision_index": 1}]})["status"],
+        )
+        self.assertEqual(
+            "NOT_OBSERVED",
+            _decision_opportunities({"decision_count": 2, "steps": []})["status"],
+        )
 
 
 @unittest.skipUnless(

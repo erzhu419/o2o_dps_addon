@@ -503,8 +503,74 @@ class DynamicIdleAdvanceReceiptBatchV3:
     receipts: tuple[DynamicIdleAdvanceReceiptV3, ...]
 
 
+@dataclass(frozen=True)
+class PressClockStateV1:
+    period_ms: int
+    phase_ms: int
+    press_index: int
+    ready: bool
+    next_time_ms: int
+
+
+def _press_clock_state_v1(state: Mapping[str, Any]) -> PressClockStateV1:
+    raw = state.get("press_clock")
+    if not isinstance(raw, Mapping):
+        raise SimBridgeProtocolError("press clock state is missing")
+    clock = PressClockStateV1(
+        period_ms=_v2._positive_int_field(raw, "period_ms"),
+        phase_ms=_v2._nonnegative_int_field(raw, "phase_ms"),
+        press_index=_v2._nonnegative_int_field(raw, "press_index"),
+        ready=_v2._strict_bool_field(raw, "ready"),
+        next_time_ms=_v2._nonnegative_int_field(raw, "next_time_ms"),
+    )
+    time_ms = _v2._nonnegative_int_field(state, "time_ms")
+    if (
+        clock.period_ms > 60_000
+        or clock.phase_ms >= clock.period_ms
+        or clock.next_time_ms < time_ms
+        or (clock.ready and (clock.press_index == 0 or clock.next_time_ms != time_ms))
+        or (not clock.ready and clock.press_index > 0 and clock.next_time_ms <= time_ms)
+    ):
+        raise SimBridgeProtocolError("press clock state violates its opportunity timeline")
+    return clock
+
+
 class SimulatorBridgeDynamicV3(SimulatorBridgeDynamicV2):
     """Persistent bridge with central, simulator-owned idle advancement."""
+
+    def configure_press_clock(self, period_ms: int, phase_ms: int = 0) -> JSONMap:
+        """Enable the Go bridge's opt-in external key schedule on this load."""
+
+        if type(period_ms) is not int or not 1 <= period_ms <= 60_000:
+            raise ValueError("period_ms must be an integer in 1..60000")
+        if type(phase_ms) is not int or not 0 <= phase_ms < period_ms:
+            raise ValueError("phase_ms must be an integer in 0..period_ms-1")
+        state = self._bound_state(
+            self._request(
+                "configure_press_clock",
+                press_period_ms=period_ms,
+                press_phase_ms=phase_ms,
+            ),
+            "configure_press_clock",
+        )
+        clock = _press_clock_state_v1(state)
+        if (
+            clock.period_ms != period_ms
+            or clock.phase_ms != phase_ms
+            or clock.press_index != 0
+            or clock.ready
+        ):
+            raise SimBridgeProtocolError("configure_press_clock receipt differs from request")
+        return state
+
+    def finish_press(self) -> JSONMap:
+        """Close one key opportunity; a queue acceptance cannot reenter it."""
+
+        state = self._bound_state(self._request("finish_press"), "finish_press")
+        clock = _press_clock_state_v1(state)
+        if clock.press_index == 0 or clock.ready:
+            raise SimBridgeProtocolError("finish_press did not close an observed opportunity")
+        return state
 
     def act_post_gcd_queue(self, action: ActionRef) -> ActResult:
         """Submit a same-invocation no-GCD swing queue under the v15 sim hypothesis."""
@@ -1302,6 +1368,7 @@ __all__ = (
     "DynamicTeamLifecycleStateV3",
     "DynamicV3ConfigError",
     "ParsedDynamicStateV3",
+    "PressClockStateV1",
     "SimulatorBridgeDynamicV3",
     "dynamic_target_semantics_config_from_wire_v3",
     "dynamic_target_semantics_digest_v3",

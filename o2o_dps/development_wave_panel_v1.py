@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import platform
+from statistics import median
 from typing import Any, Callable, Mapping
 
 from .cat2new_fury_cat_gap_policy_v1 import (
@@ -234,6 +235,52 @@ def _first_bridge_failure(artifact: Mapping[str, Any]) -> dict[str, Any] | None:
                     "simulator_submission": submission,
                 }
     return None
+
+
+def _decision_opportunities(artifact: Mapping[str, Any]) -> dict[str, Any]:
+    """Summarize retained simulator invocations, not observed physical keypresses."""
+
+    steps = artifact.get("steps")
+    decisions = artifact.get("decisions")
+    if isinstance(steps, list):
+        source = "steps.simulator_state_before.time_ms"
+        times = [
+            step.get("simulator_state_before", {}).get("time_ms")
+            if isinstance(step, Mapping)
+            and isinstance(step.get("simulator_state_before"), Mapping)
+            else None
+            for step in steps
+        ]
+    elif isinstance(decisions, list):
+        source = "decisions.time_ms"
+        times = [row.get("time_ms") if isinstance(row, Mapping) else None for row in decisions]
+    else:
+        return {"status": "NOT_OBSERVED", "reason": "retained_invocations_missing"}
+
+    declared_count = artifact.get("decision_count")
+    if (
+        any(type(value) is not int or value < 0 for value in times)
+        or (type(declared_count) is int and declared_count != len(times))
+        or any(later < earlier for earlier, later in zip(times, times[1:]))
+    ):
+        return {"status": "NOT_OBSERVED", "source": source, "reason": "invocation_times_incomplete_or_invalid"}
+
+    gaps = [later - earlier for earlier, later in zip(times, times[1:])]
+    positive_gaps = sorted(gap for gap in gaps if gap > 0)
+    return {
+        "status": "OBSERVED_SIMULATOR_INVOCATIONS",
+        "source": source,
+        "invocation_count": len(times),
+        "same_millisecond_reentry_count": sum(gap == 0 for gap in gaps),
+        "positive_sub_100ms_interval_count": sum(0 < gap < 100 for gap in gaps),
+        "positive_interval_min_ms": positive_gaps[0] if positive_gaps else None,
+        "positive_interval_median_ms": median(positive_gaps) if positive_gaps else None,
+        "first_time_ms": times[0] if times else None,
+        "last_time_ms": times[-1] if times else None,
+        "first_8_times_ms": times[:8],
+        "last_8_times_ms": times[-8:] if len(times) > 8 else [],
+        "timing_authority": "SIMULATOR_DECISION_EPOCH_NOT_PHYSICAL_KEYPRESS",
+    }
 
 
 def run_development_wave_panel_v1(
@@ -465,6 +512,7 @@ def run_development_wave_panel_v1(
                         if item.get("execution_fatal") is False
                     )),
                     "first_bridge_failure": _first_bridge_failure(lane["artifact"]),
+                    "decision_opportunities": _decision_opportunities(lane["artifact"]),
                     **({"team_response_evidence": team_evidence} if team_evidence is not None else {}),
                     "guard_intervention_count": (
                         lane["artifact"].get("intervention_count")
@@ -482,12 +530,14 @@ def run_development_wave_panel_v1(
                     "own_effective_damage": None, "own_effective_dps": None, "ttk_ms": None,
                     "artifact_status": error.artifact_status,
                     "execution_blockers": [error.blocker] if error.blocker else [],
+                    "decision_opportunities": _decision_opportunities({}),
                 })
             except Exception as error:
                 rows.append({
                     "policy_id": policy_id, "role": policy_by_id[policy_id]["role"],
                     "status": "FAILED", "error": f"{type(error).__name__}: {error}",
                     "own_effective_damage": None, "own_effective_dps": None, "ttk_ms": None,
+                    "decision_opportunities": _decision_opportunities({}),
                 })
     baseline_scores = {
         row["policy_id"]: row["own_effective_damage"]

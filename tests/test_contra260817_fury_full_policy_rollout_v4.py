@@ -12,6 +12,8 @@ from o2o_dps.contra260817_fury_full_policy_v3 import (
 from o2o_dps.contra260817_fury_full_policy_rollout_v4 import (
     Contra260817SimulatorInputsV4,
     ROLLOUT_SCHEMA_V4,
+    _audit_ordered_execution_v4,
+    _annotate_attempt_ids_v4,
     _canonical_sha256,
     run_contra260817_fury_full_policy_rollout_v4,
     validate_contra260817_fury_full_policy_rollout_v4,
@@ -512,6 +514,129 @@ class Contra260817FullPolicyRolloutV4Tests(unittest.TestCase):
         self.assertFalse(clock["source_sink"])
         self.assertEqual(0, result["final_state"]["time_ms"])
         self.assertFalse(result["final_state"]["needs_input"])
+
+    def test_accepted_cleave_only_reenters_without_synthetic_source_wait(self):
+        adapter = Contra260817FuryFullPolicyAdapterV3()
+        base = adapter.propose(
+            _state(rage=100.0, target_selection=_target_state(autoattack_current=True))
+        )
+        decision = replace(
+            base,
+            gcd="WAIT",
+            wait_ms=100,
+            swing_queue=SwingQueueOp.CLEAVE,
+            off_gcd=(),
+            stance=StanceOp.KEEP,
+            target=TargetOp.KEEP,
+            cast_control=CastControl.KEEP,
+            raw_sink_order=(
+                RawSink("swing_queue", "CastSpellByName", "顺劈斩", "Contra_Scrip_Warrior.lua:1308-1310"),
+            ),
+            metadata={**base.metadata, "raw_gcd_calls": []},
+        )
+        bridge = _StrictSingleDecisionBridge()
+        state = bridge.load(_request(), 1)
+        facade = Contra260817SimulatorControlFacadeV4(
+            bridge, initial_autoattack_active=True
+        )
+
+        result = execute_contra260817_ordered_sinks_v4(facade, decision, state)
+
+        self.assertFalse(result["execution_blocked"], result["nonfaithful_reasons"])
+        self.assertFalse(result["decision_consumed"])
+        self.assertIsNone(result["wait_event"])
+        self.assertEqual("ACCEPTED", result["sink_events"][0]["simulator_acceptance"]["status"])
+        self.assertEqual("ACCEPTED_SWING_QUEUE_NONCONSUMING", result["source_reentry_clock"]["trigger"])
+        self.assertEqual([("act", ActionRef(spell_id=20569, tag=1)), ("wait", 100)],
+                         [call for call in bridge.calls if call[0] in {"act", "wait"}])
+        self.assertEqual(state["time_ms"], result["final_state"]["time_ms"])
+        self.assertFalse(result["final_state"]["needs_input"])
+        self.assertTrue(any(aura.get("label") == "queue" for aura in result["final_state"]["auras"]))
+
+    def test_prekey_cleave_guard_is_reevaluated_after_accepted_whirlwind(self):
+        adapter = Contra260817FuryFullPolicyAdapterV3()
+        base = adapter.propose(
+            _state(
+                count=2,
+                rage=100.0,
+                queued_swing=SwingQueueOp.CLEAVE,
+                target_selection=_target_state(autoattack_current=True),
+            )
+        )
+        self.assertTrue(any(
+            row.get("reason") == "IsCurrentAction_deferred_until_after_whirlwind"
+            and row.get("value") == "顺劈斩"
+            for row in base.metadata["deferred_queue_guard_checks"]
+        ))
+        self.assertIn("顺劈斩", [sink.value for sink in base.raw_sink_order])
+        bridge = _StrictSingleDecisionBridge()
+        state = bridge.load(_request(), 1)
+        facade = Contra260817SimulatorControlFacadeV4(
+            bridge, initial_autoattack_active=True
+        )
+        execution = execute_contra260817_ordered_sinks_v4(
+            facade, base, state,
+            attempt_id_prefix="decision-0",
+            result_bearing_action_keys=(WHIRLWIND, BLOODTHIRST),
+        )
+        _annotate_attempt_ids_v4(execution, 0)
+        blockers = _audit_ordered_execution_v4(execution, base, decision_index=0)
+        self.assertNotIn(
+            "CONTRA260817_INTRA_INVOCATION_QUEUE_GUARD_NOT_REEVALUATED",
+            {row["code"] for row in blockers},
+        )
+        self.assertFalse(any(row["execution_fatal"] for row in blockers), blockers)
+        cleave = next(
+            row for row in execution["sink_events"]
+            if row["source_sink"]["value"] == "顺劈斩"
+        )
+        self.assertEqual(
+            "ISCURRENTACTION_CLEARED_AFTER_ACCEPTED_WHIRLWIND",
+            cleave["source_attempt"]["queue_guard"],
+        )
+        self.assertEqual(
+            POST_GCD_REJECTION_ACCEPTANCE_STATUS_V4,
+            cleave["simulator_acceptance"]["status"],
+        )
+        self.assertNotIn(("act", ActionRef(spell_id=20569, tag=1)), bridge.calls)
+
+    def test_prekey_cleave_guard_stays_true_when_whirlwind_is_rejected(self):
+        base = Contra260817FuryFullPolicyAdapterV3().propose(
+            _state(
+                count=2,
+                rage=100.0,
+                queued_swing=SwingQueueOp.CLEAVE,
+                target_selection=_target_state(autoattack_current=True),
+            )
+        )
+        bridge = _StrictSingleDecisionBridge(
+            reject_actions={ActionRef(spell_id=1680)}
+        )
+        state = bridge.load(_request(), 1)
+        facade = Contra260817SimulatorControlFacadeV4(
+            bridge, initial_autoattack_active=True
+        )
+        execution = execute_contra260817_ordered_sinks_v4(
+            facade, base, state,
+            attempt_id_prefix="decision-0",
+            result_bearing_action_keys=(WHIRLWIND, BLOODTHIRST),
+        )
+        _annotate_attempt_ids_v4(execution, 0)
+        blockers = _audit_ordered_execution_v4(execution, base, decision_index=0)
+        self.assertFalse(any(row["execution_fatal"] for row in blockers), blockers)
+        cleave = next(
+            row for row in execution["sink_events"]
+            if row["source_sink"]["value"] == "顺劈斩"
+        )
+        self.assertEqual(
+            "ISCURRENTACTION_STILL_TRUE_AFTER_REJECTED_WHIRLWIND",
+            cleave["source_attempt"]["queue_guard"],
+        )
+        self.assertEqual(
+            "NOT_SUBMITTED_SOURCE_DECLARED_NOOP",
+            cleave["simulator_submission"]["status"],
+        )
+        self.assertNotIn(("act", ActionRef(spell_id=20569, tag=1)), bridge.calls)
 
     def test_any_accepted_sink_does_not_schedule_reentry_clock(self):
         bridge = _FullBridge(reject_actions={ActionRef(spell_id=2458)})

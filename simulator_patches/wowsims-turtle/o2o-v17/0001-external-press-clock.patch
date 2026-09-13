@@ -1,0 +1,458 @@
+diff --git a/cmd/o2obridge/main.go b/cmd/o2obridge/main.go
+index f543b8b..1df652e 100644
+--- a/cmd/o2obridge/main.go
++++ b/cmd/o2obridge/main.go
+@@ -23,6 +23,8 @@ type command struct {
+ 	PlayerState   json.RawMessage `json:"player_state,omitempty"`
+ 	Action        o2o.ActionRef   `json:"action,omitempty"`
+ 	WaitMS        int64           `json:"wait_ms,omitempty"`
++	PressPeriodMS int64           `json:"press_period_ms,omitempty"`
++	PressPhaseMS  int64           `json:"press_phase_ms,omitempty"`
+ 	TargetIndex   int32           `json:"target_index,omitempty"`
+ 	AttemptID     string          `json:"attempt_id,omitempty"`
+ 	AttemptIDs    []string        `json:"attempt_ids,omitempty"`
+@@ -303,6 +305,24 @@ func runBridge(input io.Reader, output io.Writer, errorOutput io.Writer) {
+ 					out.State = &state
+ 				}
+ 			}
++		case "configure_press_clock":
++			if requireEnv(&out, env) {
++				if err := env.ConfigurePressClock(cmd.PressPeriodMS, cmd.PressPhaseMS); err != nil {
++					out.OK, out.Error = false, err.Error()
++				} else {
++					state := env.State()
++					out.State = &state
++				}
++			}
++		case "finish_press":
++			if requireEnv(&out, env) {
++				if err := env.FinishPress(); err != nil {
++					out.OK, out.Error = false, err.Error()
++				} else {
++					state := env.State()
++					out.State = &state
++				}
++			}
+ 		case "state":
+ 			if requireEnv(&out, env) {
+ 				state := env.State()
+diff --git a/cmd/o2obridge/press_clock_response_test.go b/cmd/o2obridge/press_clock_response_test.go
+new file mode 100644
+index 0000000..5f461ed
+--- /dev/null
++++ b/cmd/o2obridge/press_clock_response_test.go
+@@ -0,0 +1,56 @@
++package main
++
++import (
++	"bytes"
++	"encoding/json"
++	"testing"
++)
++
++func TestRunBridgeOptInPressClockCommands(t *testing.T) {
++	commands := []command{
++		{Command: "load", Request: bridgeDynamicTestRequest(t, 1_000_000), Seed: 17},
++		{Command: "configure_press_clock", PressPeriodMS: 100, PressPhaseMS: 0},
++		{Command: "advance"},
++		{Command: "finish_press"},
++		{Command: "advance"},
++		{Command: "close"},
++	}
++	var input bytes.Buffer
++	for _, cmd := range commands {
++		if err := json.NewEncoder(&input).Encode(cmd); err != nil {
++			t.Fatal(err)
++		}
++	}
++	var output bytes.Buffer
++	var stderr bytes.Buffer
++	runBridge(&input, &output, &stderr)
++	if stderr.Len() != 0 {
++		t.Fatalf("bridge stderr: %s", stderr.String())
++	}
++	responses := make([]response, 0, len(commands))
++	decoder := json.NewDecoder(&output)
++	for decoder.More() {
++		var row response
++		if err := decoder.Decode(&row); err != nil {
++			t.Fatal(err)
++		}
++		responses = append(responses, row)
++	}
++	if len(responses) != len(commands) {
++		t.Fatalf("got %d bridge responses, want %d", len(responses), len(commands))
++	}
++	for index, row := range responses {
++		if !row.OK {
++			t.Fatalf("command %d failed: %s", index, row.Error)
++		}
++	}
++	if responses[0].State.PressClock != nil {
++		t.Fatal("default load unexpectedly enabled the press clock")
++	}
++	if clock := responses[2].State.PressClock; clock == nil || !clock.Ready || clock.PressIndex != 1 || responses[2].State.TimeMS != 0 {
++		t.Fatalf("first press receipt is missing: %+v", responses[2].State)
++	}
++	if clock := responses[4].State.PressClock; clock == nil || !clock.Ready || clock.PressIndex != 2 || responses[4].State.TimeMS != 100 {
++		t.Fatalf("second press receipt is missing: %+v", responses[4].State)
++	}
++}
+diff --git a/sim/o2o/environment.go b/sim/o2o/environment.go
+index 77cf07d..02a6dd6 100644
+--- a/sim/o2o/environment.go
++++ b/sim/o2o/environment.go
+@@ -95,6 +95,17 @@ type State struct {
+ 	DynamicIdleAdvance     *DynamicIdleAdvanceStateV3     `json:"dynamic_idle_advance,omitempty"`
+ 	DynamicTeamResponse    *DynamicTeamResponseStateV1    `json:"dynamic_team_response,omitempty"`
+ 	WakeReady              *DynamicTeamWakeReadyV1        `json:"wake_ready,omitempty"`
++	PressClock             *PressClockState               `json:"press_clock,omitempty"`
++}
++
++// PressClockState describes an opt-in external key opportunity. It is not a
++// claim about an observed player's input cadence.
++type PressClockState struct {
++	PeriodMS   int64 `json:"period_ms"`
++	PhaseMS    int64 `json:"phase_ms"`
++	PressIndex int64 `json:"press_index"`
++	Ready      bool  `json:"ready"`
++	NextTimeMS int64 `json:"next_time_ms"`
+ }
+ 
+ type AvailableAction struct {
+@@ -205,6 +216,15 @@ type Environment struct {
+ 	dynamicTeamResponse  *dynamicTeamResponseRuntimeV1
+ 	activeAttemptID      string
+ 	activeAttemptAction  core.ActionID
++	pressClock           *pressClockRuntime
++}
++
++type pressClockRuntime struct {
++	period   time.Duration
++	phaseMS  int64
++	index    int64
++	ready    bool
++	nextTime time.Duration
+ }
+ 
+ func New(request *proto.RaidSimRequest, seed int64) (*Environment, error) {
+@@ -298,6 +318,67 @@ func (env *Environment) player() core.Agent {
+ 	return env.sim.Raid.Parties[0].Players[0]
+ }
+ 
++// ConfigurePressClock opts this environment into a fixed external key schedule.
++// Configure it before any policy action; the default interactive mode is unchanged.
++func (env *Environment) ConfigurePressClock(periodMS, phaseMS int64) error {
++	if env.finished || env.pressClock != nil {
++		return errors.New("press clock requires a live, unconfigured environment")
++	}
++	if env.dynamicV3 != nil || env.dynamicTeamResponse != nil {
++		return errors.New("press clock does not yet integrate dynamic idle or responsive team wakes")
++	}
++	if periodMS <= 0 || periodMS > 60_000 || phaseMS < 0 || phaseMS >= periodMS {
++		return errors.New("press clock requires period_ms in 1..60000 and phase_ms in 0..period_ms-1")
++	}
++	now := env.sim.CurrentTime.Milliseconds()
++	next := phaseMS
++	if next < now {
++		next += ((now - next + periodMS - 1) / periodMS) * periodMS
++	}
++	env.pressClock = &pressClockRuntime{
++		period:   time.Duration(periodMS) * time.Millisecond,
++		phaseMS:  phaseMS,
++		nextTime: time.Duration(next) * time.Millisecond,
++	}
++	env.schedulePress()
++	return nil
++}
++
++func (env *Environment) schedulePress() {
++	clock := env.pressClock
++	env.sim.AddPendingAction(&core.PendingAction{
++		NextActionAt: clock.nextTime,
++		Priority:     core.ActionPriorityLow,
++		OnAction: func(sim *core.Simulation) {
++			if env.finished {
++				return
++			}
++			clock.ready = true
++			clock.index++
++			sim.NeedsInput = true
++		},
++	})
++}
++
++// FinishPress closes exactly one physical-key opportunity, even if its only
++// accepted sink was a non-GCD swing queue. The next opportunity is a new tick.
++func (env *Environment) FinishPress() error {
++	if env.pressClock == nil || !env.pressClock.ready || env.finished {
++		return errors.New("no live press opportunity is ready")
++	}
++	clock := env.pressClock
++	clock.ready = false
++	clock.nextTime += clock.period
++	env.sim.NeedsInput = false
++	env.postGCDQueueReady = false
++	env.schedulePress()
++	return nil
++}
++
++func (env *Environment) inputOpportunityOpen() bool {
++	return env.sim.NeedsInput && (env.pressClock == nil || env.pressClock.ready)
++}
++
+ // AdvanceUntilDecision processes events until the policy is asked for another
+ // input or the encounter ends.
+ func (env *Environment) AdvanceUntilDecision() (bool, error) {
+@@ -305,6 +386,25 @@ func (env *Environment) AdvanceUntilDecision() (bool, error) {
+ 	if env.finished {
+ 		return true, nil
+ 	}
++	if env.pressClock != nil {
++		if env.pressClock.ready {
++			return false, errors.New("finish_press is required before advancing to another key")
++		}
++		for !env.pressClock.ready {
++			if env.dynamicTeamResponseWakeReadyV1() {
++				return false, errors.New("responsive team wake requires separate internal processing in press-clock mode")
++			}
++			if env.sim.Step() {
++				env.finished = true
++				env.closeDynamicTeamResponseV1()
++				env.cancelRemainingDynamicTargetSemanticsV2()
++				env.cancelRemainingDynamicBackgroundV1()
++				env.finishDynamicIdleAdvanceV3(DynamicIdleAdvanceSimulatorTerminal)
++				return true, nil
++			}
++		}
++		return false, nil
++	}
+ 	if env.dynamic != nil {
+ 		for {
+ 			if env.finished {
+@@ -356,7 +456,7 @@ func (env *Environment) AvailableActions() []AvailableAction {
+ 			Index:       index,
+ 			Action:      actionRef(spell.ActionID),
+ 			Label:       spell.ActionID.String(),
+-			Legal:       !env.finished && env.sim.NeedsInput && targetAlive && spell.CanCast(env.sim, target),
++			Legal:       !env.finished && env.inputOpportunityOpen() && targetAlive && spell.CanCast(env.sim, target),
+ 			ReadyInMS:   nonNegativeMS(ready),
+ 			TriggersGCD: spell.DefaultCast.GCD > 0,
+ 		})
+@@ -382,7 +482,7 @@ func (env *Environment) apply(ref ActionRef, attemptID string, trackResults bool
+ 	if env.finished {
+ 		return ApplyResult{Finished: true}, errors.New("encounter is already finished")
+ 	}
+-	if !env.sim.NeedsInput {
++	if !env.inputOpportunityOpen() {
+ 		return ApplyResult{}, errors.New("simulator is not waiting for an action")
+ 	}
+ 	character := env.player().GetCharacter()
+@@ -476,7 +576,7 @@ func (env *Environment) StartAttack() (ControlResult, error) {
+ 	if env.finished {
+ 		return ControlResult{}, errors.New("encounter is already finished")
+ 	}
+-	if !env.sim.NeedsInput {
++	if !env.inputOpportunityOpen() {
+ 		return ControlResult{}, errors.New("simulator is not waiting for an action")
+ 	}
+ 	character := env.player().GetCharacter()
+@@ -496,7 +596,7 @@ func (env *Environment) StopCast() (ControlResult, error) {
+ 	if env.finished {
+ 		return ControlResult{}, errors.New("encounter is already finished")
+ 	}
+-	if !env.sim.NeedsInput {
++	if !env.inputOpportunityOpen() {
+ 		return ControlResult{}, errors.New("simulator is not waiting for an action")
+ 	}
+ 	character := env.player().GetCharacter()
+@@ -620,7 +720,7 @@ func (env *Environment) CancelQueuedMelee() (CancelQueuedMeleeResult, error) {
+ 	if env.finished {
+ 		return CancelQueuedMeleeResult{Finished: true}, errors.New("encounter is already finished")
+ 	}
+-	if !env.sim.NeedsInput {
++	if !env.inputOpportunityOpen() {
+ 		return CancelQueuedMeleeResult{}, errors.New("simulator is not waiting for an action")
+ 	}
+ 
+@@ -643,7 +743,7 @@ func (env *Environment) SetTarget(index int32) (SetTargetResult, error) {
+ 	if env.finished {
+ 		return SetTargetResult{Finished: true}, errors.New("encounter is already finished")
+ 	}
+-	if !env.sim.NeedsInput {
++	if !env.inputOpportunityOpen() {
+ 		return SetTargetResult{}, errors.New("simulator is not waiting for an action")
+ 	}
+ 	if index < 0 || index >= int32(len(env.sim.Encounter.TargetUnits)) {
+@@ -678,6 +778,9 @@ func (env *Environment) Wait(duration time.Duration) error {
+ 	if env.finished {
+ 		return errors.New("encounter is already finished")
+ 	}
++	if env.pressClock != nil {
++		return errors.New("wait cannot create an extra opportunity in press-clock mode; finish_press instead")
++	}
+ 	if !env.sim.NeedsInput {
+ 		return errors.New("simulator is not waiting for an action")
+ 	}
+@@ -721,6 +824,13 @@ func (env *Environment) State() State {
+ 		DynamicTeamResponse:    env.dynamicTeamResponseStateV1(),
+ 		WakeReady:              env.dynamicTeamResponseWakeReadyStateV1(),
+ 	}
++	if clock := env.pressClock; clock != nil {
++		state.PressClock = &PressClockState{
++			PeriodMS: clock.period.Milliseconds(), PhaseMS: clock.phaseMS,
++			PressIndex: clock.index, Ready: clock.ready,
++			NextTimeMS: clock.nextTime.Milliseconds(),
++		}
++	}
+ 	if env.dynamic != nil {
+ 		totalTargetCount := len(env.sim.Encounter.TargetUnits)
+ 		state.TotalTargetCount = &totalTargetCount
+diff --git a/sim/o2o/press_clock_test.go b/sim/o2o/press_clock_test.go
+new file mode 100644
+index 0000000..22e825c
+--- /dev/null
++++ b/sim/o2o/press_clock_test.go
+@@ -0,0 +1,142 @@
++package o2o
++
++import "testing"
++
++func TestPressClockQueueAcceptanceDoesNotCreateSameTimeReentry(t *testing.T) {
++	env := newTestWarriorEnvironment(t, testWarriorRequest())
++	if env.State().PressClock != nil {
++		t.Fatal("default interactive mode unexpectedly has a press clock")
++	}
++	if err := env.ConfigurePressClock(100, 0); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	first := env.State()
++	if first.TimeMS != 0 || first.PressClock == nil || !first.PressClock.Ready || first.PressClock.PressIndex != 1 {
++		t.Fatalf("first external press was not at time zero: %+v", first.PressClock)
++	}
++	_, queue := requireSpellAction(t, env, 1, 11567, 25286)
++	accepted, err := env.Apply(queue)
++	if err != nil || !accepted.Casted || accepted.ConsumesDecision || !accepted.NeedsInput {
++		t.Fatalf("next-swing queue was not accepted without consuming GCD: %+v, %v", accepted, err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err == nil {
++		t.Fatal("advance reused an unclosed physical key opportunity")
++	}
++	if err := env.FinishPress(); err != nil {
++		t.Fatal(err)
++	}
++	if env.State().NeedsInput || env.State().PressClock.Ready {
++		t.Fatal("finish_press left the old key opportunity open")
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	second := env.State()
++	if second.TimeMS != 100 || second.PressClock.PressIndex != 2 || !second.PressClock.Ready {
++		t.Fatalf("second press did not occur at the external 100 ms tick: %+v", second.PressClock)
++	}
++}
++
++func TestPressClockExposesGCDBusyPressWithoutGCDReadyReentry(t *testing.T) {
++	env := newTestWarriorEnvironment(t, testWarriorRequest())
++	if err := env.ConfigurePressClock(800, 0); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	_, bloodthirst := requireSpellAction(t, env, 0, 23894)
++	cast, err := env.ApplyWithAttemptID(bloodthirst, "press-clock-bt")
++	if err != nil || !cast.Casted || !cast.ConsumesDecision {
++		t.Fatalf("initial Bloodthirst did not consume GCD: %+v, %v", cast, err)
++	}
++	if err := env.FinishPress(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	busy := env.State()
++	if busy.TimeMS != 800 || busy.GCDRemainingMS <= 0 || busy.PressClock == nil || !busy.PressClock.Ready {
++		t.Fatalf("GCD-busy external press was not exposed: time=%d gcd=%d clock=%+v", busy.TimeMS, busy.GCDRemainingMS, busy.PressClock)
++	}
++	rejected, err := env.ApplyWithAttemptID(bloodthirst, "press-clock-bt-rejected")
++	if err != nil || rejected.Casted || rejected.ConsumesDecision {
++		t.Fatalf("GCD-busy key did not get a typed spell rejection: %+v, %v", rejected, err)
++	}
++	if err := env.FinishPress(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	ready := env.State()
++	if ready.TimeMS != 1600 || ready.GCDRemainingMS != 0 || ready.PressClock.PressIndex != 3 {
++		t.Fatalf("GCD ready created an extra key opportunity before the next tick: time=%d gcd=%d clock=%+v", ready.TimeMS, ready.GCDRemainingMS, ready.PressClock)
++	}
++}
++
++func TestPressClockDoesNotAllowCommandsOutsideReadyPress(t *testing.T) {
++	env := newTestWarriorEnvironment(t, testWarriorRequest())
++	if err := env.ConfigurePressClock(100, 0); err != nil {
++		t.Fatal(err)
++	}
++	_, queue := requireSpellAction(t, env, 1, 11567, 25286)
++	if result, err := env.Apply(queue); err == nil || result.Casted {
++		t.Fatalf("queue was accepted outside a press: %+v, %v", result, err)
++	}
++	if err := env.Wait(100); err == nil {
++		t.Fatal("legacy WAIT bypassed the external press clock")
++	}
++}
++
++func TestPressClockBusyGCDUsesNativeOnSwingQueueAcceptance(t *testing.T) {
++	env := newTestWarriorEnvironment(t, testWarriorRequest())
++	if err := env.ConfigurePressClock(800, 0); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	_, bloodthirst := requireSpellAction(t, env, 0, 23894)
++	cast, err := env.ApplyWithAttemptID(bloodthirst, "press-clock-queue-bt")
++	if err != nil || !cast.Casted || !cast.ConsumesDecision {
++		t.Fatalf("initial GCD was not accepted: %+v, %v", cast, err)
++	}
++	if err := env.FinishPress(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	if env.State().TimeMS != 800 || env.State().GCDRemainingMS <= 0 {
++		t.Fatal("separate on-swing queue press did not occur during the GCD")
++	}
++	var queue ActionRef
++	var nativeLegal bool
++	for _, action := range env.AvailableActions() {
++		if action.Action.Tag == 1 && (action.Action.SpellID == 11567 || action.Action.SpellID == 25286) {
++			queue, nativeLegal = action.Action, action.Legal
++			break
++		}
++	}
++	if queue.SpellID == 0 {
++		t.Fatal("on-swing queue was absent from the native spellbook")
++	}
++	result, err := env.Apply(queue)
++	if err != nil || result.Casted != nativeLegal || result.ConsumesDecision || !result.NeedsInput {
++		t.Fatalf("press clock bypassed native queue legality: legal=%t result=%+v err=%v", nativeLegal, result, err)
++	}
++	if err := env.FinishPress(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.Apply(queue); err == nil {
++		t.Fatal("queue was resubmitted at the same millisecond after finish_press")
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil || env.State().TimeMS != 1600 {
++		t.Fatalf("next queue opportunity was not the next external tick: time=%d err=%v", env.State().TimeMS, err)
++	}
++}

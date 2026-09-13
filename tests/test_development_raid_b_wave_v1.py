@@ -26,26 +26,32 @@ class DevelopmentRaidBWaveV1Tests(unittest.TestCase):
         self.assertIn("CONTROLLED_DUAL_WIELD_BUILD_NOT_SOURCE_FOCAL_BUILD",
                       scenario["scenario_model"]["limitation_codes"])
 
-    def test_native_two_target_panel_keeps_distinct_raid_b_and_unsupported_contra_new(self) -> None:
+    def test_native_two_target_panel_keeps_distinct_raid_b_and_proxy_contra_new(self) -> None:
         if not DEFAULT_BRIDGE.exists() or not (WORKSPACE_ROOT / "wowsims-turtle").exists():
             self.skipTest("native Windows bridge unavailable")
         panel = run_raid_b_four_policy_wave_v1(2026091401)
         rows = {row["policy_id"]: row for row in panel["rows"]}
-        self.assertFalse(panel["four_way_complete"])
+        self.assertTrue(panel["four_way_complete"])
+        self.assertFalse(panel["comparison_ready"])
         self.assertEqual(panel["post_gcd_queue_acceptance"],
                          "REJECTED_BY_CLIENT_PROBE_NOT_SIMULATOR_CAST")
         self.assertTrue(panel["manual_target_switch_not_modeled"])
         self.assertEqual(panel["all_deployed_target_index"], 0)
         self.assertEqual(len(rows), 4)
+        self.assertTrue(all(
+            row["decision_opportunities"]["status"] == "OBSERVED_SIMULATOR_INVOCATIONS"
+            for row in rows.values()
+        ))
         self.assertIn(POLICY_ID, rows)
         self.assertNotIn("contra.deployed.fury.raid_a", rows)
         self.assertEqual(rows[POLICY_ID]["status"], "COMPLETED")
         self.assertEqual(rows[POLICY_ID]["artifact_status"], "COMPLETE_NONFAITHFUL")
         self.assertEqual(len(rows[POLICY_ID]["artifact_nonfatal_blocker_codes"]), 4)
-        self.assertEqual(rows["contra260817.fury.source_candidate"]["status"], "UNSUPPORTED")
-        self.assertIsNone(rows["contra260817.fury.source_candidate"]["own_effective_damage"])
-        self.assertIn("source reentry after a standalone accepted Cleave queue",
-                      rows["contra260817.fury.source_candidate"]["error"])
+        contra_new = rows["contra260817.fury.source_candidate"]
+        self.assertEqual(contra_new["status"], "COMPLETED")
+        self.assertIsInstance(contra_new["own_effective_damage"], float)
+        self.assertIn("CONTRA260817_SOURCE_REENTRY_CADENCE_FIXED_100MS_PROXY",
+                      contra_new["artifact_nonfatal_blocker_codes"])
 
 
 if __name__ == "__main__":

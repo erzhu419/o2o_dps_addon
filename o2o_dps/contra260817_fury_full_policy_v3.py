@@ -1795,16 +1795,6 @@ class Contra260817FuryFullPolicyAdapterV3:
                 if queue is SwingQueueOp.HEROIC_STRIKE
                 else state.cleave_probe_texture_present
             )
-            if state.entry_combat.queued_swing is queue:
-                helper_no_sink_attempts.append(
-                    {
-                        "operation": "Contra.IsHeroicStrikActive",
-                        "value": localized,
-                        "reason": "IsCurrentAction_returned_true",
-                        "source_ref": source_ref,
-                    }
-                )
-                return False
             if present is not True:
                 helper_no_sink_attempts.append(
                     {
@@ -1819,6 +1809,37 @@ class Contra260817FuryFullPolicyAdapterV3:
                     }
                 )
                 return False
+            if state.entry_combat.queued_swing is queue:
+                # The source tests IsCurrentAction *at this call*, after WW.
+                # An accepted WW can clear the action's current marker inside
+                # the same key (observed by the equivalent-action client B
+                # probe). Keep this conditional call for the ordered executor.
+                deferred_after_ww = (
+                    queue is SwingQueueOp.CLEAVE
+                    and any(
+                        sink.channel == "gcd" and sink.value == "旋风斩"
+                        for sink in builder.raw
+                    )
+                )
+                if deferred_after_ww:
+                    helper_no_sink_attempts.append(
+                        {
+                            "operation": "Contra.IsHeroicStrikActive",
+                            "value": localized,
+                            "reason": "IsCurrentAction_deferred_until_after_whirlwind",
+                            "source_ref": source_ref,
+                        }
+                    )
+                else:
+                    helper_no_sink_attempts.append(
+                        {
+                            "operation": "Contra.IsHeroicStrikActive",
+                            "value": localized,
+                            "reason": "IsCurrentAction_returned_true",
+                            "source_ref": source_ref,
+                        }
+                    )
+                    return False
             builder.emit_queue(
                 queue,
                 operation="CastSpellByName",
@@ -1975,7 +1996,14 @@ class Contra260817FuryFullPolicyAdapterV3:
             "zssdw_source_items": sorted(BROTHERHOOD_SET_ITEMS),
             "target_helper_trace": [dict(row) for row in target_helper_trace],
             "traversal_returns": list(traversal_returns),
-            "helper_no_sink_attempts": [dict(row) for row in helper_no_sink_attempts],
+            "helper_no_sink_attempts": [
+                dict(row) for row in helper_no_sink_attempts
+                if row.get("reason") != "IsCurrentAction_deferred_until_after_whirlwind"
+            ],
+            "deferred_queue_guard_checks": [
+                dict(row) for row in helper_no_sink_attempts
+                if row.get("reason") == "IsCurrentAction_deferred_until_after_whirlwind"
+            ],
             "profile": self.profile.to_dict(),
             "profile_semantic_sha256": self.profile.semantic_sha256,
             "adapter_contract_sha256": ADAPTER_CONTRACT_SHA256,

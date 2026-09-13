@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import unittest
+from unittest.mock import Mock
 
 from o2o_dps.sim_bridge import (
     BackgroundDamageEventV1,
@@ -24,6 +25,7 @@ from o2o_dps.sim_bridge_dynamic_v3 import (
     DynamicTargetSemanticsConfigV3,
     DynamicV3ConfigError,
     SimulatorBridgeDynamicV3,
+    _press_clock_state_v1,
     _idle_receipt_batch_v3,
     _parse_idle_state_v3,
     _validate_request_horizon_v3,
@@ -200,6 +202,71 @@ def external_request_v3() -> dict:
 
 
 class SimulatorBridgeDynamicV3Tests(unittest.TestCase):
+    def test_press_clock_commands_validate_typed_receipts(self):
+        bridge = object.__new__(SimulatorBridgeDynamicV3)
+        bridge._dynamic_binding = None
+        bridge._request = Mock(return_value={"state": {
+            "time_ms": 0,
+            "press_clock": {
+                "period_ms": 100, "phase_ms": 0, "press_index": 0,
+                "ready": False, "next_time_ms": 0,
+            },
+        }})
+        configured = bridge.configure_press_clock(100)
+        self.assertEqual(0, _press_clock_state_v1(configured).press_index)
+        bridge._request.assert_called_once_with(
+            "configure_press_clock", press_period_ms=100, press_phase_ms=0,
+        )
+
+        bridge._request = Mock(return_value={"state": {
+            "time_ms": 0,
+            "press_clock": {
+                "period_ms": 100, "phase_ms": 0, "press_index": 1,
+                "ready": False, "next_time_ms": 100,
+            },
+        }})
+        finished = bridge.finish_press()
+        self.assertFalse(_press_clock_state_v1(finished).ready)
+        bridge._request.assert_called_once_with("finish_press")
+
+    def test_press_clock_rejects_malformed_receipts_without_changing_old_mode(self):
+        bridge = object.__new__(SimulatorBridgeDynamicV3)
+        bridge._dynamic_binding = None
+        bridge._request = Mock(return_value={"state": {"time_ms": 7}})
+        self.assertEqual({"time_ms": 7}, bridge.state())
+        with self.assertRaisesRegex(ValueError, "period_ms"):
+            bridge.configure_press_clock(0)
+        with self.assertRaisesRegex(ValueError, "phase_ms"):
+            bridge.configure_press_clock(100, 100)
+        bridge._request.assert_called_once_with("state")
+
+        bridge._request = Mock(return_value={"state": {
+            "time_ms": 0,
+            "press_clock": {"period_ms": 125, "phase_ms": 0,
+                            "press_index": 0, "ready": False, "next_time_ms": 0},
+        }})
+        with self.assertRaisesRegex(SimBridgeProtocolError, "differs from request"):
+            bridge.configure_press_clock(100)
+        bridge._request = Mock(return_value={"state": {
+            "time_ms": 100,
+            "press_clock": {"period_ms": 100, "phase_ms": 0,
+                            "press_index": 2, "ready": True, "next_time_ms": 100},
+        }})
+        with self.assertRaisesRegex(SimBridgeProtocolError, "did not close"):
+            bridge.finish_press()
+
+        for clock in (
+            {"period_ms": 100, "phase_ms": 100, "press_index": 0,
+             "ready": False, "next_time_ms": 7},
+            {"period_ms": 100, "phase_ms": 0, "press_index": 1,
+             "ready": "yes", "next_time_ms": 7},
+            {"period_ms": 100, "phase_ms": 0, "press_index": 1,
+             "ready": False, "next_time_ms": 7},
+        ):
+            with self.subTest(clock=clock):
+                with self.assertRaises(SimBridgeProtocolError):
+                    _press_clock_state_v1({"time_ms": 7, "press_clock": clock})
+
     def test_config_digest_wire_and_horizon_are_strict(self):
         config = config_v3()
         self.assertEqual(

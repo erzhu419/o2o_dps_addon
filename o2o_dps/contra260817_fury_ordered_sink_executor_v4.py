@@ -62,7 +62,7 @@ from .sim_bridge import ActionRef, ActResult, AvailableAction
 
 JSONMap = dict[str, Any]
 EXECUTION_SCHEMA_V4 = "contra260817_fury_ordered_sink_simulator_execution/v4"
-IMPLEMENTATION_REVISION = "v4.2_contra260817_post_gcd_rejection_ledger"
+IMPLEMENTATION_REVISION = "v4.4_contra260817_dynamic_cleave_guard"
 SOURCE_REENTRY_CLOCK_SCHEMA_V4 = "contra260817_source_reentry_clock/v4"
 SOURCE_REENTRY_RETRY_MS_V4 = 100
 SOURCE_REENTRY_TIMING_AUTHORITY_V4 = "RUNNER_FIXED_100MS_PROXY"
@@ -335,6 +335,14 @@ def execute_contra260817_ordered_sinks_v4(
     accepted_gcd: list[str] = []
     accepted_consuming_gcd: tuple[int, str] | None = None
     result_bearing = frozenset(result_bearing_action_keys)
+    deferred_cleave_refs = {
+        row.get("source_ref")
+        for row in decision.metadata.get("deferred_queue_guard_checks", ())
+        if isinstance(row, Mapping)
+        and row.get("operation") == "Contra.IsHeroicStrikActive"
+        and row.get("value") == "顺劈斩"
+        and row.get("reason") == "IsCurrentAction_deferred_until_after_whirlwind"
+    }
 
     for order, item in enumerate(resolved, start=1):
         event = _base_event(order, item, current, len(resolved))
@@ -342,6 +350,26 @@ def execute_contra260817_ordered_sinks_v4(
             _not_submitted(event, "NOT_SUBMITTED_FAIL_CLOSED")
             events.append(event)
             continue
+        if (
+            item.sink.channel == "swing_queue"
+            and item.sink.value == "顺劈斩"
+            and item.sink.source_ref in deferred_cleave_refs
+        ):
+            accepted_ww = any(
+                row.get("source_sink", {}).get("channel") == "gcd"
+                and row.get("source_sink", {}).get("value") == "旋风斩"
+                and row.get("simulator_acceptance", {}).get("status") == "ACCEPTED"
+                for row in events
+            )
+            event["source_attempt"]["queue_guard"] = (
+                "ISCURRENTACTION_CLEARED_AFTER_ACCEPTED_WHIRLWIND"
+                if accepted_ww
+                else "ISCURRENTACTION_STILL_TRUE_AFTER_REJECTED_WHIRLWIND"
+            )
+            if not accepted_ww:
+                _record_current_action_guard_return(event)
+                events.append(event)
+                continue
         if (
             accepted_consuming_gcd is not None
             and (
@@ -403,7 +431,8 @@ def execute_contra260817_ordered_sinks_v4(
                 accepted_consuming_gcd = (order, item.action_key)
 
     wait_event: JSONMap | None = None
-    if decision.gcd == WAIT_ACTION:
+    accepted_queue_reentry = _accepted_swing_queue_nonconsuming(events)
+    if decision.gcd == WAIT_ACTION and not accepted_queue_reentry:
         wait_event, current, wait_consumed, wait_reason = _execute_wait(
             bridge, decision, current, blocked=blocked, consumed=consumed
         )
@@ -413,12 +442,13 @@ def execute_contra260817_ordered_sinks_v4(
             blocked = True
 
     source_reentry_clock: JSONMap | None = None
+    reentry_trigger = _source_reentry_trigger_v4(events)
     if (
         not blocked
         and not consumed
-        and decision.gcd != WAIT_ACTION
+        and (decision.gcd != WAIT_ACTION or accepted_queue_reentry)
         and bool(current.get("needs_input", True))
-        and _all_source_sinks_typed_rejected_nonconsuming(events)
+        and reentry_trigger is not None
     ):
         scheduled_at = current.get("time_ms")
         if type(scheduled_at) is not int:
@@ -442,7 +472,7 @@ def execute_contra260817_ordered_sinks_v4(
         nominal_wake = scheduled_at + SOURCE_REENTRY_RETRY_MS_V4
         source_reentry_clock = {
             "schema": SOURCE_REENTRY_CLOCK_SCHEMA_V4,
-            "trigger": "ALL_SOURCE_SINKS_TYPED_REJECTED_NONCONSUMING",
+            "trigger": reentry_trigger,
             "timing_authority": SOURCE_REENTRY_TIMING_AUTHORITY_V4,
             "exact_client_cadence": False,
             "policy_action": False,
@@ -515,6 +545,46 @@ def _all_source_sinks_typed_rejected_nonconsuming(
             return False
         seen_submitted = seen_submitted or submission.get("status") == "SUBMITTED"
     return seen_submitted
+
+
+def _accepted_swing_queue_nonconsuming(
+    events: Sequence[Mapping[str, Any]],
+) -> bool:
+    """An accepted on-swing call leaves the source invocation input-open."""
+    seen_queue = False
+    for event in events:
+        submission = event.get("simulator_submission")
+        acceptance = event.get("simulator_acceptance")
+        consumption = event.get("decision_consumption")
+        if (
+            not isinstance(submission, Mapping)
+            or submission.get("status")
+            not in {"SUBMITTED", "NOT_SUBMITTED_SOURCE_DECLARED_NOOP"}
+            or not isinstance(acceptance, Mapping)
+            or acceptance.get("status")
+            not in {"ACCEPTED", "REJECTED", "REJECTED_SOURCE_DECLARED_NOOP"}
+            or not isinstance(consumption, Mapping)
+            or consumption.get("consumes_decision") is not False
+        ):
+            return False
+        source = event.get("source_sink")
+        seen_queue = seen_queue or (
+            isinstance(source, Mapping)
+            and source.get("channel") == "swing_queue"
+            and submission.get("status") == "SUBMITTED"
+            and acceptance.get("status") == "ACCEPTED"
+        )
+    return seen_queue
+
+
+def _source_reentry_trigger_v4(
+    events: Sequence[Mapping[str, Any]],
+) -> str | None:
+    if _accepted_swing_queue_nonconsuming(events):
+        return "ACCEPTED_SWING_QUEUE_NONCONSUMING"
+    if _all_source_sinks_typed_rejected_nonconsuming(events):
+        return "ALL_SOURCE_SINKS_TYPED_REJECTED_NONCONSUMING"
+    return None
 
 
 def _preflight(
@@ -1009,6 +1079,26 @@ def _not_submitted(event: JSONMap, status: str) -> None:
         "consumes_decision": None,
     }
     event["simulator_outcome"] = {"status": "NOT_APPLICABLE_NOT_SUBMITTED"}
+
+
+def _record_current_action_guard_return(event: JSONMap) -> None:
+    """The source helper returns before CastSpellByName when Cleave stays current."""
+    event["simulator_submission"] = {
+        "status": "NOT_SUBMITTED_SOURCE_DECLARED_NOOP",
+        "reason": "IsCurrentAction_returned_true_after_rejected_whirlwind",
+        "bridge_call_made": False,
+    }
+    event["simulator_acceptance"] = {
+        "status": "REJECTED_SOURCE_DECLARED_NOOP",
+        "evidence_scope": "SOURCE_GUARD_SIMULATOR_PROXY",
+    }
+    event["decision_consumption"] = {
+        "status": "NOT_CONSUMED",
+        "consumes_decision": False,
+        "expected_for_lane": False,
+    }
+    event["simulator_outcome"] = {"status": "NOT_APPLICABLE_REJECTED"}
+    event["traversal"]["executor_state"] = "SOURCE_HELPER_RETURNED_BEFORE_CAST"
 
 
 def _record_post_gcd_rejection(

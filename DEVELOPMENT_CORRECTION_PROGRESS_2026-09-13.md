@@ -63,3 +63,9 @@
 - B 先单独顺劈 accepted；第 3 次尝试在主手剩余约 0.312 秒、排队后 1.772 秒重入，重入前 `IsCurrentAction=1`。旋风斩 accepted 后显示 `IsCurrentAction=false`，因此又请求顺劈，但该即时请求 rejected/code 0；原队列约 0.370 秒后 GO，并造成 793 伤害。GO 后 4 ms 的另一条 accepted 回执不可归给重入请求。修正解码器后总体状态为 `same_key_queue_rejected`，B 为 `prior_queue_survived_reentry_and_server_go`。
 - 文本 `WoWCombatLog.txt` 在本次时段无技能行；GO/结果来自 typed 存档，而非文本日志。探针已补用现有 `LoggingCombat` 接口开启未来战斗日志，但本次不为此要求重测。探针只复现等价动作顺序，不是完整 Contra_new 宏或键频；多目标 baseline 仍待合法重入模型闭合。
 - 已撤销现行 Contra_new runner 的 v15 同键强制接受入口，ordered executor 把 GCD 后顺劈记为拒绝；v15 补丁/旧二进制作为历史负结果保留，v16 增量补丁和 Go 回归覆盖先排顺劈→旋风斩→重发拒绝→原队列下一主手执行。本机原生单 seed `2026091401`：Cat 完成 4900、部署 Contra Raid-B 完成 2426、候选完成 5838 有效伤害，Contra_new `UNSUPPORTED`/分数空；这不是多 seed 胜负，更不是完整四方比较。
+
+## 后续开发诊断：队列重入与按键时钟
+
+- Contra_new 的顺劈成功排队不消耗决策；runner 现用明确标注的固定 100 ms 代理安排下一次宏调用，并记录每路仿真调用时刻。本机 seed `2026091401` 四路均终局：Cat 4900、Contra_new 5439、部署 Contra Raid-B 2426、候选 5838 有效伤害；`comparison_ready=false`。这是模型单 seed，不取代上面的旧版 `UNSUPPORTED` 记录。
+- 修正前 v4.3 适配器的 node001 独立 `2026091801..1832` 开发批次，32/32 四路终局、0/32 通过公平比较门禁。候选相对 Cat 为 −233.84（SE 235.42，14 胜 18 负），相对 Contra_new +280.82（SE 186.86，21 胜 11 负），相对部署 Contra Raid-B +1500.70（SE 177.47，29 胜 3 负）有效伤害。四路平均仿真调用次数依次为 Cat 14.44、Contra_new 73.72、部署 Contra 105.00、候选 17.06；它们不是共同的物理按键机会，不能据此给四方真实胜负排序。逐 seed panel 只留远端 `node001/attempt-20260913-raidb-fourway-proxy-002/AddOns/BrainOfCat/o2o-dps/results/raid-b-fourway-proxy-2026091801-n32.json`，本地未拉原始数据或 checkpoint。
+- 同键旋风斩之后的 `IsCurrentAction` 是动态值：等价动作客户端探针看到它改变。v4.4 已把适配器按源顺序改成动态顺劈 guard：旋风斩接受后会继续解释顺劈调用，拒绝时保留原队列、不提交新顺劈；40 项本机相关测试通过。上述远端批次仍是 v4.3，不用作 v4.4 的确认集。Go 已加入默认关闭的外生按键时钟核心及 bridge 命令，Go 两包回归通过；Python bridge 也可配置/结束单次机会并校验回执。四路 runner 尚未接入，动态 idle/响应队友路径明确不支持此时钟；策略尚不部署到 Cat2。
