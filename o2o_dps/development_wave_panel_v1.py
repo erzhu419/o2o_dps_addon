@@ -28,6 +28,17 @@ from .cat_residual_paired_lane_adapter_v1 import (
     execute_cat_residual_runner_v4_lane_v1,
     validate_cat_residual_runner_v4_artifact_v1,
 )
+from .cat_terminal_queue_guard_v1 import (
+    POLICY_ID as TERMINAL_GUARD_POLICY_ID,
+    CatTerminalQueueGuardV1,
+    TerminalQueueGuardV1,
+)
+from .cat_terminal_queue_guard_lane_v1 import (
+    PRODUCER as TERMINAL_GUARD_PRODUCER,
+    cat_terminal_queue_guard_lane_contract_v1,
+    execute_cat_terminal_queue_guard_lane_v1,
+    validate_cat_terminal_queue_guard_artifact_v1,
+)
 from .development_wave_case_v1 import (
     DevelopmentWaveCaseV1,
     SOURCE_CAPSULE_BUNDLE_SHA256,
@@ -112,6 +123,7 @@ def _policies(
     binding: Mapping[str, Any],
     candidate_kind: str,
     residual_discount_rage: float = 10.0,
+    terminal_guard_execute_approach_health_pct: float = 35.0,
 ) -> list[dict[str, str]]:
     profile = _file_sha(PROJECT_ROOT / "configs/wowsims/fury_warrior_live.json")
     policies = [
@@ -146,6 +158,16 @@ def _policies(
             "source_sha256": _source("cat_residual_candidate_rollout_v1.py"),
             "adapter_sha256": _source("cat_residual_paired_lane_adapter_v1.py"),
             "profile_sha256": sha256_json({"reserve_discount_rage": residual_discount_rage}),
+        }
+    elif candidate_kind == "cat_terminal_guard":
+        policies[-1] = {
+            "policy_id": TERMINAL_GUARD_POLICY_ID, "role": "CANDIDATE",
+            "source_sha256": _source("cat_terminal_queue_guard_v1.py"),
+            "adapter_sha256": _source("cat_terminal_queue_guard_lane_v1.py"),
+            "profile_sha256": sha256_json({
+                "reserve_discount_rage": residual_discount_rage,
+                "execute_approach_health_pct": terminal_guard_execute_approach_health_pct,
+            }),
         }
     elif candidate_kind != "anchor_13d":
         raise ValueError(f"unknown development candidate kind: {candidate_kind}")
@@ -195,6 +217,7 @@ def run_development_wave_panel_v1(
     runtime_binding_path: Path = DEFAULT_BINDING,
     candidate_kind: str = "cat_residual",
     residual_discount_rage: float = 10.0,
+    terminal_guard_execute_approach_health_pct: float = 35.0,
     anchor_parameters: Mapping[str, Any] | None = None,
     case_override: DevelopmentWaveCaseV1 | None = None,
     scenario_override: Mapping[str, Any] | None = None,
@@ -212,12 +235,20 @@ def run_development_wave_panel_v1(
     if case.case_spec["seed"] != master_seed:
         raise ValueError("case seed does not match paired master seed")
     binding = load_deployed_contra_runtime_binding_v1(runtime_binding_path)
-    if candidate_kind == "cat_residual":
+    if candidate_kind in {"cat_residual", "cat_terminal_guard"}:
         residual_discount_rage = float(residual_discount_rage)
         CatQueueResidualV1(residual_discount_rage)
+    guard_config = (
+        TerminalQueueGuardV1(
+            residual_discount_rage, float(terminal_guard_execute_approach_health_pct)
+        ) if candidate_kind == "cat_terminal_guard" else None
+    )
     candidate = _candidate(anchor_parameters)
     policies = [
-        policy for policy in _policies(candidate, binding, candidate_kind, residual_discount_rage)
+        policy for policy in _policies(
+            candidate, binding, candidate_kind, residual_discount_rage,
+            terminal_guard_execute_approach_health_pct,
+        )
         if policy["role"] == "CANDIDATE" or policy["policy_id"] in baseline_ids
     ]
     bridge_path = bridge_path.resolve()
@@ -269,6 +300,19 @@ def run_development_wave_panel_v1(
             )
             validators[RESIDUAL_PRODUCER] = validate_cat_residual_runner_v4_artifact_v1
             lane_contracts.append(cat_residual_lane_contract_v1())
+        elif candidate_kind == "cat_terminal_guard":
+            executors.pop(candidate.policy_id)
+            lane_contracts = [
+                row for row in lane_contracts if row["policy_id"] != candidate.policy_id
+            ]
+            executors[TERMINAL_GUARD_POLICY_ID] = lambda *, group, scenario, policy: (
+                execute_cat_terminal_queue_guard_lane_v1(
+                    bridge, CatTerminalQueueGuardV1(guard_config),
+                    group=group, scenario=scenario, policy=policy,
+                )
+            )
+            validators[TERMINAL_GUARD_PRODUCER] = validate_cat_terminal_queue_guard_artifact_v1
+            lane_contracts.append(cat_terminal_queue_guard_lane_contract_v1())
         plan = build_runner_plan(
             protocol_id=PROTOCOL_ID,
             protocol_sha256=sha256_json(case.case_spec),
@@ -344,6 +388,14 @@ def run_development_wave_panel_v1(
                         if item.get("execution_fatal") is True
                     ][:4],
                     "first_bridge_failure": _first_bridge_failure(lane["artifact"]),
+                    "guard_intervention_count": (
+                        lane["artifact"].get("intervention_count")
+                        if policy_id == TERMINAL_GUARD_POLICY_ID else None
+                    ),
+                    "guard_suppressed_opportunity_count": (
+                        lane["artifact"].get("guarded_opportunity_count")
+                        if policy_id == TERMINAL_GUARD_POLICY_ID else None
+                    ),
                 })
             except Exception as error:
                 rows.append({
@@ -368,7 +420,14 @@ def run_development_wave_panel_v1(
         ),
         "case": case.case_spec, "plan_sha256": plan["plan_sha256"],
         "candidate_kind": candidate_kind,
-        "residual_discount_rage": residual_discount_rage if candidate_kind == "cat_residual" else None,
+        "residual_discount_rage": (
+            residual_discount_rage if candidate_kind in {"cat_residual", "cat_terminal_guard"}
+            else None
+        ),
+        "terminal_guard_execute_approach_health_pct": (
+            terminal_guard_execute_approach_health_pct
+            if candidate_kind == "cat_terminal_guard" else None
+        ),
         "anchor_parameters": (
             dict(anchor_parameters) if anchor_parameters is not None else dict(ANCHOR_PARAMETERS)
         ) if candidate_kind == "anchor_13d" else None,
@@ -385,8 +444,9 @@ def main() -> None:
     parser.add_argument("--bridge", type=Path, default=DEFAULT_BRIDGE)
     parser.add_argument("--bridge-cwd", type=Path, default=WORKSPACE_ROOT / "wowsims-turtle")
     parser.add_argument("--runtime-binding", type=Path, default=DEFAULT_BINDING)
-    parser.add_argument("--candidate", choices=("cat_residual", "anchor_13d"), default="cat_residual")
+    parser.add_argument("--candidate", choices=("cat_residual", "anchor_13d", "cat_terminal_guard"), default="cat_residual")
     parser.add_argument("--residual-discount-rage", type=float, default=10.0)
+    parser.add_argument("--terminal-guard-execute-approach-health-pct", type=float, default=35.0)
     parser.add_argument("--anchor-parameters-json", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -395,6 +455,7 @@ def main() -> None:
         bridge_cwd=args.bridge_cwd,
         runtime_binding_path=args.runtime_binding, candidate_kind=args.candidate,
         residual_discount_rage=args.residual_discount_rage,
+        terminal_guard_execute_approach_health_pct=args.terminal_guard_execute_approach_health_pct,
         anchor_parameters=(
             json.loads(args.anchor_parameters_json.read_text(encoding="utf-8"))
             if args.anchor_parameters_json else None

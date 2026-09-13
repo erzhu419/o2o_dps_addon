@@ -33,7 +33,7 @@ from .sim_bridge_dynamic_v2 import DynamicAttackabilityEventV2
 from .sim_bridge_dynamic_v3 import DynamicTargetSemanticsConfigV3
 
 
-SCHEMA = "development_wave_stratified_case/v1"
+SCHEMA = "development_wave_stratified_case/v3"
 TEAM_INTERVAL_MS = 500
 WATCHDOG_MARGIN_MS = 5_000
 # Fixed before evaluating policies: short, medium, long, and a two-target wave.
@@ -42,6 +42,30 @@ WAVE_STRATA = {
     "single_medium": "b10d350d-1972-4b8d-ae91-905a9efa8a3d:wave:1",
     "single_long": "f989e71f-42a6-420f-8c68-eb65e9be731f:wave:1",
     "multi_two": "5586159a-be6e-41a0-a6bb-7ca288e69137:wave:1",
+}
+# Source CSV, through each target's first DEAD. Select the lexicographically
+# first direct player GUID observed using Bloodthirst, Mortal Strike,
+# Whirlwind, Slam, or Execute in the wave, with positive damage to its targets.
+# Selection does not inspect policy results or rank actors by DPS. These small
+# direct-GUID aggregates let remote runs avoid transferring the raw CSVs.
+SOURCE_FOCAL_ACTORS = {
+    "single_short": {
+        "guid": "0x0000000000259B57", "name": "\u59ec\u5854\u6b66\u5668\u6218",
+        "direct_damage_by_target": [2569], "direct_hit_count_by_target": [6],
+    },
+    "single_medium": {
+        "guid": "0x0000000000259B57", "name": "\u59ec\u5854\u6b66\u5668\u6218",
+        "direct_damage_by_target": [1768], "direct_hit_count_by_target": [12],
+    },
+    "single_long": {
+        "guid": "0x00000000003DBD6C", "name": "\u963f\u4fea\u5854",
+        "direct_damage_by_target": [12000], "direct_hit_count_by_target": [20],
+    },
+    "multi_two": {
+        "guid": "0x00000000004D4CBE", "name": "\u55b3\u55b3\u6656",
+        "direct_damage_by_target": [3881, 2762],
+        "direct_hit_count_by_target": [10, 10],
+    },
 }
 
 
@@ -93,6 +117,12 @@ def build_stratified_wave_case_v1(
             ["death_anchor"]["offset_ms"])
         for target in targets
     ]
+    focal = SOURCE_FOCAL_ACTORS[stratum]
+    focal_damage = focal["direct_damage_by_target"]
+    if len(focal_damage) != len(targets) or any(
+        not 0 <= damage < total for damage, total in zip(focal_damage, hp)
+    ):
+        raise ValueError("direct-GUID focal damage does not fit the source targets")
     watchdog_ms = ceil((max(deaths) + WATCHDOG_MARGIN_MS) / TEAM_INTERVAL_MS) * TEAM_INTERVAL_MS
     base = build_development_wave_case_v1(seed)
     request = deepcopy(base.request)
@@ -117,18 +147,30 @@ def build_stratified_wave_case_v1(
                 DynamicAttackabilityEventV2(len(attack_events), 0, index, False),
                 DynamicAttackabilityEventV2(len(attack_events) + 1, unlock, index, True),
             ))
-        # Total modeled team budget equals the observed incoming-to-death
-        # proxy. The focal player is NOT subtracted or identified in the log.
-        # Candidate damage advances death relative to this shared schedule.
-        count = max(1, ceil((deaths[index] - unlock) / TEAM_INTERVAL_MS))
-        hit = hp[index] / count
-        for step in range(count):
+        # The source total includes the historical focal actor. Replace that
+        # actor with the simulated player, so their directly attributed damage
+        # cannot occur a second time as background team damage.
+        team_budget = hp[index] - focal_damage[index]
+        source_fit_count = max(1, ceil((deaths[index] - unlock) / TEAM_INTERVAL_MS))
+        hit = team_budget / source_fit_count
+        # The original raid did not stop attacking a still-alive replacement
+        # target. Continue the fitted exogenous rate to the watchdog; events
+        # after model death have no effect. This tail is a sensitivity
+        # extrapolation, not an observed historical team action trace.
+        scheduled_count = max(source_fit_count, (watchdog_ms - unlock) // TEAM_INTERVAL_MS)
+        for step in range(scheduled_count):
             raw_events.append((unlock + (step + 1) * TEAM_INTERVAL_MS, index, hit))
         per_target_team.append({
-            "target_index": index, "modeled_team_damage_budget": hp[index],
+            "target_index": index, "modeled_team_damage_budget": team_budget,
+            "observed_total_incoming_to_death": hp[index],
+            "excluded_focal_direct_guid_damage": focal_damage[index],
+            "excluded_focal_direct_guid_hit_count": focal["direct_hit_count_by_target"][index],
             "source_death_offset_ms": deaths[index], "model_unlock_ms": unlock,
-            "hit_count": count, "damage_per_hit": hit,
-            "focal_player_excluded_from_source_budget": False,
+            "source_fit_hit_count": source_fit_count,
+            "scheduled_hit_count_to_watchdog": scheduled_count,
+            "post_source_death_rate_extrapolated": True,
+            "damage_per_hit": hit,
+            "focal_player_direct_guid_excluded_from_source_budget": True,
         })
     raw_events.sort(key=lambda item: (item[0], item[1]))
     background = tuple(
@@ -195,9 +237,15 @@ def build_stratified_wave_case_v1(
             "target_placement": source["layout"]["variant"] + "_hypothesis",
         },
         "team_background": {
-            "model": "EXOGENOUS_PER_TARGET_DEATH_ANCHOR_RATE_HYPOTHESIS",
+            "model": "EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED",
             "per_target": per_target_team,
-            "source_budget_includes_unidentified_focal_damage": True,
+            "source_focal_actor": {
+                "guid": focal["guid"], "name": focal["name"],
+                "selection_rule": "LOWEST_GUID_WITH_WARRIOR_DPS_ACTION_AND_POSITIVE_TARGET_DAMAGE",
+                "exclusion_scope": "DIRECT_SOURCE_GUID_DMG_AND_DEAD_TO_FIRST_TARGET_DEAD",
+            },
+            "focal_owned_pet_or_unattributed_damage_identified": False,
+            "source_focal_build_equivalent_to_controlled_live_build": False,
             "future_schedule_policy_visible": False,
             "player_conditioned": False,
         },
@@ -227,7 +275,9 @@ def build_stratified_wave_case_v1(
     scenario["scenario_model"].update({
         "request_sha256": load.request_sha256,
         "limitation_codes": [
-            "KILL_BUDGET_HP_MODEL_NOT_EXACT", "TEAM_RATE_FROM_UNCONDITIONED_DEATH_ANCHOR",
+            "KILL_BUDGET_HP_MODEL_NOT_EXACT", "TEAM_RATE_FROM_DIRECT_GUID_LEAVE_ONE_OUT_DEATH_ANCHOR",
+            "FOCAL_OWNED_PET_OR_UNATTRIBUTED_DAMAGE_UNIDENTIFIED",
+            "POST_SOURCE_DEATH_TEAM_RATE_EXTRAPOLATED",
             "ATTACKABILITY_HYPOTHESIS_NOT_IDENTIFIED", "WATCHDOG_IS_CENSOR_NOT_WAVE_SUCCESS",
         ],
     })
@@ -290,6 +340,12 @@ def run_stratified_wave_panel_v1(
         rows.append({
             "stratum": stratum, "source_wave_ref": case.case_spec["source_wave_ref"],
             "target_count": len(case.case_spec["required_target_ids"]),
+            "team_background_model": case.case_spec["team_background"]["model"],
+            "source_focal_guid": case.case_spec["team_background"]["source_focal_actor"]["guid"],
+            "excluded_focal_direct_guid_damage": [
+                target["excluded_focal_direct_guid_damage"]
+                for target in case.case_spec["team_background"]["per_target"]
+            ],
             "status": panel["status"], "four_way_complete": panel["four_way_complete"],
             "comparison_scope": "CAT_VS_ANCHOR_ONLY_RAID_B" if multi else "FOUR_NATIVE_POLICIES_RAID_A",
             "policies": [
@@ -300,7 +356,7 @@ def run_stratified_wave_panel_v1(
             ],
         })
     return {
-        "schema": "development_wave_stratified_panel/v1", "seed": seed,
+        "schema": "development_wave_stratified_panel/v3", "seed": seed,
         "scope": "MODEL_DEFINED_DEVELOPMENT_ONLY", "historical_exact": False,
         "real_superiority_authorized": False, "deployment_authorized": False,
         "source_capsule_bundle_sha256": SOURCE_CAPSULE_BUNDLE_SHA256,
@@ -316,6 +372,8 @@ def reduce_stratified_wave_panels_v1(
 
     if len({panel["seed"] for panel in panels}) != len(panels):
         raise ValueError("duplicate panel seed")
+    if any(panel.get("schema") != "development_wave_stratified_panel/v3" for panel in panels):
+        raise ValueError("cannot mix pre-extrapolation and corrected stratified panels")
     results = []
     for stratum in WAVE_STRATA:
         complete = []
@@ -364,7 +422,7 @@ def reduce_stratified_wave_panels_v1(
             "candidate_minus_baselines": paired,
         })
     return {
-        "schema": "development_wave_stratified_reduction/v1",
+        "schema": "development_wave_stratified_reduction/v3",
         "scope": "MODEL_DEFINED_DEVELOPMENT_ONLY",
         "seed_count": len(panels), "expected_seed_count": expected_seed_count,
         "all_fixed_waves_matched": all(row["full_matched_gate"] for row in results),
@@ -391,7 +449,7 @@ def run_parallel_stratified_wave_panel_v1(
         with ProcessPoolExecutor(max_workers=workers) as pool:
             panels = list(pool.map(execute, seeds))
     return {
-        "schema": "development_wave_stratified_parallel_panel/v1",
+        "schema": "development_wave_stratified_parallel_panel/v3",
         "seed_start": seed_start, "seed_count": seed_count, "workers": workers,
         "reduction": reduce_stratified_wave_panels_v1(
             panels, expected_seed_count=seed_count
