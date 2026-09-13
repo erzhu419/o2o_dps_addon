@@ -773,7 +773,15 @@ def _damage_lifecycle_receipt(rollout: Mapping[str, Any]) -> JSONMap:
         "rollout runtime receipt closure",
     )
     candidate = _mapping(closure.get("candidate_damage"), "candidate damage")
-    receipts = _array(candidate.get("receipts"), "candidate damage receipts")
+    raw_receipts = candidate.get("receipts")
+    if not isinstance(raw_receipts, (list, tuple)):
+        raise HistoricalFurySourceBoundPrototypeSmokeRunnerV1Error(
+            "candidate damage receipts must be an array"
+        )
+    # ``dataclasses.asdict`` preserves tuples in the live rollout returned by
+    # the native runner.  Persisted JSON naturally reloads the same batch as a
+    # list, so both are the one supported receipt-array shape here.
+    receipts = list(raw_receipts)
     if not all(isinstance(row, Mapping) for row in receipts):
         raise HistoricalFurySourceBoundPrototypeSmokeRunnerV1Error(
             "candidate damage receipts must be objects"
@@ -1173,29 +1181,20 @@ def validate_source_bound_prototype_smoke_receipt_v1(
     return raw
 
 
-def run_local_native_source_bound_prototype_smoke_v1(
+def run_prepared_local_native_source_bound_prototype_smoke_v1(
+    prepared: PreparedSourceBoundPrototypeSmokeV1,
     *,
-    bundle_path: str | Path,
-    model_manifest_path: str | Path,
-    dynamic_preparation_path: str | Path,
-    segment_ref: str,
-    prototype_id: str,
-    seed: int,
     bridge_path: str | Path = DEFAULT_WINDOWS_V11_BRIDGE,
     simulator_root: str | Path = DEFAULT_SIMULATOR_ROOT,
     max_decisions: int = 10_000,
     max_advances: int = 100_000,
 ) -> JSONMap:
-    """Execute exactly one bounded local/native source-bound smoke."""
+    """Execute one already-prepared bounded local/native source-bound smoke."""
 
-    prepared = prepare_source_bound_prototype_smoke_v1(
-        bundle_path=bundle_path,
-        model_manifest_path=model_manifest_path,
-        dynamic_preparation_path=dynamic_preparation_path,
-        segment_ref=segment_ref,
-        prototype_id=prototype_id,
-        seed=seed,
-    )
+    if not isinstance(prepared, PreparedSourceBoundPrototypeSmokeV1):
+        raise TypeError(
+            "prepared must be PreparedSourceBoundPrototypeSmokeV1"
+        )
     bridge_identity = _verify_windows_v11_bridge_v1(bridge_path)
     cwd = Path(simulator_root).expanduser().resolve()
     if not cwd.is_dir():
@@ -1227,6 +1226,38 @@ def run_local_native_source_bound_prototype_smoke_v1(
     )
     return validate_source_bound_prototype_smoke_receipt_v1(
         receipt, prepared=prepared
+    )
+
+
+def run_local_native_source_bound_prototype_smoke_v1(
+    *,
+    bundle_path: str | Path,
+    model_manifest_path: str | Path,
+    dynamic_preparation_path: str | Path,
+    segment_ref: str,
+    prototype_id: str,
+    seed: int,
+    bridge_path: str | Path = DEFAULT_WINDOWS_V11_BRIDGE,
+    simulator_root: str | Path = DEFAULT_SIMULATOR_ROOT,
+    max_decisions: int = 10_000,
+    max_advances: int = 100_000,
+) -> JSONMap:
+    """Prepare and execute exactly one bounded local/native source-bound smoke."""
+
+    prepared = prepare_source_bound_prototype_smoke_v1(
+        bundle_path=bundle_path,
+        model_manifest_path=model_manifest_path,
+        dynamic_preparation_path=dynamic_preparation_path,
+        segment_ref=segment_ref,
+        prototype_id=prototype_id,
+        seed=seed,
+    )
+    return run_prepared_local_native_source_bound_prototype_smoke_v1(
+        prepared,
+        bridge_path=bridge_path,
+        simulator_root=simulator_root,
+        max_decisions=max_decisions,
+        max_advances=max_advances,
     )
 
 
@@ -1330,5 +1361,6 @@ __all__ = [
     "prepare_source_bound_prototype_smoke_v1",
     "publish_local_native_source_bound_prototype_smoke_v1",
     "run_local_native_source_bound_prototype_smoke_v1",
+    "run_prepared_local_native_source_bound_prototype_smoke_v1",
     "validate_source_bound_prototype_smoke_receipt_v1",
 ]

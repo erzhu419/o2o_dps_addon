@@ -530,3 +530,45 @@ Chronicle 天赋字符串的位置顺序是 Turtle 客户端 `GetTalentInfo(tab,
 因此状态保持 `EVIDENCE_AUDIT_COMPLETE_NOT_EXECUTABLE`：exact initial/max HP、基础/外生护甲、精确可攻击区间和会响应候选策略的 team kill-clock 仍未识别；`derived_request_template` 与 `dynamic_load_config` 均为空，simulator/HPC/training/comparison/deployment/superiority 均未授权。当前内容地址 manifest 为 `a5dbcff04f310897f949fd8b850f4b8fdf96a5089fea7598e94ddf3af2713ccf`，partition logical SHA 为 `eeb8a36a85ff9af7cb099e20c87954e5960292bf63ac050694ef46d9a4e589f4`；派生产物继续留在 ignored offline-data 目录。
 
 相关 source-bound dynamic/prototype/runner、timeline、episode 与新证据层联合回归为 38/38 OK。下一步是在这个冻结证据层上预注册显式的执行窗、target-registry、HP prior、外生 armor 与 attackability 假设分支，发布 development-only v2 对；完成 counterfactual team kill-clock 验证前仍不启动六节点大规模搜索。本阶段不需要游戏内 `/reload`。
+
+## 13. 2026-09-13：development-only v2 假设对、原生接线与团队时钟控制
+
+`historical_fury_source_bound_dynamic_hypothesis_v2.py` 在不修改冻结 v1 证据的前提下，为全部 9 个 exact-source 请求显式声明执行窗、目标 registry、HP、外生护甲、attackability 与团队背景假设。真实 manifest 内容地址为 `635a69b1e62eb39c7f7fdb9e7240a7d9c55c5efdb08fa0c719b00a740e3501cd`：只有 `a4508c00…` 一行为 `READY_FOR_LOCAL_NATIVE_WIRE_SMOKE_ONLY`；其余 8 行均因未来目标 registry 泄漏和零安全执行窗阻断，其中 5 行还缺有效的零治疗击杀预算 HP proxy。v1 仍保持 0 READY，没有被改写。
+
+唯一物化对固定为 20.001 秒、单一 origin target `0xF13000EA57276C04`（entry 59991）、HP 假设 4,582,851、静态 armor 1,104、1 个 attackability event、0 个动态 armor event，以及只指向该目标的 1,017 条 exact-player LOO 背景事件（611,859 damage）。HP 来自使用未来结果的零治疗完整击杀预算，armor 来自 source request 的 generic `stats[26]`，activity envelope 也不是已识别的真实不可攻击区间；因此 manifest 明确为 `observation_leak=true / value_ready=false`。候选自己的破甲和武器效果不作为外生 armor event 重放，避免与 simulator 内生效果双计数。
+
+`historical_fury_source_bound_prototype_smoke_runner_v2.py` 将这一行及其 exact-source prototype、声明 seed 和 v2 pair 内容绑定后，复用同一条 v1 Windows 原生执行尾部。真实单进程 smoke 使用 prototype `stable_repeat_player_727acf47884bdbda`、seed `3321958692537367122`，结果为：
+
+| 项目 | 结果 |
+|---|---:|
+| 外层状态 | `COMPLETE_LOCAL_NATIVE_DEVELOPMENT_HYPOTHESIS_WIRE_SMOKE_NONVOTING` |
+| receipt 内容地址 | `47532af95def3a887b16643071c46e0b749414ab6c024898211c35bc2628a046` |
+| 终止原因 / elapsed | `SCENARIO_HORIZON_REACHED` / 20,001 ms |
+| 决策 / epoch | 7 / 6 |
+| 候选伤害回执 / applied damage | 19 / 11,208.579594688226 |
+| 背景伤害回执 / applied damage | 1,017 / 611,859 |
+| runtime receipt / damage accounting | `COMPLETE_BOUND` / closed |
+| fatal errors | 0 |
+
+首次真实调用暴露了一个此前 0 READY 时不可达的 live-path 错误：`dataclasses.asdict` 在内存中保留 candidate receipt tuple，而 v1 汇总器只接受 JSON 回读后的 list。现在汇总器接受这两种同一受支持数组形态，并加了 tuple 回归；修复后相同 seed 完整通过。这里的 560.401 diagnostic DPS 受泄漏 HP、generic armor 和固定历史背景共同决定，不进入任何策略价值或 baseline 比较。
+
+`historical_fury_source_bound_team_kill_clock_control_v1.py` 另行构造了三 lane 的事实账本：exact LOO team、被排除的 focal 玩家、明确未归因伤害。只有生命周期完全落在 materialized union、已观察死亡、零治疗、event-time identity 完整且三 lane damage ledger 等于 retrospective kill budget 的目标才纳入；历史目标提前死亡后，后续事件按确定性规则改投当前存活目标。
+
+| 团队时钟控制 | 结果 |
+|---|---:|
+| 请求 computed / blocked | 6 / 3 |
+| 目标 admitted / rejected | 206 / 342（总 548） |
+| LOO team | 9,577 events / 4,560,328 damage |
+| focal | 314 / 274,028 |
+| unattributed | 8 / 96,960 |
+| focal x0 | 0/6 terminal；135/206 targets killed |
+| factual x1 | 6/6 terminal；206/206 targets killed |
+| focal x1.25 | 6/6 terminal；102 个 team events、44,353 damage 改投 |
+| x1.25 相对 x1 | 2/6 kill-clock 改变；5/6 team assignment 改变 |
+| x1 同源事实锚 | death-anchor MAE 5.029126 ms；median 2 ms；max 66 ms；subset kill-clock MAE 2.5 ms |
+
+控制 manifest 内容地址为 `03f8b7be40559c1f197ecb4f43ab8357fa28311f956035b098652d19586a7138`。`x1` 的小误差是同一 wave 的容量、事件表和死亡锚进行确定性账本回放所得，不是 held-out 泛化；`x0/x1.25` 只证明 target-death 驱动的改投链会响应 focal damage 变化。事件时间和伤害仍固定，它不是 learned counterfactual teammate model，也没有 calibration pass。
+
+本阶段联合回归 37/37 OK；只运行了一个 Windows 本地 smoke 和本地流式/账本 ETL，没有网络请求、HPC 调度、训练或 Cat/Contra 比较。所有 policy-value、comparison、training、HPC、deployment 与 superiority 授权仍为 false；游戏内无需 `/reload`。
+
+下一阶段不是扩大 seed 数，而是补足 value-ready 的因果接口：在 policy observation 中屏蔽未来 registry/HP，区分 max HP 与窗口起点 current HP，恢复窗口起点的怒气、姿态、GCD/CD、双手挥击、queue、自身 aura/proc 和候选已拥有 debuff checkpoint；随后把会随目标死亡与候选动作变化的队友响应接入 bridge，并用留出 source wave/component 验证。完成这些门禁后，才允许 exact-source Cat/部署 Contra/Contra_new/historical prototype 的 matched policy-value rollouts，再决定是否向 node001–006 派发搜索。

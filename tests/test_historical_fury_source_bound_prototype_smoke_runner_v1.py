@@ -222,6 +222,71 @@ class _FakeNativeBridge:
 
 
 class HistoricalFurySourceBoundPrototypeSmokeRunnerV1Tests(unittest.TestCase):
+    def test_live_tuple_candidate_receipts_close_before_json_round_trip(self) -> None:
+        rollout = {
+            "damage_delta": 200.0,
+            "dynamic_v3_runtime_receipt_closure": {
+                "status": "COMPLETE_BOUND",
+                "candidate_damage": {
+                    "receipts": ({"applied_damage": 200.0},),
+                },
+                "terminal_lifecycle": {"simulated_damage_applied": 200.0},
+            },
+            "scenario_complete": True,
+            "configured_completion": {
+                "terminal_reason": "ALL_TARGETS_DEAD",
+            },
+            "elapsed_ms": 1_025,
+        }
+        lifecycle = smoke_v1._damage_lifecycle_receipt(rollout)
+        self.assertTrue(lifecycle["damage_accounting_closed"])
+        self.assertEqual(1, lifecycle["candidate_damage_receipt_count"])
+
+    def test_local_runner_prepares_then_delegates_without_changing_arguments(self) -> None:
+        prepared = object()
+        receipt = {"status": "fixture"}
+        with (
+            patch.object(
+                smoke_v1,
+                "prepare_source_bound_prototype_smoke_v1",
+                return_value=prepared,
+            ) as prepare,
+            patch.object(
+                smoke_v1,
+                "run_prepared_local_native_source_bound_prototype_smoke_v1",
+                return_value=receipt,
+            ) as run_prepared,
+        ):
+            observed = smoke_v1.run_local_native_source_bound_prototype_smoke_v1(
+                bundle_path="bundle.json",
+                model_manifest_path="models.json",
+                dynamic_preparation_path="dynamic.json",
+                segment_ref="segment",
+                prototype_id="prototype",
+                seed=17,
+                bridge_path="bridge.exe",
+                simulator_root="simulator",
+                max_decisions=123,
+                max_advances=456,
+            )
+
+        self.assertIs(receipt, observed)
+        prepare.assert_called_once_with(
+            bundle_path="bundle.json",
+            model_manifest_path="models.json",
+            dynamic_preparation_path="dynamic.json",
+            segment_ref="segment",
+            prototype_id="prototype",
+            seed=17,
+        )
+        run_prepared.assert_called_once_with(
+            prepared,
+            bridge_path="bridge.exe",
+            simulator_root="simulator",
+            max_decisions=123,
+            max_advances=456,
+        )
+
     def test_ready_preparation_keeps_base_duration_request_and_binds_seeded_pair(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             paths, bundle, bundle_path, dynamic_path = _prepared_fixture(
