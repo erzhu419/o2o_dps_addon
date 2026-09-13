@@ -87,6 +87,47 @@ class ContraMacroQueueProbeSummaryTests(unittest.TestCase):
             result["b_standalone_queue_then_reentry"]["missing"],
         )
 
+    def test_post_go_cast_receipt_does_not_make_reentry_recast_accepted(self) -> None:
+        rows = [
+            marker(1, "CALIBRATION_CONTRA_PROBE_A_REQUEST"),
+            typed(2, "SPELL_CAST_EVENT", 1680, castSucceeded=True, castType=0),
+            typed(3, "SPELL_CAST_EVENT", 20569, castSucceeded=False, castType=2),
+            marker(4, "CALIBRATION_CONTRA_PROBE_A_CALLS_RETURNED"),
+            typed(5, "SPELL_GO_SELF", 1680),
+            typed(6, "SPELL_MISS_SELF", 1680),
+            marker(9, "CALIBRATION_CONTRA_PROBE_A_WINDOW_END"),
+            marker(10, "CALIBRATION_CONTRA_PROBE_B_QUEUE_REQUEST"),
+            typed(11, "SPELL_CAST_EVENT", 20569, castSucceeded=True, castType=2),
+            marker(13, "CALIBRATION_CONTRA_PROBE_B_REENTRY"),
+            typed(14, "SPELL_CAST_EVENT", 1680, castSucceeded=True, castType=0),
+            typed(15, "SPELL_CAST_EVENT", 20569, castSucceeded=False, castType=2),
+            marker(16, "CALIBRATION_CONTRA_PROBE_B_CALLS_RETURNED", cleaveCallAt=10.0),
+            typed(17, "SPELL_GO_SELF", 20569),
+            typed(18, "SPELL_CAST_EVENT", 20569, castSucceeded=True, castType=2),
+            typed(19, "SPELL_DAMAGE_EVENT_SELF", 20571, amount=500),
+            marker(20, "CALIBRATION_CONTRA_PROBE_COMPLETED"),
+        ]
+        result = summarize_probe({"runId": RUN}, rows)
+        self.assertEqual(result["status"], "same_key_queue_rejected")
+        self.assertEqual(
+            result["a_same_key_ww_then_cleave"]["outcome"],
+            "same_key_queue_client_rejected",
+        )
+        branch = result["b_standalone_queue_then_reentry"]
+        self.assertFalse(branch["cleave_reentry_client_before_go"]["accepted"])
+        self.assertTrue(branch["cleave_reentry_client_before_go"]["rejected"])
+        self.assertTrue(branch["post_first_go_cast_event_unattributed"]["accepted"])
+        self.assertEqual(
+            branch["queue_outcome"],
+            "prior_queue_survived_reentry_and_server_go",
+        )
+        self.assertEqual(branch["missing"], [])
+        self.assertEqual(result["a_same_key_ww_then_cleave"]["missing"], [])
+        self.assertIn(
+            "cleave_client_on_swing_accept",
+            result["a_same_key_ww_then_cleave"]["positive_chain_unmet"],
+        )
+
     def test_only_latest_queue_attempt_is_used(self) -> None:
         rows = self.rows[:9] + [
             marker(10, "CALIBRATION_CONTRA_PROBE_B_QUEUE_REQUEST"),

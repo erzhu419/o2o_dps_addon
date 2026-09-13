@@ -344,7 +344,10 @@ def execute_contra260817_ordered_sinks_v4(
             continue
         if (
             accepted_consuming_gcd is not None
-            and item.sink.channel == "gcd"
+            and (
+                item.sink.channel == "gcd"
+                or (item.sink.channel == "swing_queue" and item.sink.value == "顺劈斩")
+            )
             and item.sink.operation == "CastSpellByName"
             and not item.known_noop
         ):
@@ -1017,8 +1020,10 @@ def _record_post_gcd_rejection(
     """Dispose a reached source GCD after this simulator decision was consumed.
 
     The source call is retained in the ordered attempt ledger, but issuing a
-    second ``bridge.act`` would violate the bridge lifecycle.  This is a typed
-    simulator-state rejection only; it is not evidence of WoW client behavior.
+    second ``bridge.act`` would violate the bridge lifecycle. The observed
+    same-key Whirlwind -> Cleave client probe also rejected the Cleave attempt;
+    this ledger still describes only the simulator execution, not a new live
+    client receipt for this rollout.
     """
 
     event["simulator_submission"] = {

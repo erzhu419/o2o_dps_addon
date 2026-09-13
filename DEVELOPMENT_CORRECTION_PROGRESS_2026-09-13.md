@@ -52,7 +52,14 @@
 
 ## 下一阶段实验（同日）
 
-- 已安装开发用游戏内 Contra_new 排队探针，复用原“BoC标定”按键，记录同键旋风斩→顺劈、顺劈排队后再次按键的 typed client/GO 事件和按键间隔；另备专用 SavedVariables/战斗日志解码器。Lua 5.1 静态解析和解码测试通过，**尚未经过本次游戏 `/reload` 与实测**；因此 Contra_new 多目标 lane 仍不闭合。
+- 已安装开发用游戏内 Contra_new 排队探针，复用原“BoC标定”按键，记录同键旋风斩→顺劈、顺劈排队后再次按键的 typed client/GO 事件和按键间隔；另备专用 SavedVariables/战斗日志解码器。首次安装时 Lua 5.1 静态解析和解码测试通过，随后完成了游戏 `/reload` 与实测（结果见下）。
 - 原生 `set_target` 可用，不必改 Go。只读当前 HP/存活/可攻击状态的开发组件在原双目标波新 32 seed 相对 Cat 为 +459.3 有效伤害（SE 162.3，21 胜/2 平/9 负）；另一来源短双目标波新 16 seed 为 +252.9（SE 266.6，10 胜/6 负），长双目标波原目标已是最高血量、16 次精确无动作。五目标波为 −1625.4（SE 468.4，3 胜/13 负）；其余 3/4/8/16 目标分层也没有跨场景稳定正收益。**不启用全局或双目标条件切靶规则**；它是独立的目标控制组件，非 Cat 自身的策略收益。
 - 同原生实例连续两波保留怒气/CD、冻结“首波不使用血性狂暴”候选，node001 新 16 seed×2 构筑均完整结算：削骨之刃相对 Cat −170.7 有效伤害（SE 302.9），双持 −430.6（SE 292.1）。拒绝这条跨波候选，不把旧的单波重置当跨波证据。死亡之愿、共享物品 CD 及真正历史队友响应仍未闭合。
-- 这些实验只从服务器读取小型终局摘要；未回传原始 CSV 或 checkpoint。下一决策依赖客户端排队探针的真实证据；Cat2 策略包仍不发布。
+- 这些实验只从服务器读取小型终局摘要；未回传原始 CSV 或 checkpoint。Cat2 策略包仍不发布。
+
+## 客户端排队实测裁定（同日 22:27–22:28）
+
+- 已由本地角色存档的 Nampower typed 事件独立复核：A 同键旋风斩→顺劈调用间隔约 5 ms；旋风斩 client accepted、server GO，顺劈返回 `SPELL_FAILED_SELF=97`、client rejected、queue code 0，随后无顺劈 GO。故 v15 原生桥“同键 GCD 后可立即接受顺劈排队”的假设被此客户端试验反证，应撤销，不能拿该路径计算 Contra_new 分数。
+- B 先单独顺劈 accepted；第 3 次尝试在主手剩余约 0.312 秒、排队后 1.772 秒重入，重入前 `IsCurrentAction=1`。旋风斩 accepted 后显示 `IsCurrentAction=false`，因此又请求顺劈，但该即时请求 rejected/code 0；原队列约 0.370 秒后 GO，并造成 793 伤害。GO 后 4 ms 的另一条 accepted 回执不可归给重入请求。修正解码器后总体状态为 `same_key_queue_rejected`，B 为 `prior_queue_survived_reentry_and_server_go`。
+- 文本 `WoWCombatLog.txt` 在本次时段无技能行；GO/结果来自 typed 存档，而非文本日志。探针已补用现有 `LoggingCombat` 接口开启未来战斗日志，但本次不为此要求重测。探针只复现等价动作顺序，不是完整 Contra_new 宏或键频；多目标 baseline 仍待合法重入模型闭合。
+- 已撤销现行 Contra_new runner 的 v15 同键强制接受入口，ordered executor 把 GCD 后顺劈记为拒绝；v15 补丁/旧二进制作为历史负结果保留，v16 增量补丁和 Go 回归覆盖先排顺劈→旋风斩→重发拒绝→原队列下一主手执行。本机原生单 seed `2026091401`：Cat 完成 4900、部署 Contra Raid-B 完成 2426、候选完成 5838 有效伤害，Contra_new `UNSUPPORTED`/分数空；这不是多 seed 胜负，更不是完整四方比较。

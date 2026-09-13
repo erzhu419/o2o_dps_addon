@@ -4,8 +4,6 @@ from pathlib import Path
 import unittest
 
 from o2o_dps.development_raid_b_wave_v1 import (
-    POST_GCD_QUEUE_ACCEPTANCE,
-    V15_BRIDGE,
     build_dual_wield_raid_b_wave_v1,
     run_raid_b_four_policy_wave_v1,
 )
@@ -34,6 +32,8 @@ class DevelopmentRaidBWaveV1Tests(unittest.TestCase):
         panel = run_raid_b_four_policy_wave_v1(2026091401)
         rows = {row["policy_id"]: row for row in panel["rows"]}
         self.assertFalse(panel["four_way_complete"])
+        self.assertEqual(panel["post_gcd_queue_acceptance"],
+                         "REJECTED_BY_CLIENT_PROBE_NOT_SIMULATOR_CAST")
         self.assertTrue(panel["manual_target_switch_not_modeled"])
         self.assertEqual(panel["all_deployed_target_index"], 0)
         self.assertEqual(len(rows), 4)
@@ -44,32 +44,8 @@ class DevelopmentRaidBWaveV1Tests(unittest.TestCase):
         self.assertEqual(len(rows[POLICY_ID]["artifact_nonfatal_blocker_codes"]), 4)
         self.assertEqual(rows["contra260817.fury.source_candidate"]["status"], "UNSUPPORTED")
         self.assertIsNone(rows["contra260817.fury.source_candidate"]["own_effective_damage"])
-        self.assertIn("swing_queue@Contra_Scrip_Warrior.lua:1308-1310",
+        self.assertIn("source reentry after a standalone accepted Cleave queue",
                       rows["contra260817.fury.source_candidate"]["error"])
-
-    def test_v15_queue_acceptance_keeps_later_unconsumed_source_invocation_unscored(self) -> None:
-        if not V15_BRIDGE.exists():
-            self.skipTest("native v15 Windows bridge unavailable")
-        panel = run_raid_b_four_policy_wave_v1(
-            2026091401, bridge_path=V15_BRIDGE,
-            post_gcd_queue_hypothesis=True,
-        )
-        rows = {row["policy_id"]: row for row in panel["rows"]}
-        contra_new = rows["contra260817.fury.source_candidate"]
-        self.assertEqual(panel["post_gcd_queue_acceptance"], POST_GCD_QUEUE_ACCEPTANCE)
-        self.assertFalse(panel["four_way_complete"])
-        self.assertEqual(contra_new["status"], "UNSUPPORTED")
-        self.assertIsNone(contra_new["own_effective_damage"])
-        self.assertEqual(contra_new["artifact_status"], "INCOMPLETE_BLOCKED")
-        self.assertEqual(contra_new["execution_blockers"][0]["code"],
-                         "DECISION_NOT_CONSUMED_NO_FALLBACK")
-        self.assertEqual(contra_new["execution_blockers"][0]["decision_index"], 11)
-        self.assertIn("client reentry cadence is unobserved", contra_new["error"])
-        self.assertEqual(contra_new["post_gcd_queue_assumption_receipts"], [{
-            "time_ms": 0, "action": {"spell_id": 20569, "tag": 1},
-            "casted": True, "consumes_decision": False,
-        }])
-        self.assertEqual(rows[POLICY_ID]["status"], "COMPLETED")
 
 
 if __name__ == "__main__":

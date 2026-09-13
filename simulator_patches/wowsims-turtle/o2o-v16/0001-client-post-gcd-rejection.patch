@@ -1,0 +1,263 @@
+diff --git a/sim/o2o/environment.go b/sim/o2o/environment.go
+--- a/sim/o2o/environment.go
++++ b/sim/o2o/environment.go
+@@ -454,31 +454,20 @@
+ 	}, nil
+ }
+ 
+-// ApplyPostGCDQueue models one next-swing queue attempt immediately after a
+-// consuming GCD in the same source invocation. This is a simulator assumption,
+-// not evidence that a WoW client accepted the post-GCD CastSpellByName call.
+-func (env *Environment) ApplyPostGCDQueue(ref ActionRef) (ApplyResult, error) {
+-	if env.finished || !env.postGCDQueueReady || env.sim.NeedsInput || env.sim.CurrentTime != env.postGCDQueueTime {
+-		return ApplyResult{}, errors.New("post-GCD queue requires the preceding unadvanced GCD decision")
+-	}
+-	env.postGCDQueueReady = false
+-	if ref.Tag != 1 || ref.ItemID != 0 || ref.OtherID != proto.OtherAction_OtherActionNone ||
+-		(ref.SpellID != 25286 && ref.SpellID != 11567 && ref.SpellID != 20569) {
+-		return ApplyResult{}, errors.New("post-GCD action must be Heroic Strike or Cleave queue")
+-	}
+-	character := env.player().GetCharacter()
+-	spell := character.GetSpell(ref.coreID())
+-	if spell == nil || !spell.Flags.Matches(core.SpellFlagAPL) || !spell.Flags.Matches(core.SpellFlagCastTimeNoGCD) {
+-		return ApplyResult{}, errors.New("post-GCD queue action is absent or not externally triggerable")
+-	}
+-	if env.dynamic != nil && (character.CurrentTarget == nil || !env.sim.Encounter.DynamicTargetUnitIsAttackable(character.CurrentTarget)) {
+-		return ApplyResult{NeedsInput: false}, nil
+-	}
+-	if !spell.CanCast(env.sim, character.CurrentTarget) {
+-		return ApplyResult{NeedsInput: false}, nil
+-	}
+-	casted := spell.Cast(env.sim, character.CurrentTarget)
+-	return ApplyResult{Casted: casted, ConsumesDecision: false, Finished: env.finished, NeedsInput: false}, nil
++// ApplyPostGCDQueue records a next-swing attempt after a consuming GCD in the
++// same source invocation. The client probe rejected Whirlwind -> Cleave; the
++// command must not fabricate an accepted queue or clear a previously queued
++// Cleave that survives the GCD.
++func (env *Environment) ApplyPostGCDQueue(ref ActionRef) (ApplyResult, error) {
++	if env.finished || !env.postGCDQueueReady || env.sim.NeedsInput || env.sim.CurrentTime != env.postGCDQueueTime {
++		return ApplyResult{}, errors.New("post-GCD queue requires the preceding unadvanced GCD decision")
++	}
++	env.postGCDQueueReady = false
++	if ref.Tag != 1 || ref.ItemID != 0 || ref.OtherID != proto.OtherAction_OtherActionNone ||
++		(ref.SpellID != 25286 && ref.SpellID != 11567 && ref.SpellID != 20569) {
++		return ApplyResult{}, errors.New("post-GCD action must be Heroic Strike or Cleave queue")
++	}
++	return ApplyResult{Casted: false, ConsumesDecision: false, Finished: env.finished, NeedsInput: false}, nil
+ }
+ 
+ // StartAttack is an idempotent client control.  A successful acknowledgement
+diff --git a/sim/o2o/post_gcd_queue_test.go b/sim/o2o/post_gcd_queue_test.go
+--- a/sim/o2o/post_gcd_queue_test.go
++++ b/sim/o2o/post_gcd_queue_test.go
+@@ -3,76 +3,137 @@
+ import (
+ 	"strings"
+ 	"testing"
+-)
+-
+-func TestPostGCDQueueAfterWhirlwindPreservesSourceOrder(t *testing.T) {
+-	request := testWarriorRequest()
+-	second := *request.Encounter.Targets[0]
+-	second.Stats = append([]float64(nil), second.Stats...)
+-	request.Encounter.Targets = append(request.Encounter.Targets, &second)
+-	env := newTestWarriorEnvironment(t, request)
+-	_, whirlwind := requireSpellAction(t, env, 0, 1680)
+-	_, cleave := requireSpellAction(t, env, 1, 20569)
+-	before := env.State().TimeMS
+-
+-	gcd, err := env.ApplyWithAttemptID(whirlwind, "ww-then-cleave")
+-	if err != nil || !gcd.Casted || !gcd.ConsumesDecision || gcd.NeedsInput {
+-		t.Fatalf("Whirlwind did not consume the decision: result=%+v err=%v", gcd, err)
+-	}
+-	queued, err := env.ApplyPostGCDQueue(cleave)
+-	if err != nil || !queued.Casted || queued.ConsumesDecision || queued.NeedsInput {
+-		t.Fatalf("post-GCD Cleave queue was not accepted: result=%+v err=%v", queued, err)
+-	}
+-	if env.State().TimeMS != before {
+-		t.Fatalf("post-GCD queue advanced time: %d -> %d", before, env.State().TimeMS)
+-	}
+-	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
+-		t.Fatal("second post-GCD queue reused the same GCD window")
+-	}
+-}
+-
+-func TestPostGCDQueueRejectsMissingOrAdvancedGCDWindow(t *testing.T) {
+-	env := newTestWarriorEnvironment(t, testWarriorRequest())
+-	_, whirlwind := requireSpellAction(t, env, 0, 1680)
+-	_, cleave := requireSpellAction(t, env, 1, 20569)
+-	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
+-		t.Fatal("queue without preceding GCD was accepted")
+-	}
+-	if result, err := env.ApplyWithAttemptID(whirlwind, "ww-before-advance"); err != nil || !result.ConsumesDecision {
+-		t.Fatalf("Whirlwind did not consume the decision: result=%+v err=%v", result, err)
+-	}
+-	if _, err := env.AdvanceUntilDecision(); err != nil {
+-		t.Fatal(err)
+-	}
+-	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
+-		t.Fatal("queue after advance reused the old GCD window")
+-	}
+-}
+-
+-func TestPostGCDQueueRejectsNonQueueAndInsufficientRage(t *testing.T) {
+-	env := newTestWarriorEnvironment(t, testWarriorRequest())
+-	_, whirlwind := requireSpellAction(t, env, 0, 1680)
+-	_, cleave := requireSpellAction(t, env, 1, 20569)
+-	if result, err := env.ApplyWithAttemptID(whirlwind, "ww-before-wrong-action"); err != nil || !result.ConsumesDecision {
+-		t.Fatalf("Whirlwind did not consume the decision: result=%+v err=%v", result, err)
+-	}
+-	if _, err := env.ApplyPostGCDQueue(whirlwind); err == nil || !strings.Contains(err.Error(), "Heroic Strike or Cleave queue") {
+-		t.Fatalf("normal GCD action was not rejected: %v", err)
+-	}
+-	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
+-		t.Fatal("invalid post-GCD action did not close the window")
+-	}
+-
+-	request := testWarriorRequest()
+-	request.Raid.Parties[0].Players[0].GetWarrior().Options.StartingRage = 40
+-	lowRage := newTestWarriorEnvironment(t, request)
+-	_, whirlwind = requireSpellAction(t, lowRage, 0, 1680)
+-	_, cleave = requireSpellAction(t, lowRage, 1, 20569)
+-	if result, err := lowRage.ApplyWithAttemptID(whirlwind, "ww-low-rage"); err != nil || !result.ConsumesDecision {
+-		t.Fatalf("low-rage Whirlwind did not consume the decision: result=%+v err=%v", result, err)
+-	}
+-	result, err := lowRage.ApplyPostGCDQueue(cleave)
+-	if err != nil || result.Casted || result.ConsumesDecision || result.NeedsInput {
+-		t.Fatalf("insufficient-rage queue was not rejected as an action: result=%+v err=%v", result, err)
+-	}
+-}
++	"time"
++
++	"github.com/isfir/wowsims-turtle/sim/core"
++)
++
++func TestPostGCDQueueAfterWhirlwindIsRejected(t *testing.T) {
++	request := testWarriorRequest()
++	second := *request.Encounter.Targets[0]
++	second.Stats = append([]float64(nil), second.Stats...)
++	request.Encounter.Targets = append(request.Encounter.Targets, &second)
++	env := newTestWarriorEnvironment(t, request)
++	_, whirlwind := requireSpellAction(t, env, 0, 1680)
++	_, cleave := requireSpellAction(t, env, 1, 20569)
++	before := env.State().TimeMS
++
++	gcd, err := env.ApplyWithAttemptID(whirlwind, "ww-then-cleave")
++	if err != nil || !gcd.Casted || !gcd.ConsumesDecision || gcd.NeedsInput {
++		t.Fatalf("Whirlwind did not consume the decision: result=%+v err=%v", gcd, err)
++	}
++	queued, err := env.ApplyPostGCDQueue(cleave)
++	if err != nil || queued.Casted || queued.ConsumesDecision || queued.NeedsInput {
++		t.Fatalf("post-GCD Cleave queue was not rejected: result=%+v err=%v", queued, err)
++	}
++	if env.State().TimeMS != before {
++		t.Fatalf("post-GCD queue advanced time: %d -> %d", before, env.State().TimeMS)
++	}
++	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
++		t.Fatal("second post-GCD queue reused the same GCD window")
++	}
++}
++
++func TestCleaveQueuedBeforeWhirlwindSurvivesRejectedRecastAndNextSwing(t *testing.T) {
++	request := testWarriorRequest()
++	second := *request.Encounter.Targets[0]
++	second.Stats = append([]float64(nil), second.Stats...)
++	request.Encounter.Targets = append(request.Encounter.Targets, &second)
++	env := newTestWarriorEnvironment(t, request)
++	character := env.player().GetCharacter()
++	_, whirlwind := requireSpellAction(t, env, 0, 1680)
++	_, cleave := requireSpellAction(t, env, 1, 20569)
++	queuedSwing := character.GetSpell(core.ActionID{SpellID: cleave.SpellID})
++	if queuedSwing == nil {
++		t.Fatal("Cleave swing replacement is not registered")
++	}
++	deadline := character.AutoAttacks.NextMHSwingAt()
++	before := queuedCancelCastCount(queuedSwing)
++	queued, err := env.Apply(cleave)
++	if err != nil || !queued.Casted || queued.ConsumesDecision {
++		t.Fatalf("pre-GCD Cleave queue was not submitted: result=%+v err=%v", queued, err)
++	}
++	advanceUntilQueueAura(t, env, cleave)
++	if !hasQueueAura(env.State(), cleave) {
++		t.Fatal("pre-GCD Cleave queue aura did not activate")
++	}
++	remaining := deadline - env.sim.CurrentTime - 300*time.Millisecond
++	if remaining <= 0 {
++		t.Fatalf("queue acceptance overtook MH window: remaining=%s", remaining)
++	}
++	if err := env.Wait(remaining); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	if !hasQueueAura(env.State(), cleave) {
++		t.Fatal("Cleave queue vanished before Whirlwind")
++	}
++	gcd, err := env.ApplyWithAttemptID(whirlwind, "queued-cleave-before-ww")
++	if err != nil || !gcd.Casted || !gcd.ConsumesDecision {
++		t.Fatalf("Whirlwind was not accepted with Cleave queued: result=%+v err=%v", gcd, err)
++	}
++	if !hasQueueAura(env.State(), cleave) {
++		t.Fatal("Whirlwind cleared the previously accepted Cleave queue")
++	}
++	recast, err := env.ApplyPostGCDQueue(cleave)
++	if err != nil || recast.Casted || recast.ConsumesDecision {
++		t.Fatalf("same-key Cleave recast was not rejected: result=%+v err=%v", recast, err)
++	}
++	if !hasQueueAura(env.State(), cleave) {
++		t.Fatal("rejected recast cleared the previously accepted Cleave queue")
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	if got := queuedCancelCastCount(queuedSwing); got != before+1 {
++		t.Fatalf("old Cleave queue did not produce the next MH swing: got %d want %d", got, before+1)
++	}
++}
++
++func TestPostGCDQueueRejectsMissingOrAdvancedGCDWindow(t *testing.T) {
++	env := newTestWarriorEnvironment(t, testWarriorRequest())
++	_, whirlwind := requireSpellAction(t, env, 0, 1680)
++	_, cleave := requireSpellAction(t, env, 1, 20569)
++	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
++		t.Fatal("queue without preceding GCD was accepted")
++	}
++	if result, err := env.ApplyWithAttemptID(whirlwind, "ww-before-advance"); err != nil || !result.ConsumesDecision {
++		t.Fatalf("Whirlwind did not consume the decision: result=%+v err=%v", result, err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
++		t.Fatal("queue after advance reused the old GCD window")
++	}
++}
++
++func TestPostGCDQueueRejectsNonQueueAndInsufficientRage(t *testing.T) {
++	env := newTestWarriorEnvironment(t, testWarriorRequest())
++	_, whirlwind := requireSpellAction(t, env, 0, 1680)
++	_, cleave := requireSpellAction(t, env, 1, 20569)
++	if result, err := env.ApplyWithAttemptID(whirlwind, "ww-before-wrong-action"); err != nil || !result.ConsumesDecision {
++		t.Fatalf("Whirlwind did not consume the decision: result=%+v err=%v", result, err)
++	}
++	if _, err := env.ApplyPostGCDQueue(whirlwind); err == nil || !strings.Contains(err.Error(), "Heroic Strike or Cleave queue") {
++		t.Fatalf("normal GCD action was not rejected: %v", err)
++	}
++	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
++		t.Fatal("invalid post-GCD action did not close the window")
++	}
++
++	request := testWarriorRequest()
++	request.Raid.Parties[0].Players[0].GetWarrior().Options.StartingRage = 40
++	lowRage := newTestWarriorEnvironment(t, request)
++	_, whirlwind = requireSpellAction(t, lowRage, 0, 1680)
++	_, cleave = requireSpellAction(t, lowRage, 1, 20569)
++	if result, err := lowRage.ApplyWithAttemptID(whirlwind, "ww-low-rage"); err != nil || !result.ConsumesDecision {
++		t.Fatalf("low-rage Whirlwind did not consume the decision: result=%+v err=%v", result, err)
++	}
++	result, err := lowRage.ApplyPostGCDQueue(cleave)
++	if err != nil || result.Casted || result.ConsumesDecision || result.NeedsInput {
++		t.Fatalf("insufficient-rage queue was not rejected as an action: result=%+v err=%v", result, err)
++	}
++}

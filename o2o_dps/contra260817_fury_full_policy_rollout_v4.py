@@ -467,7 +467,10 @@ def _valid_post_gcd_rejection_v4(
     attempt = event.get("source_attempt")
     return (
         prior_consuming_gcd is not None
-        and raw.get("channel") == "gcd"
+        and (
+            raw.get("channel") == "gcd"
+            or (raw.get("channel") == "swing_queue" and raw.get("value") == "顺劈斩")
+        )
         and raw.get("operation") == "CastSpellByName"
         and isinstance(submission, Mapping)
         and submission.get("status")

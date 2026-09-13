@@ -214,6 +214,40 @@ def _two_gcd_decision(decision):
 
 
 class Contra260817FullPolicyRolloutV4Tests(unittest.TestCase):
+    def test_same_key_whirlwind_then_cleave_retains_rejected_source_attempt(self):
+        adapter = Contra260817FuryFullPolicyAdapterV3()
+        base = adapter.propose(_state(rage=100.0, target_selection=_target_state(autoattack_current=True)))
+        decision = replace(
+            base,
+            gcd=WHIRLWIND,
+            wait_ms=None,
+            swing_queue=SwingQueueOp.CLEAVE,
+            off_gcd=(),
+            stance=StanceOp.KEEP,
+            target=TargetOp.KEEP,
+            cast_control=CastControl.KEEP,
+            raw_sink_order=(
+                RawSink("gcd", "CastSpellByName", "旋风斩", "Contra_Scrip_Warrior.lua:1304-1306"),
+                RawSink("swing_queue", "CastSpellByName", "顺劈斩", "Contra_Scrip_Warrior.lua:1308-1310"),
+            ),
+            metadata={**base.metadata, "raw_gcd_calls": [WHIRLWIND]},
+        )
+        bridge = _StrictSingleDecisionBridge()
+        state = bridge.load(_request(), 1)
+        facade = Contra260817SimulatorControlFacadeV4(bridge, initial_autoattack_active=True)
+        result = execute_contra260817_ordered_sinks_v4(
+            facade, decision, state,
+            attempt_id_prefix="ww-cleave", result_bearing_action_keys=(WHIRLWIND,),
+        )
+        first, second = result["sink_events"]
+        self.assertFalse(result["execution_blocked"], result["nonfaithful_reasons"])
+        self.assertTrue(result["decision_consumed"])
+        self.assertEqual("ACCEPTED", first["simulator_acceptance"]["status"])
+        self.assertEqual(POST_GCD_REJECTION_SUBMISSION_STATUS_V4, second["simulator_submission"]["status"])
+        self.assertEqual(POST_GCD_REJECTION_ACCEPTANCE_STATUS_V4, second["simulator_acceptance"]["status"])
+        self.assertFalse(second["simulator_submission"]["bridge_call_made"])
+        self.assertEqual(1, sum(name == "act" for name, _ in bridge.calls))
+
     def _run(self, seed: int = 2026091123):
         request = request_v4()
         dynamic = DynamicRolloutLoadV3.bind(request, seed, rollout_config_v5())

@@ -121,7 +121,7 @@ def summarize_probe(
     a_ww_server = _server(a_rows, WW)
     a_cleave_server = _server(a_rows, CLEAVE)
     a_calls = (a_returned or {}).get("marker", {})
-    a_missing = [
+    a_success_unmet = [
         key for key, present in (
             ("same_key_call_marker", a_returned is not None),
             ("ww_client_accept", a_ww["accepted"]),
@@ -130,6 +130,15 @@ def summarize_probe(
             ("cleave_server_go", bool(a_cleave_server["go_sequences"])),
             ("ww_result", bool(a_ww_server["result_sequences"])),
             ("cleave_result", bool(a_cleave_server["result_sequences"])),
+        ) if not present
+    ]
+    a_missing = [
+        key for key, present in (
+            ("same_key_call_marker", a_returned is not None),
+            ("ww_client_receipt", bool(a_ww["sequences"])),
+            ("cleave_client_receipt", bool(a_cleave["sequences"])),
+            ("ww_server_go", bool(a_ww_server["go_sequences"])),
+            ("ww_result", bool(a_ww_server["result_sequences"])),
         ) if not present
     ]
 
@@ -143,9 +152,21 @@ def summarize_probe(
     )
     b_client = _client(b_pre, CLEAVE)
     b_ww = _client(b_post, WW)
-    b_cleave_after = _client(b_post, CLEAVE)
     b_cleave_server = _server(b_post, CLEAVE)
     b_pre_server = _server(b_pre, CLEAVE)
+    # An on-swing cast receipt may arrive after SPELL_GO_SELF.  It is not
+    # evidence that the reentry CastSpellByName call was accepted.
+    first_cleave_go = min(b_cleave_server["go_sequences"], default=None)
+    b_before_go = [
+        row for row in b_post
+        if first_cleave_go is None or row["sequence"] < first_cleave_go
+    ]
+    b_after_go = [
+        row for row in b_post
+        if first_cleave_go is not None and row["sequence"] > first_cleave_go
+    ]
+    b_cleave_recast = _client(b_before_go, CLEAVE)
+    b_cleave_after_go = _client(b_after_go, CLEAVE)
     b_meta = (b_reentry or {}).get("marker", {})
     b_calls = (b_returned or {}).get("marker", {})
     b_pop = _queue_codes(b_post)
@@ -166,8 +187,13 @@ def summarize_probe(
         queue_outcome = "popped_without_observed_go"
     elif b_pre_server["go_sequences"]:
         queue_outcome = "executed_before_reentry"
-    if b_calls.get("cleaveCallAt") is not None and b_cleave_after["accepted"]:
+    if b_calls.get("cleaveCallAt") is not None and b_cleave_recast["accepted"]:
         queue_outcome = "recast_client_accepted_" + queue_outcome
+    elif b_calls.get("cleaveCallAt") is not None and b_cleave_recast["rejected"]:
+        if b_client["accepted"] and b_cleave_server["go_sequences"]:
+            queue_outcome = "prior_queue_survived_reentry_and_server_go"
+        else:
+            queue_outcome = "recast_client_rejected_" + queue_outcome
 
     a_result = {
         "request_sequence": a_request and a_request["sequence"],
@@ -184,8 +210,20 @@ def summarize_probe(
         "cleave_queue_codes": _queue_codes(a_rows),
         "ww_server": a_ww_server,
         "cleave_server": a_cleave_server,
+        "cleave_failure_result_codes": [
+            row.get("spellResult") for row in a_rows
+            if row.get("event") == "SPELL_FAILED_SELF"
+            and row.get("spellID") in CLEAVE
+        ],
         "missing": a_missing,
+        "positive_chain_unmet": a_success_unmet,
     }
+    a_outcome = "not_observed"
+    if a_ww["accepted"] and a_cleave["accepted"] and a_cleave_server["go_sequences"]:
+        a_outcome = "same_key_queue_accepted_and_executed"
+    elif a_ww["accepted"] and a_cleave["rejected"] and not a_cleave_server["go_sequences"]:
+        a_outcome = "same_key_queue_client_rejected"
+    a_result["outcome"] = a_outcome
     b_result = {
         "queue_request_sequence": b_request and b_request["sequence"],
         "reentry_sequence": b_reentry and b_reentry["sequence"],
@@ -193,23 +231,41 @@ def summarize_probe(
         "elapsed_from_client_accept_seconds": b_meta.get("elapsedFromClientAccept"),
         "queue_current_raw_on_reentry": b_meta.get("queueCurrentRaw"),
         "queue_current_equals_one_on_reentry": b_meta.get("queueCurrent"),
+        "queue_current_after_ww": b_calls.get("queueCurrentAfterWW"),
+        "main_hand_remaining_on_reentry_seconds": b_calls.get("mainHandRemaining"),
         "source_cleave_guard": b_calls.get("sourceCleaveGuard"),
         "cleave_skipped_as_current": b_calls.get("cleaveSkippedCurrent"),
         "cleave_recast_requested": b_calls.get("cleaveCallAt") is not None,
         "standalone_queue_client": b_client,
         "standalone_queue_codes": _queue_codes(b_pre),
         "ww_reentry_client": b_ww,
-        "cleave_reentry_client": b_cleave_after,
+        "cleave_reentry_client_before_go": b_cleave_recast,
+        "post_first_go_cast_event_unattributed": b_cleave_after_go,
+        "cleave_recast_failure_result_codes": [
+            row.get("spellResult") for row in b_before_go
+            if row.get("event") == "SPELL_FAILED_SELF"
+            and row.get("spellID") in CLEAVE
+        ],
         "queue_codes_after_reentry": b_pop,
         "cleave_server_before_reentry": b_pre_server,
         "cleave_server_after_reentry": b_cleave_server,
         "queue_outcome": queue_outcome,
         "missing": b_missing,
     }
-    ready = completion is not None and not a_missing and not b_missing
+    ready = completion is not None and not a_success_unmet and not b_missing
+    observed_rejection = (
+        completion is not None
+        and a_outcome == "same_key_queue_client_rejected"
+        and not b_missing
+        and not a_missing
+    )
     return {
         "schema": SCHEMA,
-        "status": "typed_chain_observed" if ready else "incomplete_evidence",
+        "status": (
+            "typed_chain_observed" if ready
+            else "same_key_queue_rejected" if observed_rejection
+            else "incomplete_evidence"
+        ),
         "run_id": run_id,
         "addon_status": state.get("status"),
         "terminal_marker_sequence": terminal and terminal["sequence"],

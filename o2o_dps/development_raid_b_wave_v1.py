@@ -7,7 +7,6 @@ from copy import deepcopy
 from dataclasses import replace
 import json
 from pathlib import Path
-from typing import Any
 
 from .development_two_wave_build_panel_v1 import _build_player_and_names
 from .development_wave_case_v1 import DevelopmentWaveCaseV1
@@ -15,53 +14,6 @@ from .development_wave_twelve_v1 import build_twelve_wave_case_v1
 from .fury_contra_adapter_v2 import ContraEvidenceKindV2, ContraFieldEvidenceV2
 from .fury_dynamic_target_semantics_v5 import DynamicRolloutLoadV3
 from .fury_paired_multiseed_runner_v4 import sha256_json
-from .expert_proposals import QUEUE_REFS
-from .sim_bridge import ActionRef, ActResult
-
-
-V15_BRIDGE = Path(__file__).resolve().parents[1] / (
-    "bin/o2obridge.seedfix-v15.postgcdq.withdb.goamd64v1.windows-amd64.exe"
-)
-POST_GCD_QUEUE_ACCEPTANCE = "SIMULATOR_ASSUMPTION_POST_GCD_QUEUE"
-
-
-class _ContraNewPostGcdQueueBridge:
-    """Isolate v15's same-invocation swing-queue hypothesis to Contra_new."""
-
-    def __init__(self, bridge: Any, receipts: list[dict[str, Any]]) -> None:
-        self._bridge = bridge
-        self._receipts = receipts
-        self._last_consuming_act: ActResult | None = None
-
-    def load_dynamic_v3(self, request: Any, seed: int, config: Any) -> Any:
-        self._last_consuming_act = None
-        self._receipts.clear()
-        return self._bridge.load_dynamic_v3(request, seed, config)
-
-    def act(self, action: ActionRef, *, attempt_id: str | None = None) -> ActResult:
-        previous = self._last_consuming_act
-        if (
-            action in QUEUE_REFS.values()
-            and previous is not None
-            and previous.casted and previous.consumes_decision
-            and not previous.needs_input
-            and self._bridge.state()["time_ms"] == previous.state["time_ms"]
-        ):
-            result = self._bridge.act_post_gcd_queue(action)
-            self._receipts.append({
-                "time_ms": previous.state["time_ms"],
-                "action": action.to_wire(),
-                "casted": result.casted,
-                "consumes_decision": result.consumes_decision,
-            })
-            self._last_consuming_act = None
-            return result
-        result = self._bridge.act(action, attempt_id=attempt_id)
-        self._last_consuming_act = result if result.casted and result.consumes_decision else None
-        return result
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._bridge, name)
 
 
 def build_dual_wield_raid_b_wave_v1(
@@ -118,9 +70,7 @@ def build_dual_wield_raid_b_wave_v1(
 
 
 def _raid_b_registry(
-    bridge, candidate, runtime_binding_path, *,
-    post_gcd_queue_hypothesis: bool = False,
-    queue_receipts: list[dict[str, Any]] | None = None,
+    bridge, candidate, runtime_binding_path,
 ):
     from .development_two_wave_build_panel_v1 import _two_lane_registry
     from .fury_cat_gap_three_baseline_registry_v1 import CatGapThreeBaselineRegistryV1
@@ -143,19 +93,14 @@ def _raid_b_registry(
         seed = group["simulator_seed"]
         load = bind_dynamic_v5_load(request, seed, scenario["dynamic_load_config"])
         contexts = target_contexts_from_runner_v4(scenario["target_context_bundle"])
-        contra_bridge = (
-            _ContraNewPostGcdQueueBridge(bridge, queue_receipts)
-            if post_gcd_queue_hypothesis and queue_receipts is not None else bridge
-        )
         artifact = run_contra260817_fury_full_policy_rollout_v4(
-            contra_bridge, request, Contra260817FuryFullPolicyAdapterV3(),
+            bridge, request, Contra260817FuryFullPolicyAdapterV3(),
             seed=seed, target_contexts=contexts, dynamic_load=load,
         )
         first = next((row for row in artifact["blockers"]
                       if row.get("execution_fatal") is True), None)
         if (
-            post_gcd_queue_hypothesis
-            and first is not None
+            first is not None
             and first["code"] == "DECISION_NOT_CONSUMED_NO_FALLBACK"
             and artifact["steps"]
             and any(
@@ -165,10 +110,9 @@ def _raid_b_registry(
             )
         ):
             raise DevelopmentLaneUnsupported(
-                "Contra_new native multi-target macro reentry is unmodeled after "
-                "a standalone accepted no-GCD Cleave queue at "
-                f"decision {first['decision_index']}; "
-                "client reentry cadence is unobserved; score remains null",
+                "Contra_new native multi-target source reentry after a standalone "
+                "accepted Cleave queue is not closed by one observed client interval; "
+                f"decision {first['decision_index']}; score remains null",
                 blocker=first, artifact_status=artifact["status"],
             )
         if artifact["elapsed_ms"] <= 0:
@@ -204,7 +148,6 @@ def run_raid_b_four_policy_wave_v1(
     seed: int, stratum: str = "multi_2_targets", *,
     bridge_path: Path | None = None, bridge_cwd: Path | None = None,
     runtime_binding_path: Path | None = None,
-    post_gcd_queue_hypothesis: bool = False,
 ) -> dict:
     from .development_wave_panel_v1 import (
         DEFAULT_BINDING, DEFAULT_BRIDGE, WORKSPACE_ROOT,
@@ -214,18 +157,7 @@ def run_raid_b_four_policy_wave_v1(
     from .fury_runtime_bound_deployed_contra_raid_b_v1 import POLICY_ID as RAID_B_POLICY_ID
 
     case, scenario = build_dual_wield_raid_b_wave_v1(seed, stratum)
-    queue_receipts: list[dict[str, Any]] = []
-    if post_gcd_queue_hypothesis:
-        from .development_wave_team_retarget_v1 import V14ProjectedDynamicV3Bridge
-        native_bridge_type = V14ProjectedDynamicV3Bridge
-        case.case_spec["post_gcd_queue_acceptance"] = POST_GCD_QUEUE_ACCEPTANCE
-    else:
-        native_bridge_type = None
-    registry_factory = lambda bridge, candidate, binding: _raid_b_registry(
-        bridge, candidate, binding,
-        post_gcd_queue_hypothesis=post_gcd_queue_hypothesis,
-        queue_receipts=queue_receipts,
-    )
+    registry_factory = _raid_b_registry
     panel = run_development_wave_panel_v1(
         master_seed=seed, case_override=case, scenario_override=scenario,
         candidate_kind="anchor_13d", registry_factory=registry_factory,
@@ -234,17 +166,11 @@ def run_raid_b_four_policy_wave_v1(
         bridge_path=bridge_path or DEFAULT_BRIDGE,
         bridge_cwd=bridge_cwd or WORKSPACE_ROOT / "wowsims-turtle",
         runtime_binding_path=runtime_binding_path or DEFAULT_BINDING,
-        **({"native_bridge_type": native_bridge_type} if native_bridge_type else {}),
     )
-    panel["comparison_scope"] = "FOUR_NATIVE_MODEL_POLICIES_DUAL_WIELD_RAID_B"
+    panel["comparison_scope"] = "FOUR_LANE_ATTEMPT_DUAL_WIELD_RAID_B"
     panel["build_assumption"] = "CONTROLLED_CLEAN_DUAL_NOT_SOURCE_PLAYER_BUILD"
     panel["manual_target_switch_not_modeled"] = True
-    panel["post_gcd_queue_acceptance"] = (
-        POST_GCD_QUEUE_ACCEPTANCE if post_gcd_queue_hypothesis else "NOT_USED"
-    )
-    for row in panel["rows"]:
-        if row["policy_id"] == CONTRA260817_POLICY_ID:
-            row["post_gcd_queue_assumption_receipts"] = list(queue_receipts)
+    panel["post_gcd_queue_acceptance"] = "REJECTED_BY_CLIENT_PROBE_NOT_SIMULATOR_CAST"
     deployed = next(row for row in panel["rows"] if row["policy_id"] == RAID_B_POLICY_ID)
     panel["all_deployed_target_index"] = (
         0 if deployed.get("target_indices_seen") == [0] else None
@@ -261,13 +187,11 @@ def main() -> None:
     parser.add_argument("--bridge", type=Path, default=DEFAULT_BRIDGE)
     parser.add_argument("--bridge-cwd", type=Path, default=WORKSPACE_ROOT / "wowsims-turtle")
     parser.add_argument("--runtime-binding", type=Path, default=DEFAULT_BINDING)
-    parser.add_argument("--post-gcd-queue-hypothesis", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     panel = run_raid_b_four_policy_wave_v1(
         args.seed, args.stratum, bridge_path=args.bridge,
         bridge_cwd=args.bridge_cwd, runtime_binding_path=args.runtime_binding,
-        post_gcd_queue_hypothesis=args.post_gcd_queue_hypothesis,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(panel, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
