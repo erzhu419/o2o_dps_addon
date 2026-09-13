@@ -42,7 +42,7 @@ SCHEMA = "historical_build_catalog/v1"
 RECORD_SCHEMA = "historical_build_segment/v1"
 COVERAGE_SCHEMA = "historical_build_coverage_registry/v1"
 IMPLEMENTATION_REVISION = (
-    "v1.3_prefix_only_info_segments_recorder_provenance"
+    "v1.4_prefix_info_segments_and_class_scoped_effect_applicability"
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -188,6 +188,8 @@ def _coverage_entry(
     registry: Mapping[str, Any] | None,
     section: str,
     identifier: int,
+    *,
+    hero_class: str | None = None,
 ) -> dict[str, Any]:
     if registry is None:
         return {
@@ -226,12 +228,31 @@ def _coverage_entry(
         "effect_status": effect_status,
         "calibrated_scopes": list(scopes),
     }
+    if section == "items" and hero_class:
+        class_statuses = entry.get("class_effect_status", {})
+        if isinstance(class_statuses, Mapping):
+            class_status = class_statuses.get(hero_class.upper())
+            if isinstance(class_status, Mapping):
+                effective = class_status.get("effective_effect_status")
+                applicability = class_status.get("applicability_status")
+                if effective in {"IMPLEMENTED", "NO_SPECIAL_EFFECT"} and isinstance(
+                    applicability, str
+                ):
+                    result["unscoped_effect_status"] = effect_status
+                    result["effect_status"] = effective
+                    result["class_applicability_status"] = applicability
+                    result["class_applicability_evidence"] = class_status.get("evidence")
     if section == "items" and "weapon_mode" in entry:
         result["weapon_mode"] = entry["weapon_mode"]
     return result
 
 
-def _slot_state(raw_gear: Any, registry: Mapping[str, Any] | None) -> dict[str, Any]:
+def _slot_state(
+    raw_gear: Any,
+    registry: Mapping[str, Any] | None,
+    *,
+    hero_class: str | None = None,
+) -> dict[str, Any]:
     """Turn ordered protobuf slots into explicit 1..19 semantic states."""
 
     if not isinstance(raw_gear, list):
@@ -319,7 +340,9 @@ def _slot_state(raw_gear: Any, registry: Mapping[str, Any] | None) -> dict[str, 
             base["status"] = OBSERVED_EMPTY
         else:
             base["status"] = OBSERVED_EQUIPPED
-            item_coverage = _coverage_entry(registry, "items", item_id)
+            item_coverage = _coverage_entry(
+                registry, "items", item_id, hero_class=hero_class
+            )
             enchant_coverage: dict[str, Any] = {}
             for label, identifier in (
                 ("permanent", enchant_id),
@@ -1037,7 +1060,11 @@ def compile_instance_segments(
             # Preserve the fact that INFO exists, but do not turn an unanchored
             # snapshot into a causal initial state.
             representative = records[-1]
-            equipment = _slot_state(representative.get("gear"), coverage_registry)
+            equipment = _slot_state(
+                representative.get("gear"),
+                coverage_registry,
+                hero_class=str(metadata[guid].get("class") or ""),
+            )
             talents = _talent_state(
                 representative.get("talents"),
                 hero_class=str(metadata[guid].get("class") or ""),
@@ -1091,7 +1118,11 @@ def compile_instance_segments(
             )
         for index, group in enumerate(groups):
             record = group["record"]
-            equipment = _slot_state(record.get("gear"), coverage_registry)
+            equipment = _slot_state(
+                record.get("gear"),
+                coverage_registry,
+                hero_class=str(metadata[guid].get("class") or ""),
+            )
             talents = _talent_state(
                 record.get("talents"),
                 hero_class=str(metadata[guid].get("class") or ""),

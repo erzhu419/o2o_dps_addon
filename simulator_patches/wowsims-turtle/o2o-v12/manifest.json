@@ -1,0 +1,46 @@
+{
+  "schema": "o2o_wowsims_turtle_cumulative_patch/v1",
+  "upstream": {
+    "repository": "https://github.com/isfir/wowsims-turtle.git",
+    "commit": "64cfa6ae2777b20bc95f3573dd9b2572634dddd7"
+  },
+  "patch": {
+    "path": "0001-o2o-cumulative.patch",
+    "sha256": "356da5740ae8da563a27556f993f836e3d19e82f0020df002ddb73458b33687d",
+    "bytes": 1475389,
+    "lines": 43144
+  },
+  "source_delta": {
+    "path_count": 69,
+    "go_files": {
+      "added": 39,
+      "modified": 29,
+      "deleted": 0,
+      "generated_proto_added": 14
+    },
+    "proto_files": {
+      "added": 0,
+      "modified": 1,
+      "deleted": 0
+    },
+    "go_mod_or_sum_modified": 0
+  },
+  "excluded": [
+    "assets/database/*",
+    "binaries",
+    "*.results",
+    "*.results.tmp",
+    "local build receipts",
+    "unchanged upstream files"
+  ],
+  "verification": {
+    "verified_at_utc": "2026-09-12T23:05:36Z",
+    "clean_checkout_apply_check": "PASS",
+    "reconstructed_source_paths_matched": 69,
+    "reconstructed_source_path_mismatches": 0,
+    "forbidden_patch_paths": 0,
+    "database_generation": "go run ./tools/database/gen_db -- -outDir=assets",
+    "targeted_test": "go test -tags with_db ./cmd/o2obridge ./sim/o2o ./sim/warrior ./sim/common/item_effects ./tools/database",
+    "targeted_test_result": "PASS"
+  }
+}

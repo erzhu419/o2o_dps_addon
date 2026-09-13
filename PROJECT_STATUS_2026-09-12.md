@@ -40,8 +40,8 @@ Chronicle 历史战斗数据 + Cat / Contra / Contra_new 专家策略
 
 | 目录 | 文件数 | 作用 |
 |---|---:|---|
-| `o2o_dps/` | 224 | Python 数据、仿真、训练、搜索与评估模块 |
-| `tests/` | 226 | 单元、契约、回归和小型集成测试 |
+| `o2o_dps/` | 236 | Python 数据、仿真、训练、搜索与评估模块 |
+| `tests/` | 238 | 单元、契约、回归和小型集成测试 |
 | `scripts/` | 15 | Windows/HPC 入口与验证脚本 |
 | `configs/` | 24 | 评估协议、专家身份、仿真和 HPC 示例配置 |
 | 父目录 `addon/` | 13 | BrainOfCat Lua 实机采集与 Shadow 运行模块；不属于本次 Git 发布树 |
@@ -61,7 +61,7 @@ Chronicle 历史战斗数据 + Cat / Contra / Contra_new 专家策略
 - 当前角色装备、天赋、技能书、动作条、技能线和随身背包快照；
 - Shadow pair 导出与后台解码。
 
-为避免静态资料再要求两次 `/reload`，Logger 现在会在 `PLAYER_LOGIN` 自动采集包含未学习 rank-0 位置的完整三棵天赋树、`GetBuildInfo()` client build、装备与技能，并通过 Nampower `WriteCustomFile` 即时写入 `BrainOfCatStaticProfiles.jsonl`。这是一次性登录提示，不恢复旧的常驻标定顶部面板。
+为避免静态资料再要求两次 `/reload`，Logger 现在会在 `PLAYER_LOGIN` 自动采集包含未学习 rank-0 位置的完整三棵天赋树、`GetBuildInfo()` client build、装备与技能，并通过 Nampower `WriteCustomFile` 即时写入 `BrainOfCatStaticProfiles.jsonl`。最新一次 `/reload` 已接纳“意踟躇”（GUID `0x0000000000654E8A`）的 source seq `24282`、client build `7272`，P0 receipt 为 `P0_STATIC_ADMISSION_READY`；这是一次性登录提示，不恢复旧的常驻标定顶部面板，也不需要再为本阶段重复 `/reload`。
 
 宏连按已经不再按“按一次宏 = 一个样本”计数。采样计数依赖实际 sink/client/server 结果链，避免玩家习惯性连按制造伪样本。
 
@@ -90,6 +90,8 @@ Chronicle 历史战斗数据 + Cat / Contra / Contra_new 专家策略
 9 月 3 日南北公会 Warrior 的 36 码攻击范围 bug 使用 raid 级 `guild + started_at` 规则处理。根据用户提供的信息，9 月 3 日上午已修复；项目使用 9 月 3 日中午作为保守 clean floor。由于日志本身没有攻击距离证据，无法再自动恢复到分钟级准确修复时刻。
 
 命名参考层已把托尼牛、桃姬儿和围观群众三爷从 exact name 解析到唯一 GUID，之后只按 GUID 汇总。三人当前可用 clean 数据均来自 2026-09-09 同一场 raid，共 30 个 encounter observations、3 个 player-raid memberships，全部标为 `Arms`；另有修复前 110 条可疑观测被明确排除。DPS index 本身不含动作请求、next-swing queue 或 target-switch 意图，但本地同场 External-V2 event stream 已完成 exact GUID/window 连接：55 个 wave × 3 人形成 165 个 episode，保留 4,076 个 server-observed START、12,457 个 GO、864 个 FAIL 和 17,397 个严格前缀 transition。其中 3,980 个 START 映射到已知可控动作，作为**服务器时刻的策略标签代理**；96 个 unmapped START（包含自动效果）只保留为观察，不进入 policy label。Chronicle 没有暴露客户端按键、next-swing queue 设置/替换/取消或 target-switch 意图，这些不会从 START/GO/FAIL 倒推。该产物是具名 Arms 历史观察层，不是 Fury executable expert，也没有 matched build/team 反事实，不能直接参加同天赋胜负投票。
+
+post-fix Fury cohort 的动作连接也已完成：936 条冻结 ranking observations 中，101 条 null encounter ID 显式保留为未解析，其余生成 835 个 exact-GUID/instance/encounter/window episodes、24 个流式分区。产物保留 88,320 个 server START，其中 81,974 个是 Fury-v3 可控 START 代理标签。补上“可观时间段内部空洞”判定后，195 个 encounter group 中 152 个完整、43 个部分覆盖；group 层共有 3 个 interior gaps、合计 16,082 ms、最大 9,425 ms，展开到玩家 episode 后为 27 个 gaps、144,738 ms，对应 646 个完整和 189 个部分覆盖 episode。该 episode manifest SHA 为 `26459c74d682d2a61d4713b41324df323e9fce33f17a843482890f5e3ad4e6b7`。GO/FAIL 仍只是结果，null encounter、queue intent、target-switch intent 均不猜测。
 
 ### 3.3 每波怪物与团队环境建模
 
@@ -121,6 +123,8 @@ Warrior 主实验使用 `wowsims-turtle`。动态桥已经支持：
 - 多 seed、同 seed 配对策略对比。
 
 P0 新增了保守的 `wowsims_mechanics_coverage_registry_v1` 与五段式 `build_request_composer_v1`。请求必须显式提供 CharacterProfile、RaidContext、EncounterModel、ExecutionModel 和 Objective；第二个角色不能继承意踟躇模板中的 buff、consumes、rotation 或 Warrior options。目录存在、效果已实现、Turtle 已标定、可参与比较是四层不同状态；未知 item/proc/enchant/talent 不会被静默当作被动属性。衬衣和战袍仍保留为数据质量证据，但不再错误阻塞 simulator runtime。
+
+本轮把 O2O simulator 改动封装为相对 upstream `64cfa6ae...` 的 69-path 累积补丁（68 个 Go 路径 + `proto/warrior.proto`），patch SHA 为 `356da5740ae8da563a27556f993f836e3d19e82f0020df002ddb73458b33687d`。静态解析不再把 shapeshift、目标生物类型等条件属性折成 Warrior 全局属性；runtime 已精确实现 item 55113 的恶魔目标 +45 AP、item 61194 的每 5 秒回复 5 生命，以及 enchant 93、362、3016、1068、1267、1257。55127、55131 的 proc 概率/触发语义和 55116 的额外伤害公式仍无充分依据，继续标为 unsupported，不用猜测常数填洞。
 
 `DPSSim` 目前没有足够可信的 Warrior 技能模型，只作为架构和其他职业参考，不承担本项目 Warrior 主结果。
 
@@ -232,9 +236,29 @@ v5 正温度校准实际上已经执行，旧文档“尚未执行”已过期�
 
 本轮已经把这个工程缺口补成可执行的 pooled baseline：`historical_behavior_clone_v1.py` 从 Stage5 构造 semi-Markov delay + 15-action mark + action-conditioned target 模型，先做 legal mask 再采样；`historical_behavior_clone_simulator_adapter_v1.py` 将 9 个 GCD、3 个姿态、Bloodrage 和 HS/Cleave queue 映射到 typed sinks；`historical_behavior_clone_full_rollout_v1.py` 和 `fury_multiseed_worker_registry_v4.py` 将它接入同一个 dynamic-v5 request。真实 Windows bridge 的 1-seed 五 lane smoke 中，Cat、部署 Contra、Contra260817、Cat2_new 和 pooled clone 均完成目标死亡且 5/5 runtime receipt 为 `COMPLETE_BOUND`。该 fixture 只有 200 HP，DPS 只证明接线，不能用于胜负。
 
-因此离线高手不是原则上不可比。当前剩余的是**人群定义和模型误差**：先冻结 2026-09-03 中午以后、污染排除的高手 cohort，再训练同一 executable clone，并在同一 simulator request、装备、天赋和 matched seeds 下执行。届时可以称为“高手行为克隆在标准装备下的仿真表现”，但不能把它误写成原玩家真实换装后的反事实 DPS。
+因此离线高手不是原则上不可比。污染排除后的 cohort、五个行为原型和 clone 已经冻结；当前剩余的是 exact source build 的 simulator 覆盖、source-bound request 和 matched full-controller receipts。把 clone 放到标准装备上仍只能称为受控的行为移植，不能误写成原玩家真实换装后的反事实 DPS。
 
-`historical_fury_expert_cohort_v2` 已完成这条链的第一步：从 6,629 条 exact DPS rows 中按 `started_at`、污染标签、Fury 与 DPS role 冻结 936 条 post-fix encounter observations，覆盖 111 个 exact-GUID 玩家、121 个 player-raid membership、24 个 raids 和 15 个 guild strata；899 条有同场 Fury peer。只有 10 人有重复 raid，101 人只有一次 raid，因此 right-censoring 被显式保留。该产物目前只证明身份/表现候选，DPS index 不含请求动作、queue intent 或 target-switch intent，所以仍明确禁止训练、closed-loop baseline 和 superiority claim；下一步必须 exact GUID/instance/window join 到动作流。
+`historical_fury_expert_cohort_v2` 从 6,629 条 exact DPS rows 中按 `started_at`、污染标签、Fury 与 DPS role 冻结 936 条 post-fix encounter observations，覆盖 111 个 exact-GUID 玩家、121 个 player-raid membership、24 个 raids 和 15 个 guild strata；899 条有同场 Fury peer。只有 10 人有重复 raid，101 人只有一次 raid，因此不把单次极值伪装成稳定玩家。
+
+在上述 exact episode 之上，已构造 5 个分开的行为原型：4 个“每次重复 raid 都高于同场 Fury 中位数”的单玩家原型，以及 1 个 27 人、按玩家等权的局部 DPS ratio Q4 汇总原型。全部源数据为 835 episodes / 862 waves / 81,974 个可控 START；进入原型成员并按 GUID/raid 去重后有 24,379 个 START，因 5 个原型成员有交叉，最终输出 29,534 个 weighted START records。时延学习保留 29,476 个完整区间、58 个左截断首动作、282 个可用右删失尾段和 3 个不可用的左+右截断尾段。排名只用于冻结成员，不作为样本权重；五原型 manifest SHA 为 `e0d141b557cd67b7aa9acdf176007822285ff93ba56bfc253e70b8e8c21e9a1d`。
+
+`historical_behavior_clone_v2` 已将这 5 个原型编译为 5 个 content-addressed model：START-only mark、action-conditioned target 和含右删失的离散 product-limit delay 头；clone manifest SHA 为 `fa9b66157c71e38598313510438a96c8c90d01de2c1c310ff1683aa36adbcde8`。一次审计找到并修复了区间权重错误：Q4 末桶后 residual survival 由错误的 0.3299416 回到 0.001548654（22,485 个完整间隔、215 个可用 censor）。精确分数只用于离线审计，运行时投影是有界 finite float，residual 不得转成伪动作或伪有限等待。这些仍是明确假设下的历史行为重建模型，不是原玩家的可唯一恢复客户端策略。
+
+这 5 个原型共涉及 28 个 unique GUID；当前 5 个 Bloodthirst development requests 来自 5 个不同 GUID，其中只有 1 个 GUID 与原型成员相交，但全部 81,974 个历史动作相对这 5 个请求的 exact-build route 仍为 0。因此四个请求是 cross-player/cross-build、相交的一人也仍是 cross-build；都不能称为历史高手在自身同构筑下的复现。
+
+`historical_fury_decision_build_join_v1` 已把全部 81,974 个可控 START 逐个接到同一 server/realm/GUID/instance 下、动作时刻之前最近的 CombatantInfo segment：81,974/81,974 joined，missing=0，共 979 个 segment；独立重放中的 identity mismatch、future-causal violation 和 run mismatch 均为 0，并保留了 260 次 wave 内 build 变化。全源当前有 103 个 runtime-executable segments、覆盖 9,556 个动作；相对当前五个 Bloodthirst requests 的最佳路由为 exact 0、同天赋向量且同武器模式 7,043、不同已知 build 的 transplant 72,957、语义不足 1,974。prototype 成员去重 union 为 24,379 个动作、266 个 segment，其中 runtime/development eligible 均为 9 个 segment、608 个动作。portable manifest SHA 为 `254c962b2fbfde224e39a30f4b26c5feac8fe902f786df102c7879f26deaec33`；identity 不含主机绝对路径，跨 Windows/Linux 重定位测试通过。支持域已有实质增长，但当前五个代表请求仍无 exact route，所以仍没有同构筑 DPS 对局。
+
+`historical_fury_prototype_build_gap_priority_v1` 已把这 266 个 exact causal segments 的阻塞项按 prototype-union 动作覆盖量排序，而不是继续随意挑装备。当前 257 个 segment / 23,771 个动作仍被 43 个 runtime mechanism blockers 阻塞：9 个 item definition、20 个 item effect、5 个 enchant definition、6 个 enchant effect和 3 个 talent effect；另有上述 9 个 segment / 608 个动作已可进入 development。最大剩余项为 item 55127（14,518 START / 165 segments / 3 prototypes）、55131（13,494 / 157 / 3）、`warrior.improvedCharge`（8,743 / 90 / 2）与 item 55116（4,133 / 47 / 1）。comparison calibration 的 157 个缺口单独保留，未混入 development blocker；每个 prototype 仍只从真实 source segments 选择候选，没有拼造不存在的全套装备。该报告 SHA 为 `13c49c8eec863921ca772f4f1d4accfe689af96543de15c6cfaf9edb4255d7dc`。
+
+`historical_behavior_clone_simulator_adapter_v2` 和 `historical_behavior_clone_full_rollout_v2` 已把五个模型接到现有 15-action typed sinks 与 dynamic-v5 开发 rollout。运行时只读 bounded-float projection，mark/target 零平滑，source 中零支持的动作不会凭空生成；residual survival 为 `WAIT_TO_BOUNDARY / NO_DECISION`；HS/Cleave 显式标为 server-START-timed queue proxy。五个 prototype ID、policy ID 和 model SHA 均 5/5 唯一。持久化校验现要求外部 exact model binding，并将 `damage_done`、顶层 damage/DPS、dynamic candidate-damage receipts 与 terminal lifecycle damage 互相闭合；负伤害、布尔值冒充零计数、丢失已产生 damage receipt 的 ACTION epoch、跨 adapter pending decision 和重寻址篡改均会被拒绝。只有 result-bearing ACTION 能由 bridge receipt 独立闭合；WAIT、Battle Shout、Death Wish 等无外部 result receipt 的 epoch 及其计数只能声明 content-addressed artifact 内部自洽，不能进入后续执行数量门禁。
+
+实际 Windows Go 子进程 bridge v8 与 v11 都已各跑通 Q4 的一个 seed=4 smoke；在 receipt-bound damage 修复后又用 v11 重跑，结果仍为 `COMPLETE_BOUND`、`ALL_TARGETS_DEAD`、200 damage / 1,025 ms、1 decision（diagnostic 195.121951 DPS），且顶层 damage、candidate receipt 求和与 terminal lifecycle 三者均为 200。强制 Battle Shout 与 Death Wish 的 v11 native smoke 也均完成目标死亡、200 damage，且这两个 state-only GCD 不再错误携带 result attempt ID。请求是完整 Warrior 但仍属 synthetic Dynamic-v3 fixture，因此这些只证明 adapter/receipt 接线可执行，不是 source-bound raid 或 DPS 比较。强制 Sunder 的 native smoke 则正确暴露了另一项未闭合语义：candidate 内生破甲改变 target armor 后，外部 absolute effective-armor schedule 的 terminal equality 检查失败；在把外部队友减甲与候选自身破甲拆开前，含 Sunder lane 不得进入比较。先前 v11 + Python-only `request_v4` 在 attackability 初始化阶段 nil-player panic 的根因也已定位：该测试 fixture 缺 class/race/warrior，Go 跳过 ClassUnknown 后又直接取第一个 player；这不是 v11 回归。full-rollout v2 现在会在启动子进程前拒绝此类非可执行 request；第三方 Go 仍应将 panic 改为清晰 error，但完整 source-bound composer 本身已强制 Warrior 字段，因此不被这个 fixture 问题阻塞。
+
+`historical_fury_source_bound_prototype_bundle_v1` 已从这 9 个可运行的真实 source segments 生成 9 个 exact-source requests，绑定 608 个历史动作支持和 32 个 seeds，共 288 个请求单元；current-character transplant 数为 0。bundle SHA 为 `21f5bd7194567245c582c3dc5792e4512ec33d5f1ee56e814b82c929dd26ddaf`，状态严格为 `PREPARED / NOT_RUN`，training、comparison、deployment 和 superiority 均未授权。
+
+`historical_fury_source_bound_dynamic_config_v1` 又把这 9 个 request 逐一连接到实际产生决策的 exact instance/encounter/wave；9/9 映射唯一，其中 1 条的 catalog `valid_from` encounter 与真正 decision wave 不同，证明不能拿 build 生效边界代替决策波次。当前 0/9 为 `READY`、9/9 为 `BLOCKED`：duration-mode base request 没有声明 `useHealth` 且 `stats[34]=0`，前缀证据也未给出可唯一恢复的初始 HP、基础/外生护甲、可攻击区间和已经校准的团队 kill-clock。observed damage/最终死亡没有被冒充初始 HP，候选自身 Sunder 和武器 proc 也没有混入外生护甲。准备产物 SHA 为 `d15a999c351ef4f4cffaf6420e19ac2642ed1d166f10dfda880059eb9022ae0c`。
+
+`historical_fury_source_bound_prototype_smoke_runner_v1` 只接受上述内容寻址准备层中的 `READY` 派生 request/config 对，并只能从 bundle 声明的 seed 列表中替换 request/load 的两个 seed 字段。对真实 0-READY 产物的集成检查在解析 bridge 或 simulator 路径之前正确拒绝；因此本轮没有用 200 HP fixture 或其他 caller hypothesis 伪造 source-bound smoke，也没有 native/HPC run。
 
 ### 5.6 本轮将评价接回改进
 
@@ -252,7 +276,7 @@ v5 正温度校准实际上已经执行，旧文档“尚未执行”已过期�
 | Cat | fresh 256 matched seeds 下最优 maximin arm 仍为 −2.910 DPS（−0.701%，不显著） | **没有击败 Cat** |
 | Contra260817 / `Contra_new` | 三个 arm 均为 +41.378 至 +53.980 DPS（+11.552% 至 +15.070%），Holm 显著 | **只在该受限合成诊断中胜出** |
 | 当前部署版 Contra (`Contra_ALL.lua`) | 新 executor 的单 seed 实桥已完整到 horizon；旧 256 lanes 仍是旧语义下的 incomplete | **用新 producer 重跑 matched seeds 后再比较** |
-| 离线行为/高手 | pooled semi-Markov clone 已完成同 request 五 lane 接线；真正高手 cohort 尚未冻结/训练 | **工程可比，科学胜负尚未产生** |
+| 离线行为/高手 | exact Fury episodes、5 个高表现原型与 censor-aware clone v2 已完成；9 个 exact-source segments / 608 个动作已生成 288-cell build bundle，但真实 dynamic config 为 0/9 READY | **build 可构造，source-bound 环境仍被证据门禁阻塞，科学胜负尚未产生** |
 
 因此，算法已经找到“对 Contra_new 有明显改善、对 Cat 非常接近”的参数化策略，但没找到通过双 baseline 门禁的策略。当前正确产物是 `NO_SELECTION`，不是把 `ww_wait_cat_timing` 强行当作新 brain。即使合成 lanes 使用同一 simulator request/装备/天赋和 matched seeds，也没有真实客户端 exact proc/runtime fidelity 或历史玩家同装备对照。
 
@@ -429,32 +453,39 @@ BrainOfCat 当前可读取当前角色：
 
 正式目录中的 Warrior 数据为 358 名玩家、19,014 个因果 build segments、5,431 个装备签名、207 个原始天赋签名；武器模式为 14,062 个双手、3,934 个双持、128 个单手无副手、890 个未知。14,440/19,014（75.9440%）在“真实 end-game 装备形态”层面合格。
 
-但 Chronicle 天赋字符串的位置顺序是 Turtle 客户端 `GetTalentInfo(tab,index)` 顺序，不是 wowsims protobuf 字段顺序。当前 build 7272 尚无已接纳的位置语义表，因此正式 runtime/development/comparison build 均为 0；其中 735 个 Warrior segment 的 simulator 唯一剩余 blocker 是 `TALENTS_NOT_EXACTLY_TRANSLATED`。`historical_representative_build_selector_v1` 已实现玩家等权、真实 exact build 的确定性 k-medoids；当前正确输出 `BLOCKED_NO_ELIGIBLE_BUILDS`，没有生成平均装备或绕过 blocker。
+Chronicle 天赋字符串的位置顺序是 Turtle 客户端 `GetTalentInfo(tab,index)` 顺序，不是 wowsims protobuf 字段顺序。最新一次游戏内 `/reload` 已写出“意踟躇”完整位置表；`turtle_talent_position_map_v1` 按预期 GUID/build 过滤共享 JSONL，并选中 source seq `24282`。P0 管线据此接纳 client build `7272` 的 18/17/19 共 54 个位置：40 个 wowsims talent field、1 个 Ravager option field、13 个 Turtle-only unsupported 位置，不做静默裁剪，receipt 为 `P0_STATIC_ADMISSION_READY`。
 
-为解除这一点，`turtle_talent_position_map_v1` 只从客户端完整 talent API 获取“位置→名称/最大 rank”，并只接受被固定源码证明为 `GetTalentInfo(tab,index)` 顺序的 Chronicle recorder-self 行；多玩家 shape/rank-domain 相容性只可诊断，不能准入。当前 84 个实例中有 43 个非空 recorder GUID，含 7 个 Warrior recorder-self 实例、4 个不同 Warrior GUID；Companion 版本为 0.35/0.36，均为 build 7272。下一次游戏内 `/reload` 会写出当前角色完整位置表；消费者必须先按预期 player GUID/build 过滤共享 JSONL，再按该角色的物理最新行选择，随后才可重建 registry、catalog 和代表 build。
+重建后，Warrior 19,014 个 segment 中 18,896 个为 `TRANSLATED_EXACT`、118 个仍缺 talents；1,015 个 runtime-executable，715 个 development-eligible，comparison-eligible 仍为 0。这里的 715 只是开发准入，不代表 Turtle calibration、baseline parity 或胜负准入。
+
+`historical_representative_build_selector_v1` 现为 `READY`：715 个合格 segments 覆盖 56 名玩家和 201 个 exact builds，经玩家等权的确定性 k-medoids 选出 64 个 representatives；不再是旧的 5 人/11-build 支持域。所有 representative 仍为 development-only，comparison-eligible 为 0。
+
+代表角色转换不再只信任 selector 里嵌入的对象：loader 会沿 selector → catalog manifest → gzip catalog 精确行重新验证同一 segment，并保留装备槽、enchant、suffix、talent 和 Ravager 语义。当前 ranks 2/7/9/11/14 的 5 个 Bloodthirst build segments 来自 5 名不同玩家，均能生成五段式 development request；32 个确定性 seeds × 5 个代表 × 5 个请求 lane = 800 个 requested cells。bundle SHA 为 `ccc91c5706ec9061987ce7dbc69d488c458205f82556152569bdf1893dcb8b65`，状态严格为 `PREPARED / NOT_RUN`，完成 receipt 仍为 0，不是实验结果。
+
+这 800 cells 目前不会发往 node001–006：它们是当前代表构筑上的五 lane 请求，而历史高手相对它们仍为 exact route 0。另一方面，prototype union 自身已有 9 个 exact-source runtime/development segments、608 个动作，并已生成不含 transplant 的 288-cell source-bound bundle；它同样仍是 `PREPARED / NOT_RUN`。两套 bundle 都没有 comparison authorization，不能用扩展 seeds 代替机制、runner 和公平回执闭合。
 
 ## 9. 当前主要问题
 
-1. 本次队友响应模型只完成预测头，source-bound 动态 kill-clock 尚未物化。
+1. 本次队友响应模型只完成预测头；9 个 exact decision waves 已绑定，但 source-bound dynamic preparation 为 0/9 READY，初始 HP、基础/外生护甲、可攻击区间和团队 kill-clock 尚未由前缀证据闭合。
 2. Cat/Contra/Contra_new 仍缺 Lua VM 级 exact runtime/full-policy fidelity；Contra 源码可读问题已解除，deployed Contra 的已知 no-op、输入重试与 delayed queue activation 阻塞已修，但 Raid-B/部分 helper 和 matched-seed complete receipt 尚未闭合。
 3. 最新 Cat-focused 多 seed 测试没有击败 Cat。
-4. post-fix exact Fury 身份/表现 cohort 已冻结，pooled clean Fury 也已有含动作间隔和全部 typed sinks 的同装备 simulator lane；两者尚未按 exact GUID/window 接合，仍没有真正 Fury 高手 executable clone 的多 seed 胜负结果。三名用户指定的南北 Warrior 已完成 clean exact-GUID Arms episode 化，只能作为跨天赋 raid/action 参考，不能冒充 Fury baseline。
+4. post-fix exact Fury cohort 已完成 GUID/instance/encounter/window 动作连接，81,974/81,974 动作均接到当时 build，并产生 5 个分开的 censor-aware 高表现行为原型/模型；typed adapter/full-rollout 已通过 synthetic native-bridge smoke。prototype union 的 266 个 segments 中已有 9 个 / 608 个动作可作 exact-source development，其余 257 个 / 23,771 个动作仍被机制 gap 阻塞；当前五个 Bloodthirst requests 虽来自五人且与 prototype 人群有一名玩家重合，但 exact-build route 仍为 0，所以尚无同构筑多 seed 胜负结果。三名用户指定的南北 Warrior 已完成 clean exact-GUID Arms episode 化，只能作为跨天赋 raid/action 参考，不能冒充 Fury baseline。
 5. 场景 HP、护甲、分堆、站位和不可攻击期仍含假设。
 6. 13 维 Cat-gap 的 64 候选 successive-halving 重型搜索尚未开始；v2 已能用上一阶段结果生成新邻点，但策略表达能力仍局限于这 13 个手写轴。
 7. 全副本跨波规划、消耗品、合法换武器、天赋与装备外层搜索尚未实现。
 8. 候选未蒸馏成可部署 Cat2_new live policy，也未经过真实 raid 配对验证。
 9. 正式 final-1000 还缺封存后的恰好 50 个完整新 UTK raids，且需覆盖至少 20 个新的 guild/player leakage components。
-10. 装备/天赋目录已升级到角色、槽位、segment 和因果时点；当前硬 blocker 是 build 7272 完整天赋位置语义表，以及历史装备中尚未实现/标定的实际 item、enchant、proc 机制。
-11. 正式五 lane 公平比较为 0/5 admitted；旧 v3 protocol 的角色 snapshot 已过期，必须另建新版本而非改写冻结协议。
+10. 装备/天赋目录已升级到角色、槽位、segment 和因果时点，build 7272 完整天赋位置语义表已经接纳；条件属性错误折叠已修正，item 55113、61194 和已识别的六个 enchant 已实现。prototype union 仍有 43 个 runtime mechanisms 未闭合，首要是 55127、55131、`warrior.improvedCharge` 和 55116；物品方面，55127/55131 缺 proc 概率/触发语义，55116 缺伤害公式，不能以臆测实现进入公平 request。
+11. dynamic-v5 的 absolute effective-armor schedule 当前包含总减甲，而候选 Sunder 也会在 simulator 内生减甲；未完成来源拆分时会双计数。含 Sunder 的历史 lane 必须阻塞，不能通过放宽 terminal check 绕过。
+12. 正式五 lane 公平比较为 0/5 admitted；旧 v3 protocol 的角色 snapshot 已过期，必须另建新版本而非改写冻结协议。
 
 ## 10. 下一阶段建议顺序
 
-1. 游戏内只需一次 `/reload`，由新的 CustomData 静态快照捕获 build 7272 完整天赋位置；后台据此生成 admitted map，并重建 registry、HistoricalBuildCatalog 与真实 k-medoids representatives。
-2. 从已冻结 post-fix Fury cohort 做 exact GUID/instance/window 动作 join，并按玩家/打法拆出多个 semi-Markov prototype，再接已有 typed-sink rollout；具名 Arms episode 已完成，只用于跨天赋描述与特征发现，不进入 Fury 同构筑胜负 lane。任何没有 START 的 queue 仍保持 uncertainty，不从 GO 倒推动作意图。
+1. 游戏内静态捕获 seq `24282`、build 7272 admitted map、registry、HistoricalBuildCatalog 和 64 个 k-medoids representatives 均已完成；当前阶段无需再次 `/reload`。
+2. exact Fury episode 的 interior-gap 修正、决策时点 CombatantInfo 前缀连接、4 个稳定重复玩家原型、1 个玩家等权 Q4 原型、censor-aware clone v2 以及 v8/v11 typed dynamic-v5 smoke 已完成。illegal action、server-START-timed queue proxy 与 residual wait 继续显式记录；不从 GO 倒推 queue，也不把 101 条 null encounter 猜到最近波次。
 3. 建立新的、绑定 `e52f07...` 当前角色和五段式 request 的开发协议；旧 v3 保持冻结。用修复后的 deployed-Contra producer 补完 Raid-A matched-seed baseline，旧 256 条 incomplete 不当作成绩。
 4. 冻结并预注册 exact source-bound dynamic rollout kill-clock 的选择与准入规则，再将队友模型接入动态波次，用留一 Warrior 的真实结束时间验证。
-5. 在少量 admitted 代表 build 上运行 Cat、部署 Contra、Contra_new、多个 historical prototypes 与完整 expert fallback；先实现 evidence gate v2，只有由实际 receipts 派生且闭合的 lane 才进入胜负表。`fair_baseline_gate_v1` 仅保留 declaration preflight，不承担准入。
-6. 再启动 build-conditioned residual policy 的低 seed adaptive stage。连续两个阶段无改善时扩展状态条件/动作分支，不用更多重复 seeds 掩盖表达能力不足。
+5. 9 个 exact-source requests 与 runner/runtime 的 fail-closed 接线已完成；下一步要以显式假设层拟合并验证初始 HP、source-owned/exogenous 护甲、可攻击区间和团队 kill-clock，再把 `useHealth=true`、正且相等的 request `stats[34]`/config health 作为一个新的内容绑定对发布。288-cell 和 800-cell bundle 当前都只表示 `PREPARED / NOT_RUN`；similar/transplant 只作开发诊断，`fair_baseline_gate_v1` 仅保留 declaration preflight。
+6. 只有 exact-source smoke、Cat/部署 Contra/Contra_new/historical prototype 的完整 matched receipts 和 evidence gate v2 都通过后，才启动 node001–006 的 build-conditioned residual policy adaptive stage。连续两个阶段无改善时扩展状态条件/动作分支，不用更多重复 seeds 掩盖表达能力不足。
 7. 从两波连续 SMDP 开始加入跨波 CD、物品、旅行和合法换武器，再扩展到完整 raid；全本结果按总有效伤害/总声明时长计算，不平均 per-wave DPS。
 8. 通过者蒸馏为默认零搜索的 Cat2_new Lua 策略包，Windows 客户端先 Shadow，再做受控真实验证；本地 companion 仅作可选导入/小规模精修。
 9. 候选与协议封存后再收集恰好 50 个完整新 UTK raids、至少 20 个新泄漏组件，运行正式 1000-seed confirmation；多 build 更广声明另立协议。
@@ -465,9 +496,9 @@ BrainOfCat 当前可读取当前角色：
 - Chronicle 大数据、HPC 运行产物、第三方工程和机器本地配置不进入 Git。
 - 正式训练通过 source closure 与 dispatch SHA 绑定；worker、reducer、时间和资源日志留在服务器 run 目录。
 - 冻结基线与优化 replay 使用各自独立的 source closure；二者通过同一 dispatch、68 份 worker receipts 和 full-core replay-equivalence contract 关联。
-- 既有 Windows 完整集成回归证据仍为：Go simulator `with_db`、Python 1,812 tests（2 skipped）、BrainOfCat TOC 与已安装 Cat2 合同均成功；Python 段耗时 1,013.688 秒。本批没有改 simulator 或实际插件代码，因此未重复该高成本集成轮次。
-- 本批变更及受影响模块聚合复核为 255/255 通过。完整 source-only 首轮共运行 1,656 tests：除 `fury_baseline_readiness_gate_v3` 的 12 个 case 因 living expert manifest 与旧固定哈希冲突外，其余 1,642 tests 通过、2 skipped；修复为独立 frozen manifest 后，该 12/12 单独复核通过。因此当前闭合证据为 1,654 tests 通过、2 skipped，而不是隐瞒首轮失败或再重复整轮 17 分钟检查。
-- 448 个 Python 文件的编译检查和 `git diff --check` 通过，且未启动本地重型仿真、远端训练或搜索。
+- 既有 Windows 完整集成回归快照仍为：Go simulator `with_db`、Python 1,812 tests（2 skipped）、BrainOfCat TOC 与已安装 Cat2 合同均成功；Python 段耗时 1,013.688 秒。它是此前快照，不冒充本轮 simulator delta 的复核。
+- 本轮 O2O simulator delta 已封装为 69-path 累积补丁；patch SHA `356da5740ae8da563a27556f993f836e3d19e82f0020df002ddb73458b33687d`。在干净 upstream checkout 上 `git apply --check`、69/69 source path 重建比对、数据库生成及 `go test -tags with_db ./cmd/o2obridge ./sim/o2o ./sim/warrior ./sim/common/item_effects ./tools/database` 均通过；同一组 5 个 Go package 也已在当前工作树复跑通过。补丁不包含生成数据库、二进制或第三方完整源码树。
+- episode、prototype、clone、join、gap、五 Bloodthirst request、exact-source request 与 9-row dynamic preparation 均已按最新输入重建；join、gap 与两类 request bundle 的内容身份不含主机绝对路径。受影响 Python 联合套件 140/140 通过，其中 dynamic/runner 联合门禁 15/15 通过；真实产物在 bridge 启动前因 0 READY 正确拒绝。没有启动本地重型仿真、node001–006 训练、superiority run 或 final-1000。
 - 本报告所述自有源码、配置和测试随当前 Git HEAD 发布；第三方源码、离线原始数据和本机/服务器运行产物不进入仓库。
-- Shadow/静态检查不授权实机部署；真实 WoW 行为变更仍需 Windows 客户端 `/reload` 和指定场景验证。
+- 最新 `/reload` 只完成 source seq `24282` / build `7272` 的 P0 静态接纳；Shadow/静态检查仍不授权实机部署。当前没有任何新候选接管 Cat2_new，也没有“击败 Cat”的新证据。
 - `cat_fury_full_policy_readiness_v4.py` 中的 Cat SavedVariables 默认路径是冻结历史字节的有意例外；为了便携性修改它会改变既有 source identity。新调用者应通过 CLI/config 显式传入 Cat root/SavedVariables 路径，而不是更新历史 pin。

@@ -39,7 +39,7 @@ def _talent_tree() -> list[dict[str, object]]:
 
 def _catalog_row() -> dict[str, object]:
     slots: list[dict[str, object]] = []
-    item_ids = [100, 101, 102, 999]
+    item_ids = [100, 101, 102, 999, 22798]
     enchant_ids = [10, 11, 12]
     for index, item_id in enumerate(item_ids):
         slots.append(
@@ -118,6 +118,12 @@ class MechanicsCoverageRegistryTests(unittest.TestCase):
                             "effects": [{"spellId": 3}],
                             "hasImplementedEffects": True,
                         },
+                        {
+                            "id": 22798,
+                            "name": "Might of Menethil",
+                            "handType": 4,
+                            "effects": [{"spellId": 51136}],
+                        },
                     ],
                     "enchants": [
                         {"effectId": 10, "name": "Static strength", "stats": [0, 4]},
@@ -191,6 +197,15 @@ func init() {
             registry["items"]["101"]["comparison_eligibility"]["eligible"]
         )
         self.assertEqual(registry["items"]["102"]["effect_status"], "UNSUPPORTED")
+        self.assertEqual(registry["items"]["22798"]["effect_status"], "UNSUPPORTED")
+        self.assertEqual(
+            registry["items"]["22798"]["class_effect_status"]["WARRIOR"]
+            ["effective_effect_status"],
+            "NO_SPECIAL_EFFECT",
+        )
+        self.assertNotIn(
+            22798, registry["summary"]["warrior_priority"]["item_gap_ids"]
+        )
         self.assertFalse(registry["items"]["102"]["representation_complete"])
         self.assertEqual(registry["items"]["999"]["effect_status"], "UNKNOWN")
         self.assertFalse(registry["items"]["999"]["database_known"])
@@ -246,6 +261,35 @@ func init() {
         self.assertEqual(contract["source_registered_only_item_id_count"], 1)
         self.assertEqual(contract["source_registered_only_enchant_id_count"], 1)
         self.assertTrue(contract["full_database_is_not_an_output_target"])
+
+    def test_class_scoped_item_effect_does_not_weaken_unscoped_status(self) -> None:
+        registry = {
+            "items": {
+                "22798": {
+                    "definition_status": "KNOWN",
+                    "effect_status": "UNSUPPORTED",
+                    "calibrated_scopes": [],
+                    "class_effect_status": {
+                        "WARRIOR": {
+                            "effective_effect_status": "NO_SPECIAL_EFFECT",
+                            "applicability_status": "INAPPLICABLE_SHAPESHIFT_ONLY",
+                            "evidence": "spell:51136 requires forms",
+                        }
+                    },
+                }
+            }
+        }
+        warrior = _coverage_entry(
+            registry, "items", 22798, hero_class="WARRIOR"
+        )
+        druid = _coverage_entry(registry, "items", 22798, hero_class="DRUID")
+        self.assertEqual(warrior["effect_status"], "NO_SPECIAL_EFFECT")
+        self.assertEqual(warrior["unscoped_effect_status"], "UNSUPPORTED")
+        self.assertEqual(
+            warrior["class_applicability_status"],
+            "INAPPLICABLE_SHAPESHIFT_ONLY",
+        )
+        self.assertEqual(druid["effect_status"], "UNSUPPORTED")
 
     def test_talent_translation_reports_implementation_and_tail_gap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

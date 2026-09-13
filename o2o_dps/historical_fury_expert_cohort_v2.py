@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime
 import json
 import math
@@ -47,6 +48,17 @@ COMPLETE_STRATEGY_REFUSED = "NOT_A_COMPLETE_HISTORICAL_EXPERT_STRATEGY"
 
 class HistoricalFuryExpertCohortError(RuntimeError):
     """The source index or v2 cohort violates the frozen contract."""
+
+
+@dataclass(frozen=True)
+class FrozenCohortSelection:
+    """The exact normalized source rows admitted by the frozen v2 contract."""
+
+    source_binding: dict[str, Any]
+    selected_rows: tuple[dict[str, Any], ...]
+    source_row_count: int
+    filtered_out_row_counts: dict[str, int]
+    same_evidence_duplicate_count_collapsed: int
 
 
 def _mapping(value: Any, *, label: str) -> Mapping[str, Any]:
@@ -387,13 +399,17 @@ def _candidate_id(guid: str) -> str:
     return f"player:{guid}"
 
 
-def build_cohort_document(
+def select_frozen_cohort_rows(
     source_manifest: Mapping[str, Any],
     rows: Iterable[Mapping[str, Any]],
     *,
     source_manifest_path: str,
-) -> dict[str, Any]:
-    """Build the deterministic v2 document from an already verified index."""
+) -> FrozenCohortSelection:
+    """Apply the v2 cohort's one authoritative row-selection contract.
+
+    Downstream exact-window joins use this function so their action evidence
+    cannot silently drift from the identity/performance cohort selection.
+    """
 
     source = _source_index_binding(
         source_manifest, manifest_path=source_manifest_path
@@ -404,7 +420,7 @@ def build_cohort_document(
     eligible_labels = set(history_v1.TRAINING_CANDIDATE_LABELS)
 
     source_count = 0
-    filtered_out = defaultdict(int)
+    filtered_out: defaultdict[str, int] = defaultdict(int)
     deduplicated: dict[tuple[str, str, str], dict[str, Any]] = {}
     collapsed_duplicates = 0
     for raw in rows:
@@ -449,11 +465,41 @@ def build_cohort_document(
         raise HistoricalFuryExpertCohortError(
             "streamed DPS row count disagrees with source partition"
         )
-    selected_rows = list(deduplicated.values())
+    selected_rows = tuple(deduplicated.values())
     if not selected_rows:
         raise HistoricalFuryExpertCohortError(
             "frozen source contains no eligible Fury DPS rows"
         )
+    return FrozenCohortSelection(
+        source_binding=deepcopy(source),
+        selected_rows=selected_rows,
+        source_row_count=source_count,
+        filtered_out_row_counts=dict(sorted(filtered_out.items())),
+        same_evidence_duplicate_count_collapsed=collapsed_duplicates,
+    )
+
+
+def build_cohort_document(
+    source_manifest: Mapping[str, Any],
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    source_manifest_path: str,
+) -> dict[str, Any]:
+    """Build the deterministic v2 document from an already verified index."""
+
+    selection = select_frozen_cohort_rows(
+        source_manifest,
+        rows,
+        source_manifest_path=source_manifest_path,
+    )
+    source = selection.source_binding
+    source_count = selection.source_row_count
+    filtered_out = selection.filtered_out_row_counts
+    selected_rows = list(selection.selected_rows)
+    collapsed_duplicates = selection.same_evidence_duplicate_count_collapsed
+    boundary = ingest_v1.range_bug_boundary_contract()
+    cutoff_text = str(boundary["postfix_known_clean_at_or_after_local"])
+    eligible_labels = set(history_v1.TRAINING_CANDIDATE_LABELS)
 
     encounter_groups: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
     for row in selected_rows:
@@ -850,6 +896,30 @@ def _load_source_index_rows(
     )
 
 
+def load_frozen_cohort_selection(
+    index_manifest_path: str | Path,
+    *,
+    data_root: Path = history_v1.DEFAULT_DATA_ROOT,
+    zstd_executable: str | Path | None = None,
+) -> tuple[FrozenCohortSelection, Path]:
+    """Replay the exact DPS index and return the shared frozen row selection."""
+
+    root = _data_root(Path(data_root))
+    manifest, resolved, rows = _load_source_index_rows(
+        index_manifest_path,
+        data_root=root,
+        zstd_executable=zstd_executable,
+    )
+    selection = select_frozen_cohort_rows(
+        manifest,
+        rows,
+        source_manifest_path=_relative_to_data_root(
+            resolved, root, label="source index manifest"
+        ),
+    )
+    return selection, resolved
+
+
 def build_cohort_from_index(
     index_manifest_path: str | Path,
     *,
@@ -1024,6 +1094,7 @@ if __name__ == "__main__":  # pragma: no cover
 __all__ = [
     "ACTION_TRACE_MISSING",
     "COMPLETE_STRATEGY_REFUSED",
+    "FrozenCohortSelection",
     "HistoricalFuryExpertCohortError",
     "IMPLEMENTATION_REVISION",
     "KIND",
@@ -1034,7 +1105,9 @@ __all__ = [
     "audit_historical_fury_expert_cohort",
     "build_cohort_document",
     "build_cohort_from_index",
+    "load_frozen_cohort_selection",
     "main",
     "publish_historical_fury_expert_cohort",
+    "select_frozen_cohort_rows",
     "validate_cohort_document",
 ]

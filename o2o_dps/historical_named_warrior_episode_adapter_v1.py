@@ -24,7 +24,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any, Iterable, Iterator, Mapping, Sequence, TextIO
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence, TextIO
 
 from . import chronicle_external_team_timeline_v2 as timeline_v2
 from . import historical_warrior_reference_cohort_v1 as reference_v1
@@ -494,34 +494,21 @@ def _compact_observed_action(
     }
 
 
-def _build_episode(
+def build_strict_prefix_trace(
     wave: Mapping[str, Any],
     player_row: Mapping[str, Any],
-    configured: Mapping[str, Any],
+    *,
+    player_guid: str,
+    classify_action: Callable[[Mapping[str, Any]], Mapping[str, Any]] = _classify_action,
 ) -> JSONMap:
-    player = _mapping(player_row.get("player"), "player record identity")
-    guid = str(configured["character_guid"])
-    if str(player.get("guid") or "").casefold() != guid.casefold():
-        raise HistoricalNamedWarriorEpisodeError("timeline player GUID differs from reference")
-    if str(player.get("class") or "").upper() != "WARRIOR":
-        raise HistoricalNamedWarriorEpisodeError("named player is not a timeline Warrior")
-    spec = _mapping(player_row.get("warrior_spec_evidence"), "warrior_spec_evidence")
-    if (
-        spec.get("exact_player_guid_match") is not True
-        or spec.get("inference_used") is not False
-        or spec.get("status") != "OBSERVED"
-        or spec.get("player_spec") != "Arms"
-    ):
-        raise HistoricalNamedWarriorEpisodeError(
-            "named player lacks exact observed Arms spec evidence"
-        )
+    """Build the shared exact-GUID, strict-prefix action trace for one wave."""
 
     direct_events: list[Mapping[str, Any]] = []
     excluded_attribution = Counter()
     for raw in _array(player_row.get("timeline"), "player.timeline"):
         event = _mapping(raw, "player.timeline event")
         attribution = _mapping(event.get("attribution"), "event.attribution")
-        if _is_exact_direct_event(event, guid):
+        if _is_exact_direct_event(event, player_guid):
             direct_events.append(event)
         else:
             if attribution.get("attribution_kind") == "DIRECT_FRIENDLY_PLAYER":
@@ -554,18 +541,19 @@ def _build_episode(
     for event, direct, _ in merged:
         event_type = str(event.get("event_type") or "").upper()
         if direct and event_type in ACTION_EVENT_TYPES:
-            classification = _classify_action(event)
+            classification = _mapping(classify_action(event), "action classification")
             before = state.snapshot(event)
             observed = _compact_observed_action(event, classification)
-            transition = {
-                "trace_index": len(transitions),
-                "state_before": before,
-                "observed_event": observed,
-                "feature_cutoff_is_strict_prefix": True,
-                "current_event_present_in_state_before": False,
-                "future_outcomes_in_state_before": False,
-            }
-            transitions.append(transition)
+            transitions.append(
+                {
+                    "trace_index": len(transitions),
+                    "state_before": before,
+                    "observed_event": observed,
+                    "feature_cutoff_is_strict_prefix": True,
+                    "current_event_present_in_state_before": False,
+                    "future_outcomes_in_state_before": False,
+                }
+            )
             action_counts[str(classification["action_key"])] += 1
             phase_counts[event_type] += 1
             ontology_counts[str(classification["ontology_status"])] += 1
@@ -580,6 +568,72 @@ def _build_episode(
             state.observe_action(event, classification)
         else:
             state.observe(event, direct=direct)
+
+    return {
+        "prefix_transitions": transitions,
+        "summary": {
+            "direct_source_event_count": len(direct_events),
+            "excluded_non_direct_attribution_event_count": sum(
+                excluded_attribution.values()
+            ),
+            "excluded_non_direct_attribution_counts": dict(
+                sorted(excluded_attribution.items())
+            ),
+            "transition_count": len(transitions),
+            "server_observed_start_count": phase_counts["START"],
+            "controllable_policy_label_count": sum(
+                controllable_label_action_counts.values()
+            ),
+            "unclassified_start_count": sum(
+                unclassified_start_action_counts.values()
+            ),
+            "go_outcome_count": phase_counts["GO"],
+            "fail_outcome_count": phase_counts["FAIL"],
+            "phase_counts": dict(sorted(phase_counts.items())),
+            "action_event_counts": dict(sorted(action_counts.items())),
+            "server_start_action_counts": dict(
+                sorted(server_start_action_counts.items())
+            ),
+            "controllable_label_action_counts": dict(
+                sorted(controllable_label_action_counts.items())
+            ),
+            "unclassified_start_action_counts": dict(
+                sorted(unclassified_start_action_counts.items())
+            ),
+            "ontology_status_counts": dict(sorted(ontology_counts.items())),
+        },
+    }
+
+
+def _build_episode(
+    wave: Mapping[str, Any],
+    player_row: Mapping[str, Any],
+    configured: Mapping[str, Any],
+) -> JSONMap:
+    player = _mapping(player_row.get("player"), "player record identity")
+    guid = str(configured["character_guid"])
+    if str(player.get("guid") or "").casefold() != guid.casefold():
+        raise HistoricalNamedWarriorEpisodeError("timeline player GUID differs from reference")
+    if str(player.get("class") or "").upper() != "WARRIOR":
+        raise HistoricalNamedWarriorEpisodeError("named player is not a timeline Warrior")
+    spec = _mapping(player_row.get("warrior_spec_evidence"), "warrior_spec_evidence")
+    if (
+        spec.get("exact_player_guid_match") is not True
+        or spec.get("inference_used") is not False
+        or spec.get("status") != "OBSERVED"
+        or spec.get("player_spec") != "Arms"
+    ):
+        raise HistoricalNamedWarriorEpisodeError(
+            "named player lacks exact observed Arms spec evidence"
+        )
+
+    trace = build_strict_prefix_trace(
+        wave,
+        player_row,
+        player_guid=guid,
+    )
+    transitions = _array(trace.get("prefix_transitions"), "strict prefix transitions")
+    trace_summary = _mapping(trace.get("summary"), "strict prefix summary")
 
     instance_id = _text(wave.get("instance_id"), "wave.instance_id")
     wave_id = _text(wave.get("wave_id"), "wave.wave_id")
@@ -627,37 +681,7 @@ def _build_episode(
             "encounter_id_preserved_without_synthetic_replacement": True,
         },
         "prefix_transitions": transitions,
-        "summary": {
-            "direct_source_event_count": len(direct_events),
-            "excluded_non_direct_attribution_event_count": sum(
-                excluded_attribution.values()
-            ),
-            "excluded_non_direct_attribution_counts": dict(
-                sorted(excluded_attribution.items())
-            ),
-            "transition_count": len(transitions),
-            "server_observed_start_count": phase_counts["START"],
-            "controllable_policy_label_count": sum(
-                controllable_label_action_counts.values()
-            ),
-            "unclassified_start_count": sum(
-                unclassified_start_action_counts.values()
-            ),
-            "go_outcome_count": phase_counts["GO"],
-            "fail_outcome_count": phase_counts["FAIL"],
-            "phase_counts": dict(sorted(phase_counts.items())),
-            "action_event_counts": dict(sorted(action_counts.items())),
-            "server_start_action_counts": dict(
-                sorted(server_start_action_counts.items())
-            ),
-            "controllable_label_action_counts": dict(
-                sorted(controllable_label_action_counts.items())
-            ),
-            "unclassified_start_action_counts": dict(
-                sorted(unclassified_start_action_counts.items())
-            ),
-            "ontology_status_counts": dict(sorted(ontology_counts.items())),
-        },
+        "summary": deepcopy(dict(trace_summary)),
         "contracts": {
             "identity": "exact configured GUID plus DIRECT_FRIENDLY_PLAYER source",
             "event_order": (
@@ -1156,5 +1180,6 @@ __all__ = [
     "STATUS",
     "action_spec",
     "build_historical_named_warrior_episodes",
+    "build_strict_prefix_trace",
     "main",
 ]

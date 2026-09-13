@@ -31,7 +31,7 @@ from .turtle_talent_position_map_v1 import (
 from .wowsims_profile import WARRIOR_TALENT_FIELDS
 
 
-IMPLEMENTATION_REVISION = "v1.4_admitted_turtle_talent_map_overlay"
+IMPLEMENTATION_REVISION = "v1.5_admitted_talent_map_and_class_applicability"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WOWSIMS_ROOT = PROJECT_ROOT.parent / "wowsims-turtle"
 DEFAULT_DATABASE = DEFAULT_WOWSIMS_ROOT / "assets" / "database" / "db.json"
@@ -73,6 +73,18 @@ HAND_TYPE_TO_MODE = {
     2: "ONE_HAND",
     3: "ONE_HAND",  # off-hand-only
     4: "TWO_HAND",
+}
+
+# These are effects whose pinned DBC conditions make them inert for the
+# current Warrior build catalogue.  The unscoped item remains unsupported; a
+# class-specific catalogue consumer may use the effective status only after
+# the declared spell identity below has been rechecked.
+WARRIOR_INAPPLICABLE_ITEM_EFFECTS = {
+    22798: {
+        "expected_spell_ids": (51136,),
+        "status": "INAPPLICABLE_SHAPESHIFT_ONLY",
+        "evidence": "spell:51136 requires Cat/Bear/Dire Bear/Moonkin form",
+    },
 }
 
 
@@ -685,6 +697,29 @@ def build_registry(
         db_implemented = bool(raw.get("hasImplementedEffects")) if raw is not None else False
         source_evidence = item_registration.get(identifier, [])
         source_registered = bool(source_evidence)
+
+        class_effect_status: dict[str, Any] = {}
+        applicability = WARRIOR_INAPPLICABLE_ITEM_EFFECTS.get(identifier)
+        if applicability is not None:
+            declared_spell_ids = tuple(
+                sorted(
+                    effect["spellId"]
+                    for effect in declared_effects
+                    if isinstance(effect, Mapping)
+                    and isinstance(effect.get("spellId"), int)
+                    and not isinstance(effect.get("spellId"), bool)
+                )
+            )
+            if declared_spell_ids != applicability["expected_spell_ids"]:
+                raise MechanicsCoverageRegistryError(
+                    f"item {identifier} class applicability pin expected spells "
+                    f"{applicability['expected_spell_ids']}, got {declared_spell_ids}"
+                )
+            class_effect_status["WARRIOR"] = {
+                "effective_effect_status": "NO_SPECIAL_EFFECT",
+                "applicability_status": applicability["status"],
+                "evidence": applicability["evidence"],
+            }
         if not database_known:
             effect_status = "UNKNOWN"
         elif effect_declared and db_implemented and source_registered:
@@ -699,13 +734,21 @@ def build_registry(
         else:
             effect_status = "UNKNOWN"
             item_source_db_divergence.append(identifier)
+        warrior_effect_status = (
+            class_effect_status.get("WARRIOR", {}).get(
+                "effective_effect_status", effect_status
+            )
+        )
         if effect_status not in {"IMPLEMENTED", "NO_SPECIAL_EFFECT"}:
             item_gaps.append(identifier)
-            if warrior_item_counts[identifier]:
+            if (
+                warrior_item_counts[identifier]
+                and warrior_effect_status not in {"IMPLEMENTED", "NO_SPECIAL_EFFECT"}
+            ):
                 warrior_item_gaps.append(identifier)
         item_statuses[effect_status] += 1
         if warrior_item_counts[identifier]:
-            warrior_item_statuses[effect_status] += 1
+            warrior_item_statuses[warrior_effect_status] += 1
         row: dict[str, Any] = {
             "name": raw.get("name") if raw is not None else None,
             "definition_status": "KNOWN" if database_known else "UNKNOWN",
@@ -725,6 +768,7 @@ def build_registry(
             "historical_warrior_segment_occurrences": warrior_item_counts[identifier],
             "declared_effects": declared_effects,
             "source_registration_evidence": source_evidence,
+            "class_effect_status": class_effect_status,
             **_three_layer_status(
                 representation_complete=effect_status in {"IMPLEMENTED", "NO_SPECIAL_EFFECT"},
                 mechanism=f"item:{identifier}",
@@ -804,6 +848,7 @@ def build_registry(
         "coverage_contract": {
             "database_known_is_not_effect_implemented": True,
             "unknown_special_effect_defaults_to_passive": False,
+            "class_inapplicable_effect_keeps_unscoped_blocker": True,
             "implemented_item_effect_requires_database_and_current_source_registration": True,
             "static_enchant_stats_are_applied_by_sim_core_database": True,
             "calibrated_scope_is_independent_of_source_implementation": True,
