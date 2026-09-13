@@ -21,6 +21,7 @@ from o2o_dps.sim_bridge_dynamic_v2 import (
     DynamicV2ConfigError,
     SimulatorBridgeDynamicV2,
     _candidate_batch_v2,
+    _background_batch_v2,
     _validate_dynamic_state_binding_v2,
     dynamic_target_semantics_config_from_wire_v2,
 )
@@ -140,6 +141,95 @@ def bound_state_v2(config: DynamicTargetSemanticsConfigV2) -> dict:
 
 
 class SimulatorBridgeDynamicV2Tests(unittest.TestCase):
+    def test_terminal_background_cancellations_have_no_damage_ordinal(self):
+        base = config_v2()
+        config = DynamicTargetSemanticsConfigV2(
+            target_health=base.target_health,
+            background_damage_events=(
+                BackgroundDamageEventV1(0, 100, 0, "killing-team-hit", 200.0),
+                BackgroundDamageEventV1(1, 200, 0, "pending-team-hit", 10.0),
+            ),
+            attackability_events=base.attackability_events,
+            effective_armor_events=base.effective_armor_events,
+        )
+        state = bound_state_v2(config)
+        state.update(time_ms=100, target_health=0.0, target_armor=1234.0)
+        life = state["dynamic_team_background"]
+        life.update(
+            background_damage_applied=200.0,
+            combined_damage_applied=200.0,
+            background_events_processed=2,
+            background_events_total=2,
+        )
+        life["targets"][0].update(
+            current_health=0.0,
+            dead=True,
+            death_time_ms=100,
+            background_damage_applied=200.0,
+        )
+        semantics = state["dynamic_target_semantics"]
+        semantics.update(
+            attackability_events_processed=2,
+            effective_armor_events_processed=2,
+        )
+        semantics["targets"][0].update(
+            attackable=False,
+            effective_armor=1234.0,
+            current_health=0.0,
+            dead=True,
+            death_time_ms=100,
+        )
+        lifecycle, _ = _validate_dynamic_state_binding_v2(
+            state, generation=1, config=config
+        )
+        self.assertEqual(2, lifecycle.background_events_processed)
+        self.assertEqual(1, lifecycle.damage_applications_total)
+
+        receipt_batch = {
+            "schema": "o2o_dynamic_target_semantics/v2",
+            "config_digest": config.content_sha256,
+            "environment_generation": 1,
+            "cursor": 0,
+            "next_cursor": 2,
+            "schedule_complete": True,
+            "receipts": [
+                {
+                    "damage_ordinal": 1,
+                    "schedule_index": 0,
+                    "event_id": "killing-team-hit",
+                    "time_ms": 100,
+                    "target_index": 0,
+                    "requested_damage": 200.0,
+                    "applied_damage": 200.0,
+                    "overkill_damage": 0.0,
+                    "killed": True,
+                    "status": "APPLIED",
+                },
+                {
+                    "schedule_index": 1,
+                    "event_id": "pending-team-hit",
+                    "time_ms": 200,
+                    "target_index": 0,
+                    "requested_damage": 10.0,
+                    "applied_damage": 0.0,
+                    "overkill_damage": 10.0,
+                    "killed": False,
+                    "status": "CANCELED_TARGET_DEAD",
+                },
+            ],
+        }
+        parsed = _background_batch_v2(
+            receipt_batch, requested_cursor=0, generation=1, config=config
+        )
+        self.assertEqual([1, 0], [row.damage_ordinal for row in parsed.receipts])
+
+        invalid = copy.deepcopy(receipt_batch)
+        invalid["receipts"][1]["status"] = "APPLIED"
+        with self.assertRaisesRegex(SimBridgeProtocolError, "scheduled damage contract"):
+            _background_batch_v2(
+                invalid, requested_cursor=0, generation=1, config=config
+            )
+
     def test_config_wire_is_content_addressed_and_exact(self):
         config = config_v2()
         self.assertEqual(

@@ -1010,8 +1010,12 @@ def _parse_idle_state_v3(
             or result.planned_wake_time_ms < time_ms
             or result.planned_wake_time_ms > result.horizon_ms
         )
+        # The Go bridge may retain needs_input=True on the same response that
+        # declares the encounter finished after the final target dies.  That
+        # flag is no longer an actionable decision at a terminal boundary.
         or needs_input
         and num_targets == 0
+        and not finished
     ):
         raise SimBridgeProtocolError(
             "dynamic idle state violates its lifecycle/horizon binding"

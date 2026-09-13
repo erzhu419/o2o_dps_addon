@@ -1032,8 +1032,20 @@ def _parse_team_state_v2(
         or result.background_events_processed > result.background_events_total
         or result.background_events_canceled > result.background_events_processed
         or result.candidate_events_canceled > result.candidate_events_processed
+        # The simulator writes cancellation receipts for pending background
+        # events when the last target dies. Those events count as processed,
+        # but never enter ApplyTargetDamage and have no damage ordinal.
         or result.damage_applications_total
-        != result.background_events_processed + result.candidate_events_processed
+        > result.background_events_processed + result.candidate_events_processed
+        or (
+            any(not target.dead for target in targets)
+            and result.damage_applications_total
+            != result.background_events_processed + result.candidate_events_processed
+        )
+        or result.damage_applications_total
+        < result.background_events_processed
+        - result.background_events_canceled
+        + result.candidate_events_processed
     ):
         raise SimBridgeProtocolError(
             "dynamic team lifecycle state violates its config/counter binding"
@@ -1408,7 +1420,6 @@ def _background_batch_v2(
         row = _mapping_with_optional(
             value_row,
             {
-                "damage_ordinal",
                 "schedule_index",
                 "event_id",
                 "time_ms",
@@ -1419,11 +1430,15 @@ def _background_batch_v2(
                 "killed",
                 "status",
             },
-            {"retargeted_to"},
+            {"damage_ordinal", "retargeted_to"},
             "background receipt",
         )
         receipt = DynamicDamageReceiptV2(
-            damage_ordinal=_positive_int_field(row, "damage_ordinal"),
+            damage_ordinal=(
+                _positive_int_field(row, "damage_ordinal")
+                if "damage_ordinal" in row
+                else 0
+            ),
             schedule_index=_nonnegative_int_field(row, "schedule_index"),
             event_id=_text_field(row, "event_id", protocol=True),
             time_ms=_nonnegative_int_field(row, "time_ms"),
@@ -1450,6 +1465,7 @@ def _background_batch_v2(
             or receipt.target_index != event.target_index
             or not _same_float(receipt.requested_damage, event.damage)
             or receipt.status not in DYNAMIC_DAMAGE_STATUSES_V2
+            or (receipt.damage_ordinal == 0 and receipt.status != "CANCELED_TARGET_DEAD")
             or not _numbers_conserve(
                 receipt.requested_damage,
                 receipt.applied_damage + receipt.overkill_damage,
@@ -1468,7 +1484,15 @@ def _background_batch_v2(
         ):
             raise SimBridgeProtocolError("background receipt retarget is invalid")
         receipts.append(receipt)
-    _strictly_increasing_ordinals(receipts, "background receipts")
+    positive_receipts = [row for row in receipts if row.damage_ordinal > 0]
+    if len(positive_receipts) != len(receipts) and any(
+        row.damage_ordinal > 0
+        for row in receipts[len(positive_receipts):]
+    ):
+        raise SimBridgeProtocolError(
+            "background receipts without damage ordinals must be a terminal suffix"
+        )
+    _strictly_increasing_ordinals(positive_receipts, "background receipts")
     return DynamicDamageReceiptBatchV2(
         schema=DYNAMIC_TARGET_SEMANTICS_SCHEMA_V2,
         config_digest=config.content_sha256,

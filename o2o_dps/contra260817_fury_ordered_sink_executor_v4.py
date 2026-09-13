@@ -371,6 +371,7 @@ def execute_contra260817_ordered_sinks_v4(
             event["simulator_submission"] = {
                 "status": "BRIDGE_ERROR_FAIL_CLOSED",
                 "error_type": type(error).__name__,
+                "error_message": str(error),
             }
             event["simulator_acceptance"] = {
                 "status": "UNKNOWN_BRIDGE_ERROR",

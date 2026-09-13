@@ -33,11 +33,15 @@ from o2o_dps.sim_bridge import (
 class _ResponseStream:
     def __init__(self) -> None:
         self.lines: list[str] = []
+        self.closed = False
 
     def readline(self) -> str:
         if not self.lines:
             return ""
         return self.lines.pop(0)
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _RequestStream:
@@ -156,6 +160,18 @@ def _dynamic_state(
 
 
 class SimulatorBridgeTests(unittest.TestCase):
+    def test_close_releases_both_process_output_pipes(self) -> None:
+        process = _FakeProcess(
+            lambda request: {"ok": True, "command": request["command"]}
+        )
+        with patch("o2o_dps.sim_bridge.subprocess.Popen", return_value=process):
+            bridge = SimulatorBridge("o2obridge.exe")
+            bridge.close()
+            bridge.close()
+        self.assertTrue(process.stdin.closed)
+        self.assertTrue(process.stdout.closed)
+        self.assertTrue(process.stderr.closed)
+
     def test_dynamic_load_is_content_bound_typed_and_generation_scoped(self) -> None:
         config = DynamicTeamBackgroundConfigV1(
             target_health=(

@@ -25,6 +25,7 @@ from o2o_dps.sim_bridge_dynamic_v3 import (
     DynamicV3ConfigError,
     SimulatorBridgeDynamicV3,
     _idle_receipt_batch_v3,
+    _parse_idle_state_v3,
     _validate_request_horizon_v3,
     _validate_dynamic_state_binding_v3,
     dynamic_target_semantics_config_from_wire_v3,
@@ -264,6 +265,16 @@ class SimulatorBridgeDynamicV3Tests(unittest.TestCase):
             _validate_dynamic_state_binding_v3(
                 leaked_input, generation=1, config=config
             )
+        terminal = bound_state_v3(config)
+        terminal["finished"] = True
+        terminal["num_targets"] = 0
+        terminal["dynamic_idle_advance"]["stream_closed"] = True
+        self.assertTrue(terminal["needs_input"])
+        parsed_terminal = _parse_idle_state_v3(
+            terminal["dynamic_idle_advance"],
+            state=terminal, generation=1, config=config,
+        )
+        self.assertTrue(parsed_terminal.stream_closed)
         consumed_rng = idle_batch_wire(config)
         consumed_rng["receipts"][0]["scheduler_random_draws"] = 1
         with self.assertRaisesRegex(SimBridgeProtocolError, "invariants"):

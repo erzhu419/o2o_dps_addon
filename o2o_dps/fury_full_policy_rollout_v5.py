@@ -628,7 +628,7 @@ def _runtime_closure_checks_v5(
         and len(candidate.receipts) == candidate.next_cursor
     )
     ordinals = sorted(
-        [row.damage_ordinal for row in background.receipts]
+        [row.damage_ordinal for row in background.receipts if row.damage_ordinal > 0]
         + [row.damage_ordinal for row in candidate.receipts]
     )
     damage_ordinal_closure = ordinals == list(

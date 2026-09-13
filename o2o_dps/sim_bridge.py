@@ -911,6 +911,11 @@ class SimulatorBridge:
                 except subprocess.TimeoutExpired:
                     self._process.kill()
                     self._process.wait(timeout=2)
+            # Repeated fresh-process replays otherwise retain the text pipe
+            # objects until garbage collection even after the child exits.
+            self._process.stdout.close()
+            if self._process.stderr is not None:
+                self._process.stderr.close()
         if close_error is not None:
             raise close_error
 
