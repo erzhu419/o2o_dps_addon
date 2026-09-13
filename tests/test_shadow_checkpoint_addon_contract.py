@@ -41,6 +41,25 @@ class ShadowCheckpointAddonContractTests(unittest.TestCase):
             logger,
         )
 
+    def test_pull_binding_captures_contra_queue_actionbar_without_per_key_scan(self) -> None:
+        source = CHECKPOINT.read_text(encoding="utf-8")
+        binding = source.split("local function CaptureBinding(trigger)", 1)[1].split(
+            "local function BeginPull", 1
+        )[0]
+        decision = source.split("function checkpoint.OnDecisionState", 1)[1].split(
+            "function checkpoint.OnObservedEvent", 1
+        )[0]
+        self.assertIn('trigger ~= "player_login" and trigger ~= "pull_start"', binding)
+        self.assertIn("while slot <= 72 do", binding)
+        self.assertIn("GetActionTexture(slot)", binding)
+        self.assertIn('string.find(texture, "Rogue_Ambush", 1, true)', binding)
+        self.assertIn('string.find(texture, "Warrior_Cleave", 1, true)', binding)
+        self.assertIn("actionBarQueueProbe = queueProbe", binding)
+        self.assertIn('CaptureBinding("pull_start")', source)
+        self.assertNotIn("GetActionTexture", decision)
+        self.assertIn("sessionId = checkpoint.SessionId", source)
+        self.assertIn("pullId = checkpoint.PullId", source)
+
     def test_missing_state_is_not_synthesized(self) -> None:
         source = CHECKPOINT.read_text(encoding="utf-8")
         for field in (

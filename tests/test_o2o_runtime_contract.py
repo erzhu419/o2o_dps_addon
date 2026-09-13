@@ -78,6 +78,39 @@ class O2ORuntimeContractTests(unittest.TestCase):
         self.assertIn("pcall(GetActionText, slot)", source)
         self.assertIn("pcall(IsCurrentAction, slot)", source)
 
+    def test_contra_raid_b_distances_are_decision_time_and_persisted(self) -> None:
+        source = RUNTIME.read_text(encoding="utf-8")
+        build = source.split("function brain.BuildState(context)", 1)[1].split(
+            "function brain.Propose", 1
+        )[0]
+        copied = source.split("local function CopyState(state)", 1)[1].split(
+            "local function CopyArguments", 1
+        )[0]
+        self.assertIn('UnitXP, "distanceBetween", "player", "target", "meleeAutoAttack"', build)
+        self.assertIn('UnitXP, "distanceBetween", "player", "target", "AOE"', build)
+        self.assertIn("targetMeleeRange = melee == 0", build)
+        self.assertIn("targetContraAOERange = aoe + 1.6", build)
+        self.assertIn('if temporary.targetExists and type(UnitXP) == "function" then', build)
+        self.assertLess(build.index("capturedAt = GetTime()"), build.index('UnitXP, "distanceBetween"'))
+        for field in (
+            "targetMeleeDistance",
+            "targetMeleeRange",
+            "targetAOEDistance",
+            "targetContraAOERange",
+            "checkpointSessionId",
+            "checkpointPullId",
+        ):
+            if not field.startswith("checkpoint"):
+                self.assertIn(f"{field} = {field}", build)
+            self.assertIn(f"{field} = state.{field}", copied)
+        self.assertLess(
+            build.index("checkpoint.OnDecisionState(state)"),
+            build.index("state.checkpointPullId = checkpoint.PullId"),
+        )
+        self.assertIn("state.checkpointSessionId = checkpoint.SessionId", build)
+        self.assertNotIn("GetActionTexture", build)
+        self.assertIn("return BrainOfCat.PolicyBrain.BuildState(context)", EXPERT_TRACE.read_text(encoding="utf-8"))
+
     def test_read_only_queue_probe_does_not_claim_unknown_as_keep(self) -> None:
         source = RUNTIME.read_text(encoding="utf-8")
         probe = source.split("local function ProbeQueuedSwing()", 1)[1].split(
