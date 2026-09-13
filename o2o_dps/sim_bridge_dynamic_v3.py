@@ -16,9 +16,12 @@ import struct
 from typing import Any, Mapping
 
 from .sim_bridge import (
+    ActResult,
+    ActionRef,
     BackgroundDamageEventV1,
     DynamicTargetHealthV1,
     SimBridgeProtocolError,
+    _wire_bool,
 )
 from . import sim_bridge_dynamic_v2 as _v2
 from .sim_bridge_dynamic_v2 import (
@@ -502,6 +505,24 @@ class DynamicIdleAdvanceReceiptBatchV3:
 
 class SimulatorBridgeDynamicV3(SimulatorBridgeDynamicV2):
     """Persistent bridge with central, simulator-owned idle advancement."""
+
+    def act_post_gcd_queue(self, action: ActionRef) -> ActResult:
+        """Submit a same-invocation no-GCD swing queue under the v15 sim hypothesis."""
+
+        if not isinstance(action, ActionRef):
+            raise TypeError("post-GCD queue action must be ActionRef")
+        response = self._request("act_post_gcd_queue", action=action.to_wire())
+        apply = response.get("apply")
+        if not isinstance(apply, Mapping):
+            raise SimBridgeProtocolError("act_post_gcd_queue response lacks apply")
+        state = self._bound_state(response, "act_post_gcd_queue")
+        return ActResult(
+            casted=_wire_bool(apply, "casted"),
+            consumes_decision=_wire_bool(apply, "consumes_decision"),
+            finished=_wire_bool(apply, "finished"),
+            needs_input=_wire_bool(apply, "needs_input"),
+            state=state,
+        )
 
     def load_dynamic_v3(
         self,

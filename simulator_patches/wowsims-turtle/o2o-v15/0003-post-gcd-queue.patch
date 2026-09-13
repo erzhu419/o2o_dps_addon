@@ -1,0 +1,182 @@
+diff --git a/cmd/o2obridge/main.go b/cmd/o2obridge/main.go
+index ec90c99..4414841 100644
+--- a/cmd/o2obridge/main.go
++++ b/cmd/o2obridge/main.go
+@@ -323,6 +323,21 @@ func runBridge(input io.Reader, output io.Writer, errorOutput io.Writer) {
+ 					out.State = &state
+ 				}
+ 			}
++		case "act_post_gcd_queue":
++			if requireEnv(&out, env) {
++				if cmd.AttemptID != "" {
++					out.OK, out.Error = false, "post-GCD queue must not carry attempt_id"
++					break
++				}
++				result, err := env.ApplyPostGCDQueue(cmd.Action)
++				if err != nil {
++					out.OK, out.Error = false, err.Error()
++				} else {
++					out.Apply = &result
++					state := env.State()
++					out.State = &state
++				}
++			}
+ 		case "cancel_queue":
+ 			if requireEnv(&out, env) {
+ 				result, err := env.CancelQueuedMelee()
+diff --git a/sim/o2o/environment.go b/sim/o2o/environment.go
+index 18e6c51..d4d4b0b 100644
+--- a/sim/o2o/environment.go
++++ b/sim/o2o/environment.go
+@@ -194,6 +194,8 @@ type pendingServerResult struct {
+ type Environment struct {
+ 	sim                  *core.Simulation
+ 	finished             bool
++	postGCDQueueReady    bool
++	postGCDQueueTime     time.Duration
+ 	pendingServerResults []pendingServerResult
+ 	usedAttemptIDs       map[string]struct{}
+ 	dynamic              *dynamicTeamBackgroundRuntimeV1
+@@ -299,6 +301,7 @@ func (env *Environment) player() core.Agent {
+ // AdvanceUntilDecision processes events until the policy is asked for another
+ // input or the encounter ends.
+ func (env *Environment) AdvanceUntilDecision() (bool, error) {
++	env.postGCDQueueReady = false
+ 	if env.finished {
+ 		return true, nil
+ 	}
+@@ -375,6 +378,7 @@ func (env *Environment) ApplyWithAttemptID(ref ActionRef, attemptID string) (App
+ }
+ 
+ func (env *Environment) apply(ref ActionRef, attemptID string, trackResults bool) (ApplyResult, error) {
++	env.postGCDQueueReady = false
+ 	if env.finished {
+ 		return ApplyResult{Finished: true}, errors.New("encounter is already finished")
+ 	}
+@@ -439,6 +443,8 @@ func (env *Environment) apply(ref ActionRef, attemptID string, trackResults bool
+ 	consumesDecision := casted && spell.CurCast.GCD > 0
+ 	if consumesDecision {
+ 		env.sim.NeedsInput = false
++		env.postGCDQueueReady = true
++		env.postGCDQueueTime = env.sim.CurrentTime
+ 	}
+ 	return ApplyResult{
+ 		Casted:           casted,
+@@ -448,6 +454,33 @@ func (env *Environment) apply(ref ActionRef, attemptID string, trackResults bool
+ 	}, nil
+ }
+ 
++// ApplyPostGCDQueue models one next-swing queue attempt immediately after a
++// consuming GCD in the same source invocation. This is a simulator assumption,
++// not evidence that a WoW client accepted the post-GCD CastSpellByName call.
++func (env *Environment) ApplyPostGCDQueue(ref ActionRef) (ApplyResult, error) {
++	if env.finished || !env.postGCDQueueReady || env.sim.NeedsInput || env.sim.CurrentTime != env.postGCDQueueTime {
++		return ApplyResult{}, errors.New("post-GCD queue requires the preceding unadvanced GCD decision")
++	}
++	env.postGCDQueueReady = false
++	if ref.Tag != 1 || ref.ItemID != 0 || ref.OtherID != proto.OtherAction_OtherActionNone ||
++		(ref.SpellID != 25286 && ref.SpellID != 11567 && ref.SpellID != 20569) {
++		return ApplyResult{}, errors.New("post-GCD action must be Heroic Strike or Cleave queue")
++	}
++	character := env.player().GetCharacter()
++	spell := character.GetSpell(ref.coreID())
++	if spell == nil || !spell.Flags.Matches(core.SpellFlagAPL) || !spell.Flags.Matches(core.SpellFlagCastTimeNoGCD) {
++		return ApplyResult{}, errors.New("post-GCD queue action is absent or not externally triggerable")
++	}
++	if env.dynamic != nil && (character.CurrentTarget == nil || !env.sim.Encounter.DynamicTargetUnitIsAttackable(character.CurrentTarget)) {
++		return ApplyResult{NeedsInput: false}, nil
++	}
++	if !spell.CanCast(env.sim, character.CurrentTarget) {
++		return ApplyResult{NeedsInput: false}, nil
++	}
++	casted := spell.Cast(env.sim, character.CurrentTarget)
++	return ApplyResult{Casted: casted, ConsumesDecision: false, Finished: env.finished, NeedsInput: false}, nil
++}
++
+ // StartAttack is an idempotent client control.  A successful acknowledgement
+ // never consumes the open decision and is not a combat-result event.
+ func (env *Environment) StartAttack() (ControlResult, error) {
+diff --git a/sim/o2o/post_gcd_queue_test.go b/sim/o2o/post_gcd_queue_test.go
+new file mode 100644
+index 0000000..45669b7
+--- /dev/null
++++ b/sim/o2o/post_gcd_queue_test.go
+@@ -0,0 +1,78 @@
++package o2o
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestPostGCDQueueAfterWhirlwindPreservesSourceOrder(t *testing.T) {
++	request := testWarriorRequest()
++	second := *request.Encounter.Targets[0]
++	second.Stats = append([]float64(nil), second.Stats...)
++	request.Encounter.Targets = append(request.Encounter.Targets, &second)
++	env := newTestWarriorEnvironment(t, request)
++	_, whirlwind := requireSpellAction(t, env, 0, 1680)
++	_, cleave := requireSpellAction(t, env, 1, 20569)
++	before := env.State().TimeMS
++
++	gcd, err := env.ApplyWithAttemptID(whirlwind, "ww-then-cleave")
++	if err != nil || !gcd.Casted || !gcd.ConsumesDecision || gcd.NeedsInput {
++		t.Fatalf("Whirlwind did not consume the decision: result=%+v err=%v", gcd, err)
++	}
++	queued, err := env.ApplyPostGCDQueue(cleave)
++	if err != nil || !queued.Casted || queued.ConsumesDecision || queued.NeedsInput {
++		t.Fatalf("post-GCD Cleave queue was not accepted: result=%+v err=%v", queued, err)
++	}
++	if env.State().TimeMS != before {
++		t.Fatalf("post-GCD queue advanced time: %d -> %d", before, env.State().TimeMS)
++	}
++	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
++		t.Fatal("second post-GCD queue reused the same GCD window")
++	}
++}
++
++func TestPostGCDQueueRejectsMissingOrAdvancedGCDWindow(t *testing.T) {
++	env := newTestWarriorEnvironment(t, testWarriorRequest())
++	_, whirlwind := requireSpellAction(t, env, 0, 1680)
++	_, cleave := requireSpellAction(t, env, 1, 20569)
++	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
++		t.Fatal("queue without preceding GCD was accepted")
++	}
++	if result, err := env.ApplyWithAttemptID(whirlwind, "ww-before-advance"); err != nil || !result.ConsumesDecision {
++		t.Fatalf("Whirlwind did not consume the decision: result=%+v err=%v", result, err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
++		t.Fatal("queue after advance reused the old GCD window")
++	}
++}
++
++func TestPostGCDQueueRejectsNonQueueAndInsufficientRage(t *testing.T) {
++	env := newTestWarriorEnvironment(t, testWarriorRequest())
++	_, whirlwind := requireSpellAction(t, env, 0, 1680)
++	_, cleave := requireSpellAction(t, env, 1, 20569)
++	if result, err := env.ApplyWithAttemptID(whirlwind, "ww-before-wrong-action"); err != nil || !result.ConsumesDecision {
++		t.Fatalf("Whirlwind did not consume the decision: result=%+v err=%v", result, err)
++	}
++	if _, err := env.ApplyPostGCDQueue(whirlwind); err == nil || !strings.Contains(err.Error(), "Heroic Strike or Cleave queue") {
++		t.Fatalf("normal GCD action was not rejected: %v", err)
++	}
++	if _, err := env.ApplyPostGCDQueue(cleave); err == nil {
++		t.Fatal("invalid post-GCD action did not close the window")
++	}
++
++	request := testWarriorRequest()
++	request.Raid.Parties[0].Players[0].GetWarrior().Options.StartingRage = 40
++	lowRage := newTestWarriorEnvironment(t, request)
++	_, whirlwind = requireSpellAction(t, lowRage, 0, 1680)
++	_, cleave = requireSpellAction(t, lowRage, 1, 20569)
++	if result, err := lowRage.ApplyWithAttemptID(whirlwind, "ww-low-rage"); err != nil || !result.ConsumesDecision {
++		t.Fatalf("low-rage Whirlwind did not consume the decision: result=%+v err=%v", result, err)
++	}
++	result, err := lowRage.ApplyPostGCDQueue(cleave)
++	if err != nil || result.Casted || result.ConsumesDecision || result.NeedsInput {
++		t.Fatalf("insufficient-rage queue was not rejected as an action: result=%+v err=%v", result, err)
++	}
++}

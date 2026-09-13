@@ -76,6 +76,19 @@ DEFAULT_BRIDGE = PROJECT_ROOT / "bin/o2obridge.seedfix-v11.dynamicv3horizonround
 DEFAULT_BINDING = PROJECT_ROOT / ".hpc-local/smokes/cat-gap-three-baseline-v1/deployed-contra-runtime-binding-v1.951b8faa.json"
 SCHEMA = "development_wave_four_policy_panel/v1"
 PROTOCOL_ID = "upper-kara-61944-model-wave-development-v1"
+RAID_B_POLICY_ID = "contra.deployed.fury.raid_b"
+
+
+class DevelopmentLaneUnsupported(RuntimeError):
+    """A native source lane reached a simulator operation it cannot represent."""
+
+    def __init__(
+        self, message: str, *, blocker: Mapping[str, Any] | None = None,
+        artifact_status: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.blocker = dict(blocker) if blocker is not None else None
+        self.artifact_status = artifact_status
 
 
 def _bridge_platform() -> str:
@@ -124,6 +137,7 @@ def _policies(
     candidate_kind: str,
     residual_discount_rage: float = 10.0,
     terminal_guard_execute_approach_health_pct: float = 35.0,
+    deployed_contra_controller: str = "raid_a",
 ) -> list[dict[str, str]]:
     profile = _file_sha(PROJECT_ROOT / "configs/wowsims/fury_warrior_live.json")
     policies = [
@@ -140,9 +154,18 @@ def _policies(
             "profile_sha256": profile,
         },
         {
-            "policy_id": BASELINE_IDS[2], "role": "BASELINE",
-            "source_sha256": _source("fury_full_policy_rollout_v8.py"),
-            "adapter_sha256": _source("fury_dynamic_v5_deployed_contra_adapter_v8.py"),
+            "policy_id": (
+                RAID_B_POLICY_ID if deployed_contra_controller == "raid_b"
+                else BASELINE_IDS[2]
+            ), "role": "BASELINE",
+            "source_sha256": _source(
+                "fury_full_policy_rollout_raid_b_v1.py" if deployed_contra_controller == "raid_b"
+                else "fury_full_policy_rollout_v8.py"
+            ),
+            "adapter_sha256": _source(
+                "fury_dynamic_v5_deployed_contra_raid_b_v1.py" if deployed_contra_controller == "raid_b"
+                else "fury_dynamic_v5_deployed_contra_adapter_v8.py"
+            ),
             "profile_sha256": str(binding["binding_sha256"]),
         },
         {
@@ -174,13 +197,14 @@ def _policies(
     return policies
 
 
-def _bundle_identity(binding: Mapping[str, Any]) -> dict[str, str]:
+def _bundle_identity(binding: Mapping[str, Any], deployed_contra_controller: str = "raid_a") -> dict[str, str]:
     return {
         "python_source_closure_sha256": sha256_json([
             _source("cat_fury_full_policy_rollout_v6.py"),
             _source("contra260817_fury_full_policy_rollout_v4.py"),
             _source("fury_full_policy_rollout_v7.py"),
             _source("fury_full_policy_rollout_v8.py"),
+            *([_source("fury_full_policy_rollout_raid_b_v1.py")] if deployed_contra_controller == "raid_b" else []),
             _source("cat2new_fury_paired_lane_adapter_v3.py"),
         ]),
         "ordered_sink_executor_sha256": sha256_json([
@@ -188,6 +212,7 @@ def _bundle_identity(binding: Mapping[str, Any]) -> dict[str, str]:
             _source("contra260817_fury_ordered_sink_executor_v4.py"),
             _source("fury_ordered_sink_executor_v4.py"),
             _source("fury_ordered_sink_executor_v5.py"),
+            *([_source("fury_ordered_sink_executor_raid_b_v1.py")] if deployed_contra_controller == "raid_b" else []),
         ]),
         "full_policy_rollout_executor_sha256": _source("cat_fury_full_policy_rollout_v6.py"),
         "paired_runner_source_sha256": _source("fury_paired_multiseed_runner_v4.py"),
@@ -225,6 +250,7 @@ def run_development_wave_panel_v1(
     registry_factory: Callable[[SimulatorBridgeDynamicV3, Cat2NewFuryCatGapPolicyV1, Path], CatGapThreeBaselineRegistryV1] | None = None,
     bridge_factory: Callable[[SimulatorBridgeDynamicV3], Any] | None = None,
     native_bridge_type: type[SimulatorBridgeDynamicV3] = SimulatorBridgeDynamicV3,
+    deployed_contra_controller: str = "raid_a",
 ) -> dict[str, Any]:
     """One paired seed; missing and failed lanes remain rows, never zero DPS."""
 
@@ -232,6 +258,17 @@ def run_development_wave_panel_v1(
 
     if (case_override is None) != (scenario_override is None):
         raise ValueError("case and scenario overrides must be supplied together")
+    if deployed_contra_controller not in {"raid_a", "raid_b"}:
+        raise ValueError("unknown deployed Contra controller")
+    if deployed_contra_controller == "raid_b" and registry_factory is None:
+        raise ValueError("Raid-B multi-target panel needs an explicit multi-target registry")
+    if deployed_contra_controller == "raid_b":
+        from .fury_dynamic_v5_deployed_contra_raid_b_v1 import (
+            PRODUCER as RAID_B_PRODUCER,
+            execute_deployed_contra_raid_b_lane_v1,
+            validate_deployed_contra_raid_b_artifact_v1,
+        )
+        from .fury_full_policy_rollout_raid_b_v1 import SCHEMA as RAID_B_ROLLOUT_SCHEMA
     case = case_override or build_development_wave_case_v1(master_seed)
     scenario = dict(scenario_override) if scenario_override is not None else build_development_wave_scenario_v1(master_seed)
     if case.case_spec["seed"] != master_seed:
@@ -250,6 +287,7 @@ def run_development_wave_panel_v1(
         policy for policy in _policies(
             candidate, binding, candidate_kind, residual_discount_rage,
             terminal_guard_execute_approach_health_pct,
+            deployed_contra_controller,
         )
         if policy["role"] == "CANDIDATE" or policy["policy_id"] in baseline_ids
     ]
@@ -268,25 +306,46 @@ def run_development_wave_panel_v1(
         executors = dict(registry.executors)
         validators = dict(registry.artifact_validators)
         lane_contracts = list(registry.contract["lane_contracts"])
-        if CONTRA_DEPLOYED_POLICY_ID in baseline_ids:
-            executors[CONTRA_DEPLOYED_POLICY_ID] = lambda *, group, scenario, policy: (
-                execute_deployed_contra_v8_lane_v8(
-                    bridge, group=group, scenario=scenario, policy=policy,
-                    runtime_binding=binding,
+        deployed_policy_id = (
+            RAID_B_POLICY_ID if deployed_contra_controller == "raid_b"
+            else CONTRA_DEPLOYED_POLICY_ID
+        )
+        if deployed_policy_id in baseline_ids:
+            if deployed_contra_controller == "raid_b":
+                executors[deployed_policy_id] = lambda *, group, scenario, policy: (
+                    execute_deployed_contra_raid_b_lane_v1(
+                        bridge, group=group, scenario=scenario, policy=policy,
+                        runtime_binding=binding,
+                    )
                 )
-            )
-            validators[PRODUCER_V8] = validate_deployed_contra_v8_artifact_v8
+                selected_producer = RAID_B_PRODUCER
+                selected_schema = RAID_B_ROLLOUT_SCHEMA
+                validators[RAID_B_PRODUCER] = validate_deployed_contra_raid_b_artifact_v1
+            else:
+                executors[deployed_policy_id] = lambda *, group, scenario, policy: (
+                    execute_deployed_contra_v8_lane_v8(
+                        bridge, group=group, scenario=scenario, policy=policy,
+                        runtime_binding=binding,
+                    )
+                )
+                selected_producer = PRODUCER_V8
+                selected_schema = ROLLOUT_SCHEMA_V8
+                validators[PRODUCER_V8] = validate_deployed_contra_v8_artifact_v8
             lane_contracts = [
                 row for row in lane_contracts
-                if row["policy_id"] != CONTRA_DEPLOYED_POLICY_ID
+                if row["policy_id"] != deployed_policy_id
             ]
             lane_contracts.append(LaneContractV4(
-                policy_id=CONTRA_DEPLOYED_POLICY_ID,
-                producer=PRODUCER_V8,
-                artifact_schema=ROLLOUT_SCHEMA_V8,
+                policy_id=deployed_policy_id,
+                producer=selected_producer,
+                artifact_schema=selected_schema,
                 source_oracle_status="CONTRA_DEPLOYED_LOADED_SOURCE_BOUND_V1_READY",
                 ordered_sink_status="CONTRA_DEPLOYED_ORDERED_SINK_V5_RESOURCE_REENTRY_PROXY",
-                full_policy_status="CONTRA_DEPLOYED_RUNTIME_BOUND_V8_RAID_A_ONLY",
+                full_policy_status=(
+                    "CONTRA_DEPLOYED_RUNTIME_BOUND_DUAL_WIELD_RAID_B_DEVELOPMENT"
+                    if deployed_contra_controller == "raid_b" else
+                    "CONTRA_DEPLOYED_RUNTIME_BOUND_V8_RAID_A_ONLY"
+                ),
                 dynamic_v5_executable=True,
                 blocker_codes=(),
             ).to_wire())
@@ -330,7 +389,7 @@ def run_development_wave_panel_v1(
                 "sha256": _file_sha(bridge_path), "platform": _bridge_platform(),
                 "size_bytes": bridge_path.stat().st_size,
             },
-            execution_bundle_identity=_bundle_identity(binding),
+            execution_bundle_identity=_bundle_identity(binding, deployed_contra_controller),
             execution_mode=SINGLE_BRIDGE_MODE,
             seed_namespace=PROTOCOL_ID,
             plan_intent=DIAGNOSTIC_INTENT,
@@ -395,6 +454,16 @@ def run_development_wave_panel_v1(
                         item for item in lane["artifact"].get("blockers", [])
                         if item.get("execution_fatal") is True
                     ][:4],
+                    "artifact_status": lane["artifact"].get("status"),
+                    "target_indices_seen": sorted({
+                        index for step in lane["artifact"].get("steps", [])
+                        for index in [step.get("simulator_state_before", {}).get("target_index")]
+                        if type(index) is int
+                    }),
+                    "artifact_nonfatal_blocker_codes": list(dict.fromkeys(
+                        item["code"] for item in lane["artifact"].get("blockers", [])
+                        if item.get("execution_fatal") is False
+                    )),
                     "first_bridge_failure": _first_bridge_failure(lane["artifact"]),
                     **({"team_response_evidence": team_evidence} if team_evidence is not None else {}),
                     "guard_intervention_count": (
@@ -406,6 +475,14 @@ def run_development_wave_panel_v1(
                         if policy_id == TERMINAL_GUARD_POLICY_ID else None
                     ),
                 })
+            except DevelopmentLaneUnsupported as error:
+                rows.append({
+                    "policy_id": policy_id, "role": policy_by_id[policy_id]["role"],
+                    "status": "UNSUPPORTED", "error": str(error),
+                    "own_effective_damage": None, "own_effective_dps": None, "ttk_ms": None,
+                    "artifact_status": error.artifact_status,
+                    "execution_blockers": [error.blocker] if error.blocker else [],
+                })
             except Exception as error:
                 rows.append({
                     "policy_id": policy_id, "role": policy_by_id[policy_id]["role"],
@@ -414,7 +491,7 @@ def run_development_wave_panel_v1(
                 })
     baseline_scores = {
         row["policy_id"]: row["own_effective_damage"]
-        for row in rows if row["policy_id"] in BASELINE_IDS and row["status"] == "COMPLETED"
+        for row in rows if row["policy_id"] in baseline_ids and row["status"] == "COMPLETED"
     }
     for row in rows:
         row["paired_own_damage_minus_baselines"] = (

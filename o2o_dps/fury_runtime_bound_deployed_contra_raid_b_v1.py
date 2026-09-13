@@ -40,6 +40,7 @@ from .fury_runtime_bound_deployed_contra_adapter_v7 import (
 
 
 SCHEMA = "fury_runtime_bound_deployed_contra_raid_b_adapter/v1"
+POLICY_ID = "contra.deployed.fury.raid_b"
 EXPERT_ID = "contra.deployed.fury.raid_b.v1.runtime_bound"
 
 
@@ -189,4 +190,7 @@ class RuntimeBoundContraRaidBAdapterV1(ContraDeployedFuryAdapterV2):
             self._emit_contra_gcd(builder, state, BLOODTHIRST, self._dual_ref(32089))
 
 
-__all__ = ("EXPERT_ID", "RuntimeBoundContraRaidBAdapterV1", "RuntimeBoundContraRaidBError", "SCHEMA")
+__all__ = (
+    "EXPERT_ID", "POLICY_ID", "RuntimeBoundContraRaidBAdapterV1",
+    "RuntimeBoundContraRaidBError", "SCHEMA",
+)

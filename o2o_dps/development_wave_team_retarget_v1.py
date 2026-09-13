@@ -89,7 +89,7 @@ def build_retarget_wave_case_v1(
 class SourceFittedTeamRetargetBridgeV1:
     """Service native v14 wakes without showing future team events to policy."""
 
-    def __init__(self, bridge: Any, events: tuple[BackgroundDamageEventV1, ...],
+    def __init__(self, bridge: Any, events: tuple[Any, ...],
                  schedule_identity: str) -> None:
         self._bridge = bridge
         self._events = tuple(sorted(events, key=lambda row: (row.time_ms, row.schedule_index)))
@@ -182,8 +182,8 @@ class SourceFittedTeamRetargetBridgeV1:
                 "schema": "o2o_dynamic_team_event/v1",
                 "model_content_sha256": self._identity,
                 "wake_id": f"team-{self._next}",
-                "event_id": f"source-team-{self._next}",
-                "actor_guid": "SOURCE_FITTED_TEAM_AGGREGATE",
+                "event_id": getattr(event, "wire_event_id", f"source-team-{self._next}"),
+                "actor_guid": getattr(event, "actor_guid", "SOURCE_FITTED_TEAM_AGGREGATE"),
                 "event_type": "DMG",
                 "target_index": target_index,
                 "requested_damage": event.damage,
@@ -200,6 +200,10 @@ class SourceFittedTeamRetargetBridgeV1:
                 "time_ms": receipt["time_ms"],
                 "applied_damage": receipt["applied_damage"],
                 "killed": receipt["killed"],
+                "actor_guid": receipt["actor_guid"],
+                "actor_kind": getattr(event, "actor_kind", "AGGREGATE"),
+                "spell_id": getattr(event, "spell_id", None),
+                "source_event_index": getattr(event, "source_event_index", None),
             })
             self._next += 1
             live = self._bridge.state()
@@ -227,6 +231,37 @@ class SourceFittedTeamRetargetBridgeV1:
                 index: sum(row["applied_damage"] for row in self._receipts
                            if row["actual_target_index"] == index)
                 for index in {row["actual_target_index"] for row in self._receipts}
+            }.items())),
+            "source_actor_count": len({row["actor_guid"] for row in self._receipts}),
+            "source_actor_kind_counts": dict(sorted({
+                kind: len({
+                    row["actor_guid"] for row in self._receipts if row["actor_kind"] == kind
+                })
+                for kind in {row["actor_kind"] for row in self._receipts}
+            }.items())),
+            "retargeted_source_events": [
+                {
+                    "source_event_index": row["source_event_index"],
+                    "actor_guid": row["actor_guid"],
+                    "actor_kind": row["actor_kind"],
+                    "spell_id": row["spell_id"],
+                    "time_ms": row["time_ms"],
+                    "historical_target_index": row["historical_target_index"],
+                    "actual_target_index": row["actual_target_index"],
+                }
+                for row in self._receipts
+                if row["actual_target_index"] != row["historical_target_index"]
+            ],
+            "retargeted_by_actor": dict(sorted({
+                actor: sum(
+                    row["actual_target_index"] != row["historical_target_index"]
+                    for row in self._receipts if row["actor_guid"] == actor
+                )
+                for actor in {row["actor_guid"] for row in self._receipts}
+                if any(
+                    row["actual_target_index"] != row["historical_target_index"]
+                    for row in self._receipts if row["actor_guid"] == actor
+                )
             }.items())),
             "event_times_and_damage_are_exogenous": True,
             "candidate_actions_change_target_death_and_subsequent_retarget": True,
@@ -277,8 +312,8 @@ class SourceFittedTeamRetargetBridgeV1:
             receipt.get("schema") == "o2o_dynamic_team_response_receipt/v1"
             and receipt.get("model_content_sha256") == self._identity
             and receipt.get("wake_id") == f"team-{index}"
-            and receipt.get("event_id") == f"source-team-{index}"
-            and receipt.get("actor_guid") == "SOURCE_FITTED_TEAM_AGGREGATE"
+            and receipt.get("event_id") == getattr(event, "wire_event_id", f"source-team-{index}")
+            and receipt.get("actor_guid") == getattr(event, "actor_guid", "SOURCE_FITTED_TEAM_AGGREGATE")
             and receipt.get("event_type") == "DMG"
             and receipt.get("status") == "APPLIED"
             and receipt.get("time_ms") == event.time_ms == local["time_ms"]
