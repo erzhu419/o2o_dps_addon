@@ -38,3 +38,12 @@
 - 部署 Contra 的开发重入适配器保留原有拒绝动作 sink，以 runner 侧 100ms 重试代理继续模拟；这不是历史玩家真实按键节奏，也不能替代游戏内等构筑对照。
 - 远端 `node001` 的 attempt `attempt-20260913-003` 保留原生 panel 与小结果文件：`results/anchor_13d-full32.json`、`results/cat_residual-full32.json`、`results/stratified-20260913-32-direct-guid-loo-extrapolated-v3.json`、`results/uncertainty-full32.json`、`results/diagnostics/residual-d15-action-gap-20260913-v1/`、`results/two-wave-build-seeds-20261001-20261002-20261003-20261004-20261005-20261006-20261007-20261008.json`。独立 attempt `attempt-20260913-004` 保留 `results/cat-terminal-guard-fresh32.json` 与逐 seed panel。本地未拉原始 CSV、panel 或 checkpoint；新增上传仅源代码与 1,950,480-byte 派生 capsule。
 - 下一步应扩大场景/构筑假设与可观测状态 teacher 的有效结构，并优先核实末端猛击/斩杀的模拟—真实执行差异；新的结构需预先固定、再用全新配对种子确认。当前不进入 Cat2 实战 A/B。真实优势还须专门游戏内对照，不能由 Shadow 或仿真自动授权。
+
+## 续做记录（同日）
+
+- 固定的来源分层扩成 12 波（6 个单目标、6 个 2–16 目标），均为直接 GUID 焦点伤害排除后的模型波。`node001/attempt-20260913-005` 在 `2026091401..1432` 上完成 11 波的全部配对；5 目标波 Cat 因约 60 万团队伤害累计的 1.3×10⁻⁹ 浮点舍入而被旧回执误判。保持冻结 v2 不动、修正 v5 极小相对容差后，独立 `attempt-20260913-006` 只补这波，32/32 两路完成。两个版本的结果没有伪装成单一同代码全 12 波门禁。
+- 同受控 build 下，现有残差10 在 6 个单目标波相对 Cat 的均值依次为 −6、−7、−127、+55、−174、−322 有效伤害；13D 在 6 个多目标波依次为 −331、−922、−1611、−518、−1964、−747。每波 32 seed；唯一正均值 +55 的标准误为 88，不能采用。多目标部署 Contra Raid-B 仍不支持，未按 0 分计。
+- Cat 访问状态的 ActionPlan teacher 新增 queue 增删、WW/BT 替代、GCD 延后及完整 Cat continuation。`attempt-20260913-005` 双目标旧口径 32 seed 共 199 次完整分支重跑，回执复查只有 146 次动作获原生接受；首个 WW→BT 机会 14 胜/18 负，均值 −117、SE 325。当前 v2 只把接受且全波完成的分支计入标签；`attempt-20260913-006` 短单目标 32 seed 为 250 次分支、195 个有效标签，首个加 HS 机会均值 +25、SE 113。均未形成可采用控制器，策略更新轮次仍为 0。
+- 历史 rank7 双持装备/天赋确实改变仿真初始状态，但现成部署 Contra lane 是 Raid-A：该四路数字仅是 Raid-A 在双持 build 上的行为移植，不能作源忠实四方胜负；因此取消了原拟 32-seed 远端任务。另找到 rank9 双手、已学嗜血的构筑，在同一模型波/seed 四路均完成（Cat 7063、Contra_new 6521、部署 Contra Raid-A 5713、Cat 零残差 7063 有效伤害），但消耗品、宏配置及历史玩家策略并未复原。rank1 无嗜血构筑的 Contra Fury 首决策请求未学嗜血，门禁保留。
+- 103 个有效训练 ActionPlan 标签落入 8 个可观测条件格，没有规则通过预设支持度/收益门槛；控制器弃权并精确回退 Cat，全新 seed 原生整波差值为 0。最接近的 WW→BT/中怒气格在训练 16 seed 平均 +318、诊断 13 seed 平均 −528，仅 4/13 为正；这些是单分支 teacher 标签，不是最终策略收益。双目标团队死亡后原生改投的响应事件也已完成严格 receipt 闭合，3 个本地 seed 两路皆合格、胜负一正一平一负，尚无稳定优势。
+- 安装版 Contra 的 TOC 身份已核对；双持宏 `b` 的 Raid-B 源顺序/条件已做独立 proposal adapter 和单测，但尚未接原生 rollout/worker/多目标 registry，故多目标四方仍不可比。现阶段仍没有超过 Cat 的同 build 稳定反馈策略，也没有历史高手完整策略基线、跨波全本优化或 Cat2 实战发布证据。下一步优先接通 Raid-B 原生执行，再研究目标选择、跨波 CD 与物品机制；新策略必须经独立 seed 的整波/连续波门禁确认。

@@ -48,6 +48,7 @@ def stage_development_wave_v1(*, node: str, run_id: str) -> dict[str, str]:
         raise RuntimeError(f"run directory already exists; choose a new run_id: {project}: {stderr}")
     destinations = [
         project + "/o2o_dps", project + "/configs", project + "/bin",
+        project + "/results",
         remote_root + "/AddOns/Cat", remote_root + "/AddOns/Contra",
         remote_root + "/AddOns/Cat2",
         remote_root + "/AddOns/BrainOfCat/Cat2_new",

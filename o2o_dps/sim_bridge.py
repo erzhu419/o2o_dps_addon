@@ -829,6 +829,14 @@ class SimulatorBridge:
                 raise SimBridgeProtocolError(
                     "server result time_ms exceeds complete_through_time_ms"
                 )
+            target_total = sum(result.damage for result in target_results)
+            if damage != target_total and math.isclose(
+                damage, target_total, rel_tol=1e-12, abs_tol=1e-9
+            ):
+                # Native AoE sums per-target floats in a different order.
+                # Normalize only representational roundoff before the frozen
+                # v2 event's exact aggregate-conservation check.
+                damage = target_total
             try:
                 event = ServerResultEventV2(
                     time_ms=time_ms,

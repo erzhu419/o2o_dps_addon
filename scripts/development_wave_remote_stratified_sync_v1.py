@@ -36,12 +36,13 @@ def sync_stratified(*, node: str, run_id: str) -> dict[str, object]:
         f"{home}/scheduleurm_work/o2o-dps-hpc/runs/"
         f"development-wave-61944-v1/{run_id}/AddOns/BrainOfCat/o2o-dps"
     )
-    rc, _, stderr = scheduler.run_on(node, f"test -d {project}/results", timeout=20, check=False)
+    rc, _, stderr = scheduler.run_on(node, f"test -d {project}", timeout=20, check=False)
     if rc != 0:
         raise RuntimeError(f"staged run not found: {stderr}")
     remote_capsule = f"{project}/{CAPSULE.relative_to(ROOT).as_posix()}"
     rc, _, stderr = scheduler.run_on(
-        node, f"mkdir -p {Path(remote_capsule).parent.as_posix()}", timeout=20, check=False
+        node, f"mkdir -p {Path(remote_capsule).parent.as_posix()} {project}/results",
+        timeout=20, check=False
     )
     if rc != 0:
         raise RuntimeError(f"cannot create capsule destination: {stderr}")

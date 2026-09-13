@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import asdict
 from pathlib import Path
 import sys
 import tempfile
@@ -15,9 +16,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from o2o_dps.beam_search import FactorizedDecision
 from o2o_dps.expert_policy import StanceOp
-from o2o_dps.fury_expert_adapters import WeaponMode
+from o2o_dps.fury_expert_adapters import CatFurySourceAdapter, WeaponMode
 from o2o_dps.fury_expert_guided_search_v1 import (
     DEFAULT_CAT2_PROFILE_SNAPSHOT,
+    UNAVAILABLE_COOLDOWN_S,
     _add_exploration_candidates,
     _add_candidate,
     _factorized_candidate_id,
@@ -151,6 +153,22 @@ class FuryExpertGuidedSearchTests(unittest.TestCase):
         projected = fury_state_from_simulator(state, actions, request)
 
         self.assertEqual(projected.rage, 29.0)
+
+    def test_unlearned_bloodthirst_remains_unavailable_in_strict_native_trace(self) -> None:
+        state = _RootOnlyBridge().load({}, 1)
+        state["oh_swing_remaining_ms"] = None  # two-hand historical Warrior
+        actions = [
+            _available(1680, gcd=True),
+            _available(25286, tag=1, gcd=False),
+        ]
+        projected = fury_state_from_simulator(state, actions, self._request())
+        self.assertEqual(projected.weapon_mode, WeaponMode.TWO_HAND)
+        self.assertFalse(projected.bloodthirst_known)
+        self.assertEqual(projected.bloodthirst_ready_in_s, UNAVAILABLE_COOLDOWN_S)
+        self.assertGreater(projected.bloodthirst_ready_in_s, 60 * 60)
+        json.dumps(asdict(projected), allow_nan=False)
+        proposal = CatFurySourceAdapter().propose(projected)
+        self.assertNotEqual(proposal.gcd, "warrior.bloodthirst")
 
     def test_exploration_is_factorized_and_includes_queue_plus_wait(self) -> None:
         sources = {}

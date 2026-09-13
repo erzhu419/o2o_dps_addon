@@ -14,7 +14,8 @@ SCHEDULER_SKILL = Path.home() / "mine_code/scheduleurm/skill"
 
 
 def run_stratified_batch(*, node: str, run_id: str, seed_start: int,
-                         seed_count: int, workers: int, tag: str = "v1") -> dict:
+                         seed_count: int, workers: int, tag: str = "v1",
+                         registry: str = "four", stratum: str | None = None) -> dict:
     if node not in {f"node{i:03d}" for i in range(1, 7)}:
         raise ValueError("unknown node")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_id):
@@ -23,6 +24,10 @@ def run_stratified_batch(*, node: str, run_id: str, seed_start: int,
         raise ValueError("invalid result tag")
     if seed_start <= 0 or seed_count <= 0 or workers <= 0:
         raise ValueError("seed range and workers must be positive")
+    if registry not in {"four", "twelve"}:
+        raise ValueError("unknown fixed wave registry")
+    if stratum is not None and registry != "twelve":
+        raise ValueError("stratum subset requires the twelve-wave registry")
     sys.path.insert(0, str(SCHEDULER_SKILL))
     import scheduler  # type: ignore[import-not-found]
 
@@ -35,9 +40,16 @@ def run_stratified_batch(*, node: str, run_id: str, seed_start: int,
         f"development-wave-61944-v1/{run_id}/AddOns/BrainOfCat/o2o-dps"
     )
     node_python = f"{home}/scheduleurm_work/conda_envs/csbapr-gpu-py310/bin/python"
-    output = f"{project}/results/stratified-{seed_start}-{seed_count}-{tag}.json"
+    output = (
+        f"{project}/results/stratified-{seed_start}-{seed_count}-{tag}.json"
+        if registry == "four" else
+        f"{project}/results/stratified-twelve-{seed_start}-{seed_count}-{tag}.json"
+    )
     argv = [
-        node_python, "-m", "o2o_dps.development_wave_stratified_v1",
+        node_python, "-m", (
+            "o2o_dps.development_wave_stratified_v1" if registry == "four"
+            else "o2o_dps.development_wave_twelve_v1"
+        ),
         "--seed", str(seed_start), "--seed-count", str(seed_count),
         "--workers", str(workers),
         "--bridge", f"{project}/bin/o2obridge.linux-amd64",
@@ -45,11 +57,13 @@ def run_stratified_batch(*, node: str, run_id: str, seed_start: int,
         "--runtime-binding", f"{project}/runtime-binding.json",
         "--output", output,
     ]
+    if stratum is not None:
+        argv.extend(["--stratum", stratum])
     command = "cd " + shlex.quote(project) + " && " + " ".join(map(shlex.quote, argv))
     rc, stdout, stderr = scheduler.run_on(node, command, timeout=1200, check=False)
     if rc != 0:
         raise RuntimeError(f"remote stratified batch failed rc={rc}: {stderr[-1200:]} {stdout[-1200:]}")
-    return {"node": node, "run_id": run_id, "remote_output": output,
+    return {"node": node, "run_id": run_id, "registry": registry, "remote_output": output,
             "reduction": json.loads(stdout.strip().splitlines()[-1])}
 
 
@@ -61,10 +75,13 @@ def main() -> None:
     parser.add_argument("--seed-count", type=int, required=True)
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--tag", default="v1")
+    parser.add_argument("--registry", choices=("four", "twelve"), default="four")
+    parser.add_argument("--stratum")
     args = parser.parse_args()
     print(json.dumps(run_stratified_batch(
         node=args.node, run_id=args.run_id, seed_start=args.seed_start,
         seed_count=args.seed_count, workers=args.workers, tag=args.tag,
+        registry=args.registry, stratum=args.stratum,
     ), ensure_ascii=False))
 
 

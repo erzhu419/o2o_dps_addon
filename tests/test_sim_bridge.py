@@ -1555,6 +1555,35 @@ class SimulatorBridgeTests(unittest.TestCase):
         self.assertEqual(missed.damage, 0.0)
         self.assertEqual(missed.target_results[0].damage, 0.0)
 
+    def test_native_four_target_whirlwind_roundoff_is_not_a_protocol_failure(self) -> None:
+        damages = (496.618271560117, 487.5592982917421,
+                   928.7920836555717, 454.7964155797238)
+
+        def handler(request: dict[str, object]) -> dict[str, object]:
+            return {
+                "ok": True, "command": request["command"],
+                "server_results": {
+                    "complete_through_time_ms": 1500,
+                    "events": [{
+                        "time_ms": 1500, "outcome": "MIXED", "attempt_id": "ww-1",
+                        "damage": 2367.766069087155,
+                        "action": {"spell_id": 1680},
+                        "target_results": [
+                            {"target_index": index,
+                             "outcome": "CRIT" if index == 2 else "HIT", "damage": damage}
+                            for index, damage in enumerate(damages)
+                        ],
+                    }],
+                    "pending_attempt_ids": [],
+                },
+            }
+
+        with patch("o2o_dps.sim_bridge.subprocess.Popen", return_value=_FakeProcess(handler)):
+            bridge = SimulatorBridge("o2obridge.exe")
+            batch = bridge.server_results_since_last_decision(("ww-1",))
+            bridge.close()
+        self.assertEqual(sum(damages), batch.events[0].damage)
+
     def test_server_result_stream_can_keep_the_complete_ledger_pending(self) -> None:
         attempt_ids = ("decision-1:sink-2", "decision-2:sink-4")
 

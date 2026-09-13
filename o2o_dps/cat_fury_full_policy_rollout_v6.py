@@ -371,6 +371,11 @@ def run_cat_fury_full_policy_rollout_v6(
         facade.last_load_result,
         result.get("final_state"),
     )
+    close_responsive = getattr(bridge, "close_responsive_runtime_receipts_v1", None)
+    if callable(close_responsive):
+        dynamic_closure = close_responsive(
+            dynamic_closure, final_state=result.get("final_state")
+        )
     result["dynamic_v3_runtime_receipt_closure"] = dynamic_closure
     result["cat_v6_receipts"] = _cat_v6_receipts(
         result, inputs, controls, dynamic_closure

@@ -634,17 +634,19 @@ def _runtime_closure_checks_v5(
     damage_ordinal_closure = ordinals == list(
         range(1, lifecycle.damage_applications_total + 1)
     )
+    # Native per-event and lifecycle accumulators use different float sum
+    # orders; a 255-hit five-target wave differs by 1.3e-9 at ~603k damage.
     damage_agreement = (
         math.isclose(
             sum(row.applied_damage for row in candidate.receipts),
             lifecycle.simulated_damage_applied,
-            rel_tol=0,
+            rel_tol=1e-14,
             abs_tol=1e-9,
         )
         and math.isclose(
             sum(row.applied_damage for row in background.receipts),
             lifecycle.background_damage_applied,
-            rel_tol=0,
+            rel_tol=1e-14,
             abs_tol=1e-9,
         )
         and lifecycle.background_events_canceled

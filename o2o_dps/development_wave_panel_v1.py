@@ -223,6 +223,8 @@ def run_development_wave_panel_v1(
     scenario_override: Mapping[str, Any] | None = None,
     baseline_ids: tuple[str, ...] = BASELINE_IDS,
     registry_factory: Callable[[SimulatorBridgeDynamicV3, Cat2NewFuryCatGapPolicyV1, Path], CatGapThreeBaselineRegistryV1] | None = None,
+    bridge_factory: Callable[[SimulatorBridgeDynamicV3], Any] | None = None,
+    native_bridge_type: type[SimulatorBridgeDynamicV3] = SimulatorBridgeDynamicV3,
 ) -> dict[str, Any]:
     """One paired seed; missing and failed lanes remain rows, never zero DPS."""
 
@@ -252,7 +254,8 @@ def run_development_wave_panel_v1(
         if policy["role"] == "CANDIDATE" or policy["policy_id"] in baseline_ids
     ]
     bridge_path = bridge_path.resolve()
-    with SimulatorBridgeDynamicV3(bridge_path, cwd=bridge_cwd.resolve()) as bridge:
+    with native_bridge_type(bridge_path, cwd=bridge_cwd.resolve()) as native_bridge:
+        bridge = bridge_factory(native_bridge) if bridge_factory is not None else native_bridge
         registry = (
             registry_factory(bridge, candidate, runtime_binding_path)
             if registry_factory is not None else
@@ -353,11 +356,16 @@ def run_development_wave_panel_v1(
                 )
                 verdict = adjudicate_development_wave_completion_v1(case, lane)
                 terminal_complete = verdict["status"] == "COMPLETED"
+                team_evidence = (
+                    bridge.team_response_evidence()
+                    if callable(getattr(bridge, "team_response_evidence", None)) else None
+                )
                 eligible = (
                     terminal_complete and lane["offline_score_eligible"] is True
                     and lane["omitted_lane_count"] == 0
                     and lane["fatal_error_count"] == 0
                     and lane["dynamic_runtime_receipts_complete"] is True
+                    and (team_evidence is None or team_evidence["native_runtime_receipt_status"] == "COMPLETE_BOUND")
                 )
                 effective = verdict.get("own_effective_damage") if eligible else None
                 rows.append({
@@ -388,6 +396,7 @@ def run_development_wave_panel_v1(
                         if item.get("execution_fatal") is True
                     ][:4],
                     "first_bridge_failure": _first_bridge_failure(lane["artifact"]),
+                    **({"team_response_evidence": team_evidence} if team_evidence is not None else {}),
                     "guard_intervention_count": (
                         lane["artifact"].get("intervention_count")
                         if policy_id == TERMINAL_GUARD_POLICY_ID else None

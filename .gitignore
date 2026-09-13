@@ -48,3 +48,4 @@ bin/
 # transport and are never published from this repository.
 /configs/hpc/site.local.json
 /.hpc-local/
+/.local/

@@ -73,6 +73,11 @@ ROTATION_GCD_KEYS = (
     "warrior.slam",
 )
 
+# An absent spell has no cooldown clock.  Keep its readiness strictly beyond
+# every supported fight while leaving the separate `bloodthirst_known` bit
+# authoritative; unlike infinity, this can be retained in native JSON traces.
+UNAVAILABLE_COOLDOWN_S = 1_000_000_000.0
+
 
 class ExpertGuidedSearchError(RuntimeError):
     """The bounded proposal/benchmark pipeline could not complete."""
@@ -664,7 +669,11 @@ def _ready_seconds(
     actions: Mapping[ActionRef, AvailableAction], action: ActionRef
 ) -> float:
     available = actions.get(action)
-    return float("inf") if available is None else available.ready_in_ms / 1000.0
+    return (
+        UNAVAILABLE_COOLDOWN_S
+        if available is None
+        else available.ready_in_ms / 1000.0
+    )
 
 
 def _is_legal(

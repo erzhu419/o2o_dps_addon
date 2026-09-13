@@ -96,9 +96,20 @@ def build_stratified_wave_case_v1(
 
     if stratum not in WAVE_STRATA:
         raise ValueError(f"unknown fixed stratum: {stratum}")
+    return build_source_stratified_wave_case_v1(
+        seed, stratum, _source_rows()[WAVE_STRATA[stratum]],
+        SOURCE_FOCAL_ACTORS[stratum], attackability_branch=attackability_branch,
+    )
+
+
+def build_source_stratified_wave_case_v1(
+    seed: int, stratum: str, source: dict[str, Any], focal: dict[str, Any], *,
+    attackability_branch: str = "full_wave", schema: str = SCHEMA,
+) -> tuple[DevelopmentWaveCaseV1, dict[str, Any]]:
+    """Build a separate predeclared wave without changing the frozen v3 registry."""
+
     if attackability_branch not in {"full_wave", "observed_hostile_activity_proxy"}:
         raise ValueError(f"unsupported attackability branch: {attackability_branch}")
-    source = _source_rows()[WAVE_STRATA[stratum]]
     targets = source["targets"]
     hp = [_complete_proxy(target) for target in targets]
     if any(value is None for value in hp):
@@ -117,7 +128,6 @@ def build_stratified_wave_case_v1(
             ["death_anchor"]["offset_ms"])
         for target in targets
     ]
-    focal = SOURCE_FOCAL_ACTORS[stratum]
     focal_damage = focal["direct_damage_by_target"]
     if len(focal_damage) != len(targets) or any(
         not 0 <= damage < total for damage, total in zip(focal_damage, hp)
@@ -209,7 +219,7 @@ def build_stratified_wave_case_v1(
     spec = deepcopy(base.case_spec)
     death_anchor = targets[0]["max_health_hypothesis_family"]["observed_kill_budget_proxy"]["death_anchor"]
     spec.update({
-        "schema": SCHEMA, "source_instance_id": source["source_identity"]["instance_id"],
+        "schema": schema, "source_instance_id": source["source_identity"]["instance_id"],
         "source_wave_ref": source["source_identity"]["wave_id"],
         "source_target_ref": [target["target_guid"] for target in targets],
         "source_wave_model_target_count": len(targets),
