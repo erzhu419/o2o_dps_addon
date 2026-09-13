@@ -74,10 +74,10 @@ index 9445e44..bffdfb7 100644
  shadowOutcomeFrame:SetScript("OnEvent", function()
 diff --git a/addon/ShadowCheckpoint.lua b/addon/ShadowCheckpoint.lua
 new file mode 100644
-index 0000000..24e7da5
+index 0000000..8b510c1
 --- /dev/null
 +++ b/addon/ShadowCheckpoint.lua
-@@ -0,0 +1,482 @@
+@@ -0,0 +1,540 @@
 +-- Lightweight, append-only observations for later same-pull replay.  This is
 +-- evidence collection, not a simulator restore contract: missing timer and
 +-- aura fields must never be filled with zero or an empty set downstream.
@@ -94,6 +94,8 @@ index 0000000..24e7da5
 +checkpoint.WrittenCount = 0
 +checkpoint.DroppedCount = 0
 +checkpoint.CapturedCount = 0
++checkpoint.LastCaptureDurationMs = nil
++checkpoint.LastFlushDurationMs = nil
 +
 +local pending = {}
 +local pullSequence = 0
@@ -102,6 +104,9 @@ index 0000000..24e7da5
 +local lastEquipmentKey = nil
 +local flushElapsed = 0
 +local loggedError = false
++local lastTargetChangeCaptureAt = -100
++local lastTargetChangedAt = -100
++local targetChangeDeferred = false
 +
 +local function Now()
 +    return type(GetTime) == "function" and GetTime() or 0
@@ -340,10 +345,21 @@ index 0000000..24e7da5
 +
 +local function Capture(trigger, state)
 +    if not checkpoint.PullId then return end
++    local captureStartedAt = Now()
 +    local target = CaptureTarget()
 +    local guid = target and target.guid or nil
 +    local zone = type(GetRealZoneText) == "function" and GetRealZoneText()
 +        or (type(GetZoneText) == "function" and GetZoneText() or nil)
++    local network = nil
++    if type(GetNetStats) == "function" then
++        local ok, _, _, home, world = pcall(GetNetStats)
++        if ok and (tonumber(home) or tonumber(world)) then
++            network = {
++                latencyHomeMs = tonumber(home),
++                latencyWorldMs = tonumber(world),
++            }
++        end
++    end
 +    Queue("checkpoint", trigger, {
 +        targetGuid = guid,
 +        targets = target and { target } or {},
@@ -352,8 +368,14 @@ index 0000000..24e7da5
 +        fields = CaptureFields(state, target),
 +        visibleTargetDebuffs = target and type(UnitDebuff) == "function"
 +            and CaptureAuras(UnitDebuff, "target") or nil,
++        diagnostics = {
++            network = network,
++            previousCaptureDurationMs = checkpoint.LastCaptureDurationMs,
++            previousFlushDurationMs = checkpoint.LastFlushDurationMs,
++        },
 +    })
 +    checkpoint.CapturedCount = checkpoint.CapturedCount + 1
++    checkpoint.LastCaptureDurationMs = Milliseconds(Now() - captureStartedAt)
 +    lastCheckpointAt = Now()
 +end
 +
@@ -423,6 +445,8 @@ index 0000000..24e7da5
 +    pullSequence = pullSequence + 1
 +    checkpoint.PullId = checkpoint.SessionId .. "/pull-" .. tostring(pullSequence)
 +    lastCheckpointAt = -100
++    lastTargetChangeCaptureAt = -100
++    targetChangeDeferred = false
 +    CaptureBinding("pull_start")
 +    Capture(trigger)
 +end
@@ -445,6 +469,12 @@ index 0000000..24e7da5
 +        and name ~= "SPELL_GO_SELF"
 +        and name ~= "SPELL_FAILED_SELF" and name ~= "SPELL_DAMAGE_EVENT_SELF"
 +        and name ~= "SPELL_MISS_SELF" and name ~= "AUTO_ATTACK_SELF" then
++        return
++    end
++    -- The typed registration also sees nearby players.  Only the candidate's
++    -- client cast is needed here; this removed 858/878 cast rows in the first
++    -- live pull without discarding its own action events.
++    if name == "UNIT_CASTEVENT" and record.sourceGUID ~= PlayerGuid() then
 +        return
 +    end
 +    Queue("event_delta", name, {
@@ -479,6 +509,7 @@ index 0000000..24e7da5
 +
 +function checkpoint.Flush()
 +    if table.getn(pending) == 0 then return true end
++    local flushStartedAt = Now()
 +    if type(WriteCustomFile) ~= "function" then
 +        checkpoint.LastError = "WriteCustomFile_missing"
 +        return false
@@ -503,6 +534,7 @@ index 0000000..24e7da5
 +        checkpoint.LastError = tostring(not ok and written or errorMessage or "WriteCustomFile_false")
 +        return false
 +    end
++    checkpoint.LastFlushDurationMs = Milliseconds(Now() - flushStartedAt)
 +    checkpoint.WrittenCount = checkpoint.WrittenCount + table.getn(pending)
 +    pending = {}
 +    checkpoint.LastError = nil
@@ -535,10 +567,30 @@ index 0000000..24e7da5
 +        if checkpoint.PullId then
 +            Capture("combat_end")
 +            checkpoint.PullId = nil
++            targetChangeDeferred = false
 +        end
 +        checkpoint.Flush()
 +    elseif event == "PLAYER_TARGET_CHANGED" then
-+        if checkpoint.PullId then Capture("target_changed") end
++        if checkpoint.PullId then
++            local changedAt = Now()
++            if changedAt - lastTargetChangeCaptureAt >= 0.25 then
++                Capture("target_changed")
++                lastTargetChangeCaptureAt = changedAt
++                targetChangeDeferred = false
++            else
++                local _, guid = UnitExists("target")
++                Queue("event_delta", "PLAYER_TARGET_CHANGED", {
++                    targetGuid = guid,
++                    event = {
++                        name = "PLAYER_TARGET_CHANGED",
++                        kind = "CLIENT_OR_UNIT_CAST",
++                        targetGuid = guid,
++                    },
++                })
++                targetChangeDeferred = true
++                lastTargetChangedAt = changedAt
++            end
++        end
 +    elseif event == "UNIT_INVENTORY_CHANGED" then
 +        if arg1 == "player" then CaptureBinding("equipment_changed") end
 +    elseif event == "PLAYER_LOGOUT" then
@@ -547,6 +599,12 @@ index 0000000..24e7da5
 +    end
 +end)
 +frame:SetScript("OnUpdate", function()
++    if targetChangeDeferred and checkpoint.PullId
++        and Now() - lastTargetChangedAt >= 0.25 then
++        Capture("target_changed_settled")
++        lastTargetChangeCaptureAt = Now()
++        targetChangeDeferred = false
++    end
 +    if table.getn(pending) == 0 then return end
 +    flushElapsed = flushElapsed + (arg1 or 0)
 +    if flushElapsed < checkpoint.FlushSeconds then return end

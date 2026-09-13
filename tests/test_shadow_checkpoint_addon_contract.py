@@ -74,6 +74,17 @@ class ShadowCheckpointAddonContractTests(unittest.TestCase):
             source,
         )
 
+    def test_live_latency_and_burst_cost_are_observable_and_bounded(self) -> None:
+        source = CHECKPOINT.read_text(encoding="utf-8")
+        self.assertIn('if name == "UNIT_CASTEVENT" and record.sourceGUID ~= PlayerGuid()', source)
+        self.assertIn('if type(GetNetStats) == "function" then', source)
+        self.assertIn('latencyWorldMs = tonumber(world)', source)
+        self.assertIn('previousFlushDurationMs = checkpoint.LastFlushDurationMs', source)
+        self.assertIn('checkpoint.LastFlushDurationMs = Milliseconds(Now() - flushStartedAt)', source)
+        self.assertIn('changedAt - lastTargetChangeCaptureAt >= 0.25', source)
+        self.assertIn('Queue("event_delta", "PLAYER_TARGET_CHANGED"', source)
+        self.assertIn('Capture("target_changed_settled")', source)
+
 
 if __name__ == "__main__":
     unittest.main()

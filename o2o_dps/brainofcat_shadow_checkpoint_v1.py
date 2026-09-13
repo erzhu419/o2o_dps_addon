@@ -170,6 +170,11 @@ def validate_record(raw: Mapping[str, Any]) -> dict[str, Any]:
             _text(instance["subZone"], "instance.subZone")
     _text(record.get("trigger"), "trigger")
     target_guid = record.get("targetGuid")
+    if kind == "event_delta" and target_guid == "":
+        # Nampower UNIT_CASTEVENT uses an empty string for an untargeted cast.
+        # This is observed in the first live client file; it is not a GUID.
+        target_guid = None
+        record.pop("targetGuid", None)
     if target_guid is not None:
         target_guid = _guid(target_guid, "targetGuid")
         record["targetGuid"] = target_guid
@@ -212,13 +217,16 @@ def validate_record(raw: Mapping[str, Any]) -> dict[str, Any]:
         record["exactCheckpointReady"] = not blockers
         record["exactCheckpointBlockers"] = blockers
     elif kind == "event_delta":
-        event = _object(record.get("event"), "event")
+        event = dict(_object(record.get("event"), "event"))
         _text(event.get("name"), "event.name")
         if event.get("kind") is not None and event["kind"] not in {"START", "GO", "FAIL", "DMG", "MISS", "CLIENT_OR_UNIT_CAST", "CLIENT_LOG_RESULT"}:
             raise ShadowCheckpointError("event.kind is not a supported server event kind")
+        if event.get("targetGuid") == "":
+            event.pop("targetGuid")
         for name in ("sourceGuid", "targetGuid"):
             if event.get(name) is not None:
                 _guid(event[name], f"event.{name}")
+        record["event"] = event
         if event.get("spellId") is not None:
             _integer(event["spellId"], "event.spellId", minimum=1)
     elif kind == "binding":

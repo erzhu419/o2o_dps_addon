@@ -66,6 +66,14 @@ def _chronicle(timestamp: int, *, amount: int = 1800, event_index: int = 1,
 
 
 class ShadowCheckpointV1Tests(unittest.TestCase):
+    def test_live_untargeted_cast_empty_guid_is_missing_not_a_failure(self) -> None:
+        row = _base("event_delta", 12)
+        row["targetGuid"] = ""
+        row["event"]["targetGuid"] = ""
+        validated = checkpoint.validate_record(row)
+        self.assertNotIn("targetGuid", validated)
+        self.assertNotIn("targetGuid", validated["event"])
+
     def test_client_combat_message_is_kept_but_not_a_server_anchor(self) -> None:
         row = _base("event_delta", 12)
         row["event"] = {
