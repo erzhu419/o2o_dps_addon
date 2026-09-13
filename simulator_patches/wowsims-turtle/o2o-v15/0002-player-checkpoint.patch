@@ -1,0 +1,470 @@
+diff --git a/cmd/o2obridge/main.go b/cmd/o2obridge/main.go
+index c483dc6..ec90c99 100644
+--- a/cmd/o2obridge/main.go
++++ b/cmd/o2obridge/main.go
+@@ -20,6 +20,7 @@ type command struct {
+ 	Seed        int64           `json:"seed,omitempty"`
+ 	Dynamic     json.RawMessage `json:"dynamic,omitempty"`
+ 	Responsive  json.RawMessage `json:"responsive,omitempty"`
++	PlayerState json.RawMessage `json:"player_state,omitempty"`
+ 	Action      o2o.ActionRef   `json:"action,omitempty"`
+ 	WaitMS      int64           `json:"wait_ms,omitempty"`
+ 	TargetIndex int32           `json:"target_index,omitempty"`
+@@ -242,6 +243,56 @@ func runBridge(input io.Reader, output io.Writer, errorOutput io.Writer) {
+ 			out.DynamicLoad = &receipt
+ 			state := env.State()
+ 			out.State = &state
++		case "load_dynamic_v5":
++			if len(cmd.Dynamic) == 0 || len(cmd.PlayerState) == 0 {
++				out.OK, out.Error = false, "dynamic config and player_state are required"
++				break
++			}
++			var dynamic o2o.DynamicTargetSemanticsConfigV4
++			var playerState o2o.PlayerStateCheckpointV1
++			for _, payload := range []struct {
++				name  string
++				data  json.RawMessage
++				value any
++			}{
++				{"dynamic config", cmd.Dynamic, &dynamic},
++				{"player_state", cmd.PlayerState, &playerState},
++			} {
++				decoder := json.NewDecoder(bytes.NewReader(payload.data))
++				decoder.DisallowUnknownFields()
++				if err := decoder.Decode(payload.value); err != nil {
++					out.OK, out.Error = false, fmt.Sprintf("%s: %v", payload.name, err)
++					break
++				}
++				if err := decoder.Decode(&struct{}{}); err != io.EOF {
++					out.OK, out.Error = false, fmt.Sprintf("%s must contain exactly one JSON object", payload.name)
++					break
++				}
++			}
++			if !out.OK {
++				break
++			}
++			request := &proto.RaidSimRequest{}
++			if err := protojson.Unmarshal(cmd.Request, request); err != nil {
++				out.OK, out.Error = false, err.Error()
++				break
++			}
++			if env != nil {
++				env.Cleanup()
++			}
++			nextGeneration := environmentGeneration + 1
++			var receipt o2o.DynamicLoadReceiptV1
++			var err error
++			env, receipt, err = o2o.NewDynamicV5(request, cmd.Seed, dynamic, playerState, nextGeneration)
++			if err != nil {
++				out.OK, out.Error = false, err.Error()
++				env = nil
++				break
++			}
++			environmentGeneration = nextGeneration
++			out.DynamicLoad = &receipt
++			state := env.State()
++			out.State = &state
+ 		case "advance":
+ 			if requireEnv(&out, env) {
+ 				_, err := env.AdvanceUntilDecision()
+diff --git a/cmd/o2obridge/player_checkpoint_v1_response_test.go b/cmd/o2obridge/player_checkpoint_v1_response_test.go
+new file mode 100644
+index 0000000..7128a80
+--- /dev/null
++++ b/cmd/o2obridge/player_checkpoint_v1_response_test.go
+@@ -0,0 +1,86 @@
++package main
++
++import (
++	"bytes"
++	"encoding/json"
++	"strings"
++	"testing"
++
++	"github.com/isfir/wowsims-turtle/sim/o2o"
++)
++
++func TestBridgeV5ReturnsPreEventPlayerCheckpointAndRejectsQueue(t *testing.T) {
++	const maximum = 1_000_000.0
++	config := o2o.DynamicTargetSemanticsConfigV4{
++		Schema:                 o2o.DynamicTargetSemanticsSchemaV4,
++		TargetHealth:           []o2o.DynamicTargetHealthV4{{TargetIndex: 0, MaximumHealth: maximum, CurrentHealth: 500_000}},
++		BackgroundDamageEvents: []o2o.BackgroundDamageEventV1{},
++		AttackabilityEvents:    []o2o.DynamicAttackabilityEventV2{},
++		EffectiveArmorEvents:   []o2o.DynamicEffectiveArmorEventV2{},
++		IdleAdvanceMode:        o2o.DynamicIdleAdvanceModeV3,
++		IdleAdvanceHorizonMS:   300_000,
++		SameTimestampOrder:     o2o.DynamicSameTimestampOrderV4,
++		RetargetMode:           o2o.DynamicRetargetNextAliveCyclic,
++	}
++	digest, err := o2o.DynamicTargetSemanticsDigestV4(config)
++	if err != nil {
++		t.Fatal(err)
++	}
++	config.ContentSHA256 = digest
++	dynamic, _ := json.Marshal(config)
++	rage := 47.0
++	gcd, mh, oh := int64(700), int64(350), int64(650)
++	checkpoint := o2o.PlayerStateCheckpointV1{
++		Schema:                o2o.PlayerCheckpointSchemaV1,
++		RageCurrent:           &rage,
++		Stance:                "BATTLE",
++		GCDRemainingMS:        &gcd,
++		Cooldowns:             []o2o.CooldownCheckpointV1{},
++		MHSwingRemainingMS:    &mh,
++		OHSwingRemainingMS:    &oh,
++		QueuedNextSwing:       "NONE",
++		SelfAurasAndProcs:     []o2o.AuraCheckpointV1{},
++		CandidateOwnedDebuffs: []o2o.AuraCheckpointV1{},
++	}
++	playerState, _ := json.Marshal(checkpoint)
++	checkpoint.QueuedNextSwing = "HEROIC_STRIKE"
++	invalidState, _ := json.Marshal(checkpoint)
++	commands := []command{
++		{Command: "load_dynamic_v5", Request: bridgeDynamicTestRequest(t, maximum), Seed: 77, Dynamic: dynamic, PlayerState: playerState},
++		{Command: "advance"},
++		{Command: "load_dynamic_v5", Request: bridgeDynamicTestRequest(t, maximum), Seed: 77, Dynamic: dynamic, PlayerState: invalidState},
++	}
++	var input bytes.Buffer
++	encoder := json.NewEncoder(&input)
++	for _, cmd := range commands {
++		if err := encoder.Encode(cmd); err != nil {
++			t.Fatal(err)
++		}
++	}
++	var output bytes.Buffer
++	runBridge(&input, &output, &bytes.Buffer{})
++	decoder := json.NewDecoder(&output)
++	var results []response
++	for decoder.More() {
++		var result response
++		if err := decoder.Decode(&result); err != nil {
++			t.Fatal(err)
++		}
++		results = append(results, result)
++	}
++	if len(results) != 3 {
++		t.Fatalf("got %d responses", len(results))
++	}
++	load := results[0]
++	if !load.OK || load.DynamicLoad == nil || load.State == nil || load.State.TimeMS != 0 ||
++		load.State.Power.Current != rage || load.State.GCDRemainingMS != gcd ||
++		load.State.MHSwingRemainingMS != mh || load.State.TargetHealth != 500_000 {
++		t.Fatalf("v5 load did not expose pre-event checkpoint: %+v", load)
++	}
++	if !results[1].OK || results[1].State == nil || results[1].State.TimeMS < gcd {
++		t.Fatalf("advance did not process restored timers: %+v", results[1])
++	}
++	if results[2].OK || !strings.Contains(results[2].Error, "queued next-swing") {
++		t.Fatalf("nonrestorable queue was accepted: %+v", results[2])
++	}
++}
+diff --git a/sim/core/attack.go b/sim/core/attack.go
+index 893729f..4865003 100644
+--- a/sim/core/attack.go
++++ b/sim/core/attack.go
+@@ -968,6 +968,15 @@ func (aa *AutoAttacks) NextOHSwingAt() time.Duration {
+ 	return aa.oh.swingAt
+ }
+ 
++// RestoreMeleeSwingCheckpoint replaces both pre-pull deadlines. The pull
++// callback will register these deadlines in the weapon-attack scheduler.
++func (aa *AutoAttacks) RestoreMeleeSwingCheckpoint(mh, oh time.Duration) {
++	aa.mh.swingAt = mh
++	if aa.IsDualWielding {
++		aa.oh.swingAt = oh
++	}
++}
++
+ // Returns the time at which the next attack will occur.
+ func (aa *AutoAttacks) NextAnyAttackAt() time.Duration {
+ 	return min(min(aa.mh.swingAt, aa.oh.swingAt), aa.ranged.swingAt)
+diff --git a/sim/core/rage.go b/sim/core/rage.go
+index 2fc0f93..0c755c1 100644
+--- a/sim/core/rage.go
++++ b/sim/core/rage.go
+@@ -156,6 +156,12 @@ func (rb *rageBar) CurrentRage() float64 {
+ 	return rb.currentRage
+ }
+ 
++// RestoreRageCheckpoint sets the observed rage before the first simulated
++// event. It deliberately does not synthesize a rage-change combat event.
++func (unit *Unit) RestoreRageCheckpoint(rage float64) {
++	unit.rageBar.currentRage = rage
++}
++
+ func (rb *rageBar) AddRage(sim *Simulation, amount float64, metrics *ResourceMetrics) {
+ 	if amount < 0 {
+ 		panic("Trying to add negative rage!")
+diff --git a/sim/o2o/player_checkpoint_v1.go b/sim/o2o/player_checkpoint_v1.go
+new file mode 100644
+index 0000000..1af55c6
+--- /dev/null
++++ b/sim/o2o/player_checkpoint_v1.go
+@@ -0,0 +1,136 @@
++package o2o
++
++import (
++	"errors"
++	"fmt"
++	"math"
++	"time"
++
++	"github.com/isfir/wowsims-turtle/sim/core"
++	"github.com/isfir/wowsims-turtle/sim/core/proto"
++	"github.com/isfir/wowsims-turtle/sim/warrior"
++)
++
++const PlayerCheckpointSchemaV1 = "o2o_player_state_checkpoint/v1"
++
++// PlayerStateCheckpointV1 is a pre-first-event restoration, not a generic
++// simulator snapshot. Aura/proc/debuff replay is not implemented here, so a
++// nonempty observed set is rejected instead of being silently discarded.
++type PlayerStateCheckpointV1 struct {
++	Schema                string                 `json:"schema"`
++	RageCurrent           *float64               `json:"rage_current"`
++	Stance                string                 `json:"stance"`
++	GCDRemainingMS        *int64                 `json:"gcd_remaining_ms"`
++	Cooldowns             []CooldownCheckpointV1 `json:"cooldowns"`
++	MHSwingRemainingMS    *int64                 `json:"mh_swing_remaining_ms"`
++	OHSwingRemainingMS    *int64                 `json:"oh_swing_remaining_ms"`
++	QueuedNextSwing       string                 `json:"queued_next_swing"`
++	SelfAurasAndProcs     []AuraCheckpointV1     `json:"self_auras_and_procs"`
++	CandidateOwnedDebuffs []AuraCheckpointV1     `json:"candidate_owned_debuffs"`
++}
++
++type CooldownCheckpointV1 struct {
++	Action      ActionRef `json:"action"`
++	RemainingMS int64     `json:"remaining_ms"`
++}
++
++type AuraCheckpointV1 struct {
++	Action      ActionRef `json:"action"`
++	Stacks      int32     `json:"stacks"`
++	RemainingMS int64     `json:"remaining_ms"`
++}
++
++func validatePlayerCheckpointV1(checkpoint PlayerStateCheckpointV1, dualWield bool) error {
++	if checkpoint.Schema != PlayerCheckpointSchemaV1 {
++		return fmt.Errorf("player checkpoint schema must be %q", PlayerCheckpointSchemaV1)
++	}
++	if checkpoint.RageCurrent == nil || math.IsNaN(*checkpoint.RageCurrent) || math.IsInf(*checkpoint.RageCurrent, 0) || *checkpoint.RageCurrent < 0 || *checkpoint.RageCurrent > 100 {
++		return errors.New("rage_current must be an exact value in [0,100]")
++	}
++	if checkpoint.Stance != "BATTLE" && checkpoint.Stance != "DEFENSIVE" && checkpoint.Stance != "BERSERKER" {
++		return errors.New("stance must be BATTLE, DEFENSIVE, or BERSERKER")
++	}
++	if checkpoint.GCDRemainingMS == nil || checkpoint.MHSwingRemainingMS == nil ||
++		!validCheckpointDuration(*checkpoint.GCDRemainingMS) || !validCheckpointDuration(*checkpoint.MHSwingRemainingMS) {
++		return errors.New("GCD and main-hand swing remaining milliseconds must be nonnegative and at most 24 hours")
++	}
++	if dualWield != (checkpoint.OHSwingRemainingMS != nil) {
++		return errors.New("off-hand swing must be present exactly for dual-wielding characters")
++	}
++	if dualWield && !validCheckpointDuration(*checkpoint.OHSwingRemainingMS) {
++		return errors.New("off-hand swing remaining milliseconds must be nonnegative and at most 24 hours")
++	}
++	if checkpoint.Cooldowns == nil {
++		return errors.New("cooldowns must be an explicit complete list (possibly empty)")
++	}
++	for _, cooldown := range checkpoint.Cooldowns {
++		if !validCheckpointDuration(cooldown.RemainingMS) || cooldown.Action.coreID().IsEmptyAction() {
++			return errors.New("cooldown action and remaining milliseconds are invalid")
++		}
++	}
++	if checkpoint.QueuedNextSwing != "NONE" {
++		return errors.New("queued next-swing state is not restorable in player checkpoint v1")
++	}
++	if checkpoint.SelfAurasAndProcs == nil || checkpoint.CandidateOwnedDebuffs == nil {
++		return errors.New("aura and owned-debuff lists must be explicit complete lists")
++	}
++	if len(checkpoint.SelfAurasAndProcs) != 0 || len(checkpoint.CandidateOwnedDebuffs) != 0 {
++		return errors.New("active self aura/proc or owned debuff is not restorable in player checkpoint v1")
++	}
++	return nil
++}
++
++func validCheckpointDuration(ms int64) bool {
++	return ms >= 0 && ms <= 24*60*60*1000
++}
++
++// NewDynamicV5 retains v4 target semantics and adds an exact, currently
++// supported player-state restoration before any simulated combat event.
++func NewDynamicV5(request *proto.RaidSimRequest, seed int64, config DynamicTargetSemanticsConfigV4, checkpoint PlayerStateCheckpointV1, generation uint64) (*Environment, DynamicLoadReceiptV1, error) {
++	env, receipt, err := NewDynamicV4(request, seed, config, generation)
++	if err != nil {
++		return nil, receipt, err
++	}
++	if err = env.restorePlayerCheckpointV1(checkpoint); err != nil {
++		env.Cleanup()
++		return nil, DynamicLoadReceiptV1{}, err
++	}
++	return env, receipt, nil
++}
++
++func (env *Environment) restorePlayerCheckpointV1(checkpoint PlayerStateCheckpointV1) error {
++	if env.sim.CurrentTime != 0 {
++		return errors.New("player checkpoint requires no pre-pull simulation actions")
++	}
++	character := env.player().GetCharacter()
++	warriorAgent, ok := env.player().(interface{ GetWarrior() *warrior.Warrior })
++	if !ok || !character.HasRageBar() || !character.AutoAttacks.AutoSwingMelee {
++		return errors.New("player checkpoint v1 requires an auto-attacking Warrior")
++	}
++	if err := validatePlayerCheckpointV1(checkpoint, character.AutoAttacks.IsDualWielding); err != nil {
++		return err
++	}
++	seen := make(map[core.ActionID]bool, len(checkpoint.Cooldowns))
++	for _, cooldown := range checkpoint.Cooldowns {
++		id := cooldown.Action.coreID()
++		spell := character.GetSpell(id)
++		if spell == nil || spell.CD.Timer == nil || seen[id] {
++			return fmt.Errorf("checkpoint cooldown %s is unknown, has no own timer, or is repeated", id)
++		}
++		seen[id] = true
++	}
++	if !warriorAgent.GetWarrior().RestoreO2OStanceCheckpoint(env.sim, checkpoint.Stance) {
++		return errors.New("checkpoint stance could not be activated")
++	}
++	character.RestoreRageCheckpoint(*checkpoint.RageCurrent)
++	character.SetGCDTimer(env.sim, time.Duration(*checkpoint.GCDRemainingMS)*time.Millisecond)
++	for _, cooldown := range checkpoint.Cooldowns {
++		character.GetSpell(cooldown.Action.coreID()).CD.Timer.Set(time.Duration(cooldown.RemainingMS) * time.Millisecond)
++	}
++	oh := time.Duration(0)
++	if checkpoint.OHSwingRemainingMS != nil {
++		oh = time.Duration(*checkpoint.OHSwingRemainingMS) * time.Millisecond
++	}
++	character.AutoAttacks.RestoreMeleeSwingCheckpoint(time.Duration(*checkpoint.MHSwingRemainingMS)*time.Millisecond, oh)
++	return nil
++}
+diff --git a/sim/o2o/player_checkpoint_v1_test.go b/sim/o2o/player_checkpoint_v1_test.go
+new file mode 100644
+index 0000000..3d51eeb
+--- /dev/null
++++ b/sim/o2o/player_checkpoint_v1_test.go
+@@ -0,0 +1,84 @@
++package o2o
++
++import (
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/isfir/wowsims-turtle/sim/core"
++)
++
++func checkpointFloat(value float64) *float64 { return &value }
++func checkpointInt(value int64) *int64       { return &value }
++
++func testPlayerCheckpointV1(dual bool) PlayerStateCheckpointV1 {
++	checkpoint := PlayerStateCheckpointV1{
++		Schema:                PlayerCheckpointSchemaV1,
++		RageCurrent:           checkpointFloat(47),
++		Stance:                "BATTLE",
++		GCDRemainingMS:        checkpointInt(700),
++		Cooldowns:             []CooldownCheckpointV1{},
++		MHSwingRemainingMS:    checkpointInt(350),
++		QueuedNextSwing:       "NONE",
++		SelfAurasAndProcs:     []AuraCheckpointV1{},
++		CandidateOwnedDebuffs: []AuraCheckpointV1{},
++	}
++	if dual {
++		checkpoint.OHSwingRemainingMS = checkpointInt(650)
++	}
++	return checkpoint
++}
++
++func TestPlayerCheckpointRestoresBeforeFirstEvent(t *testing.T) {
++	config := boundDynamicV4Config(t, DynamicRetargetNextAliveCyclic, 3000, []float64{1_000_000}, []float64{500_000}, nil)
++	request := dynamicRequest(1_000_000)
++	request.Encounter.Duration = 3
++	base, _, err := NewDynamicV4(request, 101, config, 5)
++	if err != nil {
++		t.Fatal(err)
++	}
++	dual := base.player().GetCharacter().AutoAttacks.IsDualWielding
++	base.Cleanup()
++	checkpoint := testPlayerCheckpointV1(dual)
++	checkpoint.Cooldowns = []CooldownCheckpointV1{{Action: ActionRef{SpellID: 23894}, RemainingMS: 800}}
++	env, _, err := NewDynamicV5(request, 101, config, checkpoint, 5)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(env.Cleanup)
++	character := env.player().GetCharacter()
++	if character.CurrentRage() != 47 || character.GCD.TimeToReady(env.sim) != 700*time.Millisecond ||
++		character.AutoAttacks.NextMHSwingAt() != 350*time.Millisecond ||
++		character.GetSpell(core.ActionID{SpellID: 23894}).CD.Timer.TimeToReady(env.sim) != 800*time.Millisecond {
++		t.Fatalf("pre-event player checkpoint not restored: %+v", env.State())
++	}
++	if dual && character.AutoAttacks.NextOHSwingAt() != 650*time.Millisecond {
++		t.Fatalf("off-hand deadline = %s", character.AutoAttacks.NextOHSwingAt())
++	}
++	if !character.GetAuraByID(core.ActionID{SpellID: 2457}).IsActive() || character.GetAuraByID(core.ActionID{SpellID: 2458}).IsActive() {
++		t.Fatal("stance aura not restored")
++	}
++	state := env.State()
++	if state.Power.Current != 47 || state.GCDRemainingMS != 700 || state.MHSwingRemainingMS != 350 || state.TargetHealth != 500_000 {
++		t.Fatalf("bridge-visible checkpoint changed before first decision: %+v", state)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	if env.State().TimeMS < 700 {
++		t.Fatalf("advance stopped before restored GCD: %+v", env.State())
++	}
++}
++
++func TestPlayerCheckpointRejectsNonrestorableState(t *testing.T) {
++	checkpoint := testPlayerCheckpointV1(false)
++	checkpoint.QueuedNextSwing = "HEROIC_STRIKE"
++	if err := validatePlayerCheckpointV1(checkpoint, false); err == nil || !strings.Contains(err.Error(), "queued next-swing") {
++		t.Fatalf("queue must reject: %v", err)
++	}
++	checkpoint.QueuedNextSwing = "NONE"
++	checkpoint.SelfAurasAndProcs = []AuraCheckpointV1{{Action: ActionRef{SpellID: 12970}, Stacks: 3, RemainingMS: 5000}}
++	if err := validatePlayerCheckpointV1(checkpoint, false); err == nil || !strings.Contains(err.Error(), "not restorable") {
++		t.Fatalf("proc aura must reject: %v", err)
++	}
++}
+diff --git a/sim/warrior/warrior.go b/sim/warrior/warrior.go
+index 34a1b64..2a5d71f 100644
+--- a/sim/warrior/warrior.go
++++ b/sim/warrior/warrior.go
+@@ -229,6 +229,35 @@ func (warrior *Warrior) Reset(sim *core.Simulation) {
+ 	}
+ }
+ 
++// RestoreO2OStanceCheckpoint applies stance aura side effects without a
++// player cast, rage loss, or an artificial stance cooldown.
++func (warrior *Warrior) RestoreO2OStanceCheckpoint(sim *core.Simulation, stance string) bool {
++	var next Stance
++	var aura *core.Aura
++	switch stance {
++	case "BATTLE":
++		next, aura = BattleStance, warrior.BattleStanceAura
++	case "DEFENSIVE":
++		next, aura = DefensiveStance, warrior.DefensiveStanceAura
++	case "BERSERKER":
++		next, aura = BerserkerStance, warrior.BerserkerStanceAura
++	default:
++		return false
++	}
++	if warrior.Stance == next {
++		return true
++	}
++	for _, existing := range []*core.Aura{warrior.BattleStanceAura, warrior.DefensiveStanceAura, warrior.BerserkerStanceAura} {
++		if existing.IsActive() {
++			existing.Deactivate(sim)
++		}
++	}
++	warrior.PreviousStance = warrior.Stance
++	warrior.Stance = next
++	aura.Activate(sim)
++	return aura.IsActive()
++}
++
+ func NewWarrior(character *core.Character, talents string, inputs WarriorInputs) *Warrior {
+ 	warrior := &Warrior{
+ 		Character:     *character,

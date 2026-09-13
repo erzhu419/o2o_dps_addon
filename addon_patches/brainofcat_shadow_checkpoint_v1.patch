@@ -1,0 +1,536 @@
+diff --git a/BrainOfCat.toc b/BrainOfCat.toc
+index 9be30ff..dab20d0 100644
+--- a/BrainOfCat.toc
++++ b/BrainOfCat.toc
+@@ -18,5 +18,6 @@ addon\CalibrationLogger.lua
+ addon\CalibrationTasks.lua
+ addon\TimerCalibrationCampaign.lua
+ addon\TimerCalibrationDebug.lua
++addon\ShadowCheckpoint.lua
+ addon\ShadowPairExport.lua
+ addon\ExpertTrace.lua
+diff --git a/addon/Runtime.lua b/addon/Runtime.lua
+index 566aa56..5c21555 100644
+--- a/addon/Runtime.lua
++++ b/addon/Runtime.lua
+@@ -809,7 +809,7 @@ function brain.BuildState(context)
+         capturedAt = GetTime() or 0
+     end
+ 
+-    return {
++    local state = {
+         capturedAt = capturedAt,
+         classFile = basic.classFile,
+         level = basic.level,
+@@ -854,6 +854,12 @@ function brain.BuildState(context)
+         nearbyEnemies = nearbyEnemies,
+         nearbyEnemiesKnown = nearbyEnemiesKnown,
+     }
++    local checkpoint = BrainOfCat.ShadowCheckpoint
++    if type(checkpoint) == "table"
++        and type(checkpoint.OnDecisionState) == "function" then
++        checkpoint.OnDecisionState(state)
++    end
++    return state
+ end
+ 
+ function brain.Propose(policyId, state, context)
+diff --git a/addon/CalibrationLogger.lua b/addon/CalibrationLogger.lua
+index 9445e44..bffdfb7 100644
+--- a/addon/CalibrationLogger.lua
++++ b/addon/CalibrationLogger.lua
+@@ -1144,6 +1144,11 @@ local function CaptureEvent(eventName, first, second, third, fourth, fifth, sixt
+         and type(brain.ObserveCalibrationRecord) == "function" then
+         brain.ObserveCalibrationRecord(record)
+     end
++    local checkpoint = BrainOfCat.ShadowCheckpoint
++    if type(checkpoint) == "table"
++        and type(checkpoint.OnObservedEvent) == "function" then
++        checkpoint.OnObservedEvent(record)
++    end
+ 
+     local tasks = BrainOfCat.CalibrationTasks
+     if type(tasks) == "table" and type(tasks.OnObservedEvent) == "function" then
+@@ -1349,6 +1354,7 @@ local shadowTypedEvents = {
+     "UNIT_CASTEVENT",
+     "SPELL_CAST_EVENT",
+     "SPELL_QUEUE_EVENT",
++    "SPELL_START_SELF",
+     "SPELL_GO_SELF",
+     "SPELL_FAILED_SELF",
+     "SPELL_DAMAGE_EVENT_SELF",
+@@ -1637,6 +1643,11 @@ local function CaptureShadowTypedEvent(eventName, first, second, third, fourth,
+         and type(brain.ObserveCalibrationRecord) == "function" then
+         brain.ObserveCalibrationRecord(record)
+     end
++    local checkpoint = BrainOfCat.ShadowCheckpoint
++    if type(checkpoint) == "table"
++        and type(checkpoint.OnObservedEvent) == "function" then
++        checkpoint.OnObservedEvent(record)
++    end
+ end
+ 
+ shadowOutcomeFrame:SetScript("OnEvent", function()
+diff --git a/addon/ShadowCheckpoint.lua b/addon/ShadowCheckpoint.lua
+new file mode 100644
+index 0000000..bc16f36
+--- /dev/null
++++ b/addon/ShadowCheckpoint.lua
+@@ -0,0 +1,457 @@
++-- Lightweight, append-only observations for later same-pull replay.  This is
++-- evidence collection, not a simulator restore contract: missing timer and
++-- aura fields must never be filled with zero or an empty set downstream.
++local checkpoint = {}
++BrainOfCat.ShadowCheckpoint = checkpoint
++
++checkpoint.Schema = "brainofcat_shadow_checkpoint/v1"
++checkpoint.FileName = "BrainOfCatShadowCheckpoints.jsonl"
++checkpoint.IntervalSeconds = 5
++checkpoint.FlushSeconds = 2
++checkpoint.SessionId = nil
++checkpoint.PullId = nil
++checkpoint.LastError = nil
++checkpoint.WrittenCount = 0
++checkpoint.DroppedCount = 0
++
++local pending = {}
++local pullSequence = 0
++local journalSequence = 0
++local lastCheckpointAt = -100
++local lastEquipmentKey = nil
++local flushElapsed = 0
++local loggedError = false
++
++local function Now()
++    return type(GetTime) == "function" and GetTime() or 0
++end
++
++local function PlayerGuid()
++    if type(UnitExists) ~= "function" then
++        return nil
++    end
++    local _, guid = UnitExists("player")
++    return guid
++end
++
++local function IsWarrior()
++    if type(UnitClass) ~= "function" then
++        return false
++    end
++    local _, classFile = UnitClass("player")
++    return classFile == "WARRIOR"
++end
++
++local function CharacterKey()
++    local realm = type(GetRealmName) == "function" and GetRealmName() or "unknown"
++    local name = type(UnitName) == "function" and UnitName("player") or "unknown"
++    return tostring(realm) .. "/" .. tostring(name)
++end
++
++local function Field(quality, source, value)
++    local entry = { quality = quality, source = source }
++    if value ~= nil then
++        entry.value = value
++    end
++    return entry
++end
++
++local function NumberField(value, source, quality)
++    local number = tonumber(value)
++    if number == nil or number < 0 then
++        return Field("MISSING", source)
++    end
++    return Field(quality or "PARTIAL", source, number)
++end
++
++local function Milliseconds(value)
++    local seconds = tonumber(value)
++    if seconds == nil or seconds < 0 then
++        return nil
++    end
++    return math.floor(seconds * 1000 + 0.5)
++end
++
++local function SpellRemaining(name)
++    if type(Cat2) ~= "table" or type(Cat2.GetSpellCooldown) ~= "function" then
++        return nil
++    end
++    local ok, value = pcall(Cat2.GetSpellCooldown, name)
++    return ok and Milliseconds(value) or nil
++end
++
++local function CaptureAuras(api, unit)
++    local auras = {}
++    if type(api) ~= "function" then
++        return auras
++    end
++    local slot = 1
++    while slot <= 40 do
++        local texture, stacks, buffSpellId, debuffSpellId = api(unit, slot)
++        if not texture then
++            break
++        end
++        -- Nampower extends UnitBuff with spellId in return 3, while
++        -- UnitDebuff returns debuffType in 3 and spellId in return 4.
++        local spellId = api == UnitBuff and buffSpellId or debuffSpellId
++        table.insert(auras, {
++            spellId = tonumber(spellId),
++            stacks = tonumber(stacks),
++            texture = texture,
++            -- Vanilla UnitBuff/UnitDebuff do not establish a stable caster or
++            -- remaining duration for every observed aura.
++        })
++        slot = slot + 1
++    end
++    return auras
++end
++
++local function CaptureTarget()
++    if type(UnitExists) ~= "function" then
++        return nil
++    end
++    local exists, guid = UnitExists("target")
++    if not exists or type(guid) ~= "string" or guid == "" then
++        return nil
++    end
++    local attackable = nil
++    if type(UnitCanAttack) == "function" then
++        attackable = UnitCanAttack("player", "target") and true or false
++    end
++    local target = {
++        guid = guid,
++        name = type(UnitName) == "function" and UnitName("target") or nil,
++        currentHealth = type(UnitHealth) == "function" and tonumber(UnitHealth("target")) or nil,
++        maxHealth = type(UnitHealthMax) == "function" and tonumber(UnitHealthMax("target")) or nil,
++        attackable = attackable,
++        healthQuality = "PARTIAL",
++        source = "UnitExists+UnitHealth+UnitHealthMax+UnitCanAttack(target)",
++    }
++    return target
++end
++
++local function CaptureFields(state, target)
++    local fields = {}
++    fields["target.max_health"] = NumberField(
++        target and target.maxHealth, "UnitHealthMax(target)", "PARTIAL")
++    fields["target.current_health"] = NumberField(
++        target and target.currentHealth, "UnitHealth(target)", "PARTIAL")
++
++    local powerType = type(UnitPowerType) == "function" and UnitPowerType("player") or nil
++    local rage = powerType == 1 and type(UnitMana) == "function"
++        and tonumber(UnitMana("player")) or nil
++    local rageSource = "UnitMana(player)"
++    local rageQuality = "PARTIAL"
++    if rage ~= nil and type(GetUnitField) == "function" then
++        -- Nampower's known Vanilla warrior field is in tenths.  Like the
++        -- calibration logger, call it directly because it repairs Lua state.
++        local rawRage = tonumber(GetUnitField("player", "power2"))
++        local rawMax = tonumber(GetUnitField("player", "maxPower2"))
++        local maxRage = type(UnitManaMax) == "function"
++            and tonumber(UnitManaMax("player")) or nil
++        if rawRage and rawMax and maxRage and maxRage > 0
++            and rawMax / maxRage == 10 then
++            rage = rawRage / 10
++            rageSource = "Nampower.GetUnitField(player,power2)/10"
++            rageQuality = "EXACT"
++        end
++    end
++    fields["player.rage_current"] = NumberField(rage, rageSource, rageQuality)
++
++    local stance = nil
++    if type(GetShapeshiftForm) == "function" then
++        local index = tonumber(GetShapeshiftForm())
++        if index == 1 then stance = "BATTLE"
++        elseif index == 2 then stance = "DEFENSIVE"
++        elseif index == 3 then stance = "BERSERKER" end
++    end
++    fields["player.stance"] = stance
++        and Field("EXACT", "GetShapeshiftForm()", stance)
++        or Field("MISSING", "GetShapeshiftForm()")
++
++    local gcd = state and Milliseconds(state.gcd)
++    if not gcd and type(Cat2) == "table"
++        and type(Cat2.GetLeftGCD) == "function" then
++        local ok, value = pcall(Cat2.GetLeftGCD)
++        gcd = ok and Milliseconds(value) or nil
++    end
++    fields["timers.gcd_remaining_ms"] = NumberField(
++        gcd, "Cat2.GetLeftGCD()", "PARTIAL")
++
++    local cooldowns = {
++        { tag = "BLOODTHIRST", spellId = 23894,
++          remainingMs = state and Milliseconds(state.bloodthirstCooldown)
++              or SpellRemaining("嗜血") },
++        { tag = "WHIRLWIND", spellId = 1680,
++          remainingMs = state and Milliseconds(state.whirlwindCooldown)
++              or SpellRemaining("旋风斩") },
++    }
++    local cooldownKnown = cooldowns[1].remainingMs ~= nil
++        and cooldowns[2].remainingMs ~= nil
++    fields["timers.cooldowns_remaining_ms"] = cooldownKnown
++        and Field("PARTIAL", "Cat2.GetSpellCooldown()", cooldowns)
++        or Field("MISSING", "Cat2.GetSpellCooldown()")
++
++    local mh = state and state.mainHandSwingRemainingKnown
++        and Milliseconds(state.mainHandSwingRemaining) or nil
++    fields["timers.main_hand_swing_remaining_ms"] = NumberField(
++        mh, "Cat2.GetMainHandLeft() validated by BuildState", "PARTIAL")
++    fields["timers.off_hand_swing_remaining_ms"] = Field(
++        "MISSING", "no validated off-hand swing anchor")
++
++    local queue = state and state.queuedSwingKnown and state.queuedSwing or nil
++    if queue == "KEEP" then queue = "NONE" end
++    fields["queue.next_swing"] = queue
++        and Field("PARTIAL", "Cat2 action-bar IsCurrentAction probe", queue)
++        or Field("MISSING", "next-swing queue not observable at boundary")
++
++    fields["player.self_auras_and_procs"] = type(UnitBuff) == "function"
++        and Field("PARTIAL", "UnitBuff(player), duration/caster unavailable",
++            CaptureAuras(UnitBuff, "player"))
++        or Field("MISSING", "UnitBuff unavailable")
++    fields["target.candidate_owned_existing_debuffs"] = Field(
++        "MISSING", "UnitDebuff(target) does not prove caster ownership or duration")
++    return fields
++end
++
++local function Stamp(ordinal)
++    return {
++        epochSeconds = type(time) == "function" and time() or nil,
++        getTimeSeconds = Now(),
++        causalOrdinal = ordinal,
++    }
++end
++
++local function AllocateOrdinal()
++    local brain = BrainOfCat.PolicyBrain
++    if type(brain) == "table"
++        and type(brain.AllocateCausalOrdinal) == "function" then
++        return brain.AllocateCausalOrdinal()
++    end
++    return nil
++end
++
++local function Queue(kind, trigger, extras, ordinal)
++    if not checkpoint.SessionId then
++        return
++    end
++    journalSequence = journalSequence + 1
++    local document = {
++        schema = checkpoint.Schema,
++        kind = kind,
++        sessionId = checkpoint.SessionId,
++        characterKey = CharacterKey(),
++        pullId = checkpoint.PullId,
++        playerGuid = PlayerGuid(),
++        at = Stamp(ordinal or AllocateOrdinal()),
++        sequence = journalSequence,
++        trigger = trigger,
++    }
++    if type(extras) == "table" then
++        for key, value in pairs(extras) do document[key] = value end
++    end
++    table.insert(pending, document)
++    if table.getn(pending) > 256 then
++        table.remove(pending, 1)
++        checkpoint.DroppedCount = checkpoint.DroppedCount + 1
++    end
++end
++
++local function Capture(trigger, state)
++    if not checkpoint.PullId then return end
++    local target = CaptureTarget()
++    local guid = target and target.guid or nil
++    local zone = type(GetRealZoneText) == "function" and GetRealZoneText()
++        or (type(GetZoneText) == "function" and GetZoneText() or nil)
++    Queue("checkpoint", trigger, {
++        targetGuid = guid,
++        targets = target and { target } or {},
++        targetRegistryQuality = "PARTIAL_VISIBLE_TARGET_ONLY",
++        instance = { zone = zone, idQuality = "MISSING" },
++        fields = CaptureFields(state, target),
++        visibleTargetDebuffs = target and type(UnitDebuff) == "function"
++            and CaptureAuras(UnitDebuff, "target") or nil,
++    })
++    lastCheckpointAt = Now()
++end
++
++local function CaptureEquipment()
++    local equipment = {}
++    local key = ""
++    if type(GetInventoryItemLink) ~= "function" then return equipment, key end
++    for slot = 1, 19 do
++        local link = GetInventoryItemLink("player", slot)
++        if link then table.insert(equipment, { slot = slot, link = link }) end
++        key = key .. tostring(link or "-") .. ";"
++    end
++    return equipment, key
++end
++
++local function CaptureBinding(trigger)
++    local equipment, key = CaptureEquipment()
++    if key == lastEquipmentKey
++        and trigger ~= "player_login" and trigger ~= "pull_start" then return end
++    lastEquipmentKey = key
++    local talents = {}
++    if type(GetNumTalentTabs) == "function"
++        and type(GetNumTalents) == "function"
++        and type(GetTalentInfo) == "function" then
++        for tab = 1, GetNumTalentTabs() or 0 do
++            for index = 1, GetNumTalents(tab) or 0 do
++                local name, _, _, _, rank = GetTalentInfo(tab, index)
++                if tonumber(rank) and rank > 0 then
++                    table.insert(talents, {
++                        tab = tab, index = index, name = name, rank = rank,
++                    })
++                end
++            end
++        end
++    end
++    local version, build = nil, nil
++    if type(GetBuildInfo) == "function" then version, build = GetBuildInfo() end
++    Queue("binding", trigger, {
++        equipment = equipment,
++        talents = talents,
++        clientBuild = { version = version, build = build },
++    })
++end
++
++local function BeginPull(trigger)
++    if checkpoint.PullId then return end
++    pullSequence = pullSequence + 1
++    checkpoint.PullId = checkpoint.SessionId .. "/pull-" .. tostring(pullSequence)
++    lastCheckpointAt = -100
++    CaptureBinding("pull_start")
++    Capture(trigger)
++end
++
++function checkpoint.OnDecisionState(state)
++    if not checkpoint.SessionId or not IsWarrior()
++        or type(state) ~= "table" or state.inCombat ~= true then return end
++    if not checkpoint.PullId then BeginPull("first_decision_in_combat") end
++    if Now() - lastCheckpointAt >= checkpoint.IntervalSeconds then
++        Capture("decision_boundary", state)
++    end
++end
++
++function checkpoint.OnObservedEvent(record)
++    if not checkpoint.SessionId or not checkpoint.PullId
++        or type(record) ~= "table" then return end
++    local name = record.event
++    if name ~= "UNIT_CASTEVENT" and name ~= "SPELL_CAST_EVENT"
++        and name ~= "SPELL_QUEUE_EVENT" and name ~= "SPELL_START_SELF"
++        and name ~= "SPELL_GO_SELF"
++        and name ~= "SPELL_FAILED_SELF" and name ~= "SPELL_DAMAGE_EVENT_SELF"
++        and name ~= "SPELL_MISS_SELF" and name ~= "AUTO_ATTACK_SELF" then
++        return
++    end
++    Queue("event_delta", name, {
++        targetGuid = record.targetGUID or (record.state and record.state.targetGUID),
++        event = {
++            name = name,
++            kind = name == "SPELL_START_SELF" and "START"
++                or (name == "SPELL_GO_SELF" and "GO"
++                or (name == "SPELL_FAILED_SELF" and "FAIL"
++                or ((name == "SPELL_DAMAGE_EVENT_SELF"
++                    or name == "AUTO_ATTACK_SELF") and "DMG"
++                or (name == "SPELL_MISS_SELF" and "MISS"
++                or "CLIENT_OR_UNIT_CAST")))),
++            sourceGuid = record.sourceGUID,
++            targetGuid = record.targetGUID,
++            spellId = tonumber(record.spellID),
++            amount = tonumber(record.amount),
++            eventTimeSeconds = tonumber(record.time),
++            castKind = record.castKind,
++            queueEventCode = tonumber(record.queueEventCode),
++            hitInfo = tonumber(record.hitInfo),
++            missInfo = tonumber(record.missInfo),
++        },
++    }, record.causalOrdinal)
++    if Now() - lastCheckpointAt >= checkpoint.IntervalSeconds then
++        Capture("periodic_event")
++    end
++end
++
++function checkpoint.Flush()
++    if table.getn(pending) == 0 then return true end
++    if type(WriteCustomFile) ~= "function" then
++        checkpoint.LastError = "WriteCustomFile_missing"
++        return false
++    end
++    local encoder = BrainOfCat.TimerCalibrationDebug
++    if type(encoder) ~= "table" or type(encoder.JsonEncode) ~= "function" then
++        checkpoint.LastError = "JsonEncode_missing"
++        return false
++    end
++    local lines = {}
++    for index = 1, table.getn(pending) do
++        local ok, json = pcall(encoder.JsonEncode, pending[index])
++        if not ok or type(json) ~= "string" then
++            checkpoint.LastError = ok and "JsonEncode_invalid" or tostring(json)
++            return false
++        end
++        table.insert(lines, json)
++    end
++    local ok, errorMessage = pcall(
++        WriteCustomFile, checkpoint.FileName, table.concat(lines, "\n") .. "\n", "a")
++    if not ok then
++        checkpoint.LastError = tostring(errorMessage)
++        return false
++    end
++    checkpoint.WrittenCount = checkpoint.WrittenCount + table.getn(pending)
++    pending = {}
++    checkpoint.LastError = nil
++    loggedError = false
++    return true
++end
++
++local frame = CreateFrame("Frame", "BrainOfCatShadowCheckpointFrame")
++frame:RegisterEvent("PLAYER_LOGIN")
++frame:RegisterEvent("PLAYER_REGEN_DISABLED")
++frame:RegisterEvent("PLAYER_REGEN_ENABLED")
++frame:RegisterEvent("PLAYER_TARGET_CHANGED")
++frame:RegisterEvent("UNIT_INVENTORY_CHANGED")
++frame:RegisterEvent("PLAYER_LOGOUT")
++frame:SetScript("OnEvent", function()
++    if event == "PLAYER_LOGIN" then
++        if not IsWarrior() then return end
++        checkpoint.SessionId = "checkpoint-" .. tostring(type(time) == "function" and time() or 0)
++            .. "-" .. tostring(math.floor(Now() * 1000)) .. "-" .. CharacterKey()
++        CaptureBinding("player_login")
++        if type(UnitAffectingCombat) == "function"
++            and UnitAffectingCombat("player") then
++            BeginPull("login_during_combat_origin_unknown")
++        end
++    elseif not checkpoint.SessionId then
++        return
++    elseif event == "PLAYER_REGEN_DISABLED" then
++        BeginPull("combat_start")
++    elseif event == "PLAYER_REGEN_ENABLED" then
++        if checkpoint.PullId then
++            Capture("combat_end")
++            checkpoint.PullId = nil
++        end
++        checkpoint.Flush()
++    elseif event == "PLAYER_TARGET_CHANGED" then
++        if checkpoint.PullId then Capture("target_changed") end
++    elseif event == "UNIT_INVENTORY_CHANGED" then
++        if arg1 == "player" then CaptureBinding("equipment_changed") end
++    elseif event == "PLAYER_LOGOUT" then
++        if checkpoint.PullId then Capture("logout_during_combat") end
++        checkpoint.Flush()
++    end
++end)
++frame:SetScript("OnUpdate", function()
++    if table.getn(pending) == 0 then return end
++    flushElapsed = flushElapsed + (arg1 or 0)
++    if flushElapsed < checkpoint.FlushSeconds then return end
++    flushElapsed = 0
++    if not checkpoint.Flush() and not loggedError then
++        loggedError = true
++        if DEFAULT_CHAT_FRAME then
++            DEFAULT_CHAT_FRAME:AddMessage(
++                "|cff6bc7e0BrainOfCat checkpoint：|r写入失败="
++                .. tostring(checkpoint.LastError))
++        end
++    end
++end)

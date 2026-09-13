@@ -614,3 +614,15 @@ simulator 侧发布 dynamic-v4 与响应式队友事件链：
 最终定向回归包括 causal caller / historical checkpoint 79/79 和 dynamic-v4 / responsive v14 38/38；完整 Python 回归为 2180 tests / 1190.906 s 全部通过，既有条件跳过 2 个。Go 的 core/o2o/bridge/Warrior/item/database targeted suite 通过；v14 同毫秒 wake 另有原生 Go 回归。没有网络请求、服务器大文件拉取、node001–006 任务、训练、Cat/Contra 比较或游戏内修改，也不需要 `/reload`。真实 checkpoint 是 0/9，因此 comparison、training、voting、deployment 与 superiority authorization 全部仍为 false；当前不能声称新策略优于 Cat、Contra 或离线高手。
 
 下一步采用“未来真实 raid 的轻量 Shadow checkpoint + 同一 pull 内离线严格重放”，而不是扩大 seeds 或继续榨旧 Chronicle。旧 9 个窗口永久保留为 partial/offline-prior cohort；新 raid 另建 exact-checkpoint cohort。先纯离线实现 `brainofcat_shadow_checkpoint/v1` schema、validator/importer、Chronicle 严格时间/GUID join、checkpoint→simulator player-state restore 接口和旧 9 wave pull-origin feasibility manifest；然后插件只需一次 `/reload`，正常打一场 Upper Kara raid，按事件增量加周期 checkpoint 写 CustomData，不需要每波或结束时 reload。checkpoint 至少记录 absolute rage、stance、GCD/相关 CD、MH/OH swing anchor/remaining、queue、self aura/proc、所有 prefix-visible hostile 的 max/current HP/attackable，以及 candidate-owned debuff。此后再构造真实 teammate runtime、future target arrival 与 B/C 的 START/GO/FAIL causal receipt，完成 held-out 单 wave matched baseline 后才决定是否派发六节点搜索。
+
+## 15. 2026-09-13：Shadow checkpoint 采集/导入与有限原生恢复
+
+已生成旧 9 个 exact-source 窗口的 pull-origin feasibility manifest：9/9 为 `HISTORICAL_PARTIAL_OFFLINE_PRIOR`，0/9 可从现有 Chronicle 输入作精确 pull-origin 重放。原因不是缺少资源变化事件，而是没有 pull 起点的绝对角色/目标状态；旧窗口继续用于离线先验和机制诊断，不进入 exact-source 胜负比较。
+
+游戏插件新增独立 `addon/ShadowCheckpoint.lua`。每个 pull 起点绑定当前装备/天赋，战斗开始、目标变化及约每 5 秒的决策/事件边界采样；START/GO/FAIL/DMG 等已有 typed 事件另作轻量增量记录，每 2 秒批量 append 到 `WoW/CustomData/BrainOfCatShadowCheckpoints.jsonl`。它只观察当前可见目标；副手挥击、完整 aura/proc 剩余时长与归属、候选已拥有 debuff 等缺失项保持 `MISSING/PARTIAL`，不填零。独立审查发现并修复了 Nampower `UnitBuff` 的 spellId 在第 3 返回位、`UnitDebuff` 在第 4 返回位的真实错位；已安装到本地 addon，同时将自有增量补丁收于 `addon_patches/`，尚未经过 WoW 客户端 `/reload` 验证。
+
+离线 `brainofcat_shadow_checkpoint/v1` importer 校验逐字段来源与质量，并单遍归并 Chronicle encounter 的时间/GUID 与少量事件签名，不把大型事件流读入内存。客户端 Unix 秒与 Chronicle 服务端 EventMeta 无已验证偏移；即使唯一匹配或获得客户端事件双侧锚，也分别只标为粗匹配或客户端观察夹逼，`exact_event_order_equivalent=false`。当前采集仅覆盖选中目标，因此 v1 `exactCheckpointReady=false`；未来若要准入，需独立证明所有 prefix-visible 目标和真实服务端 cutoff，而不是修改标签。
+
+原生 simulator `load_dynamic_v5` 在首个事件前恢复 Warrior 怒气、姿态、GCD、显式列出的技能 CD、主/副手挥击 deadline，并延续 v4 的 target max/current HP；非空 next-swing queue、self aura/proc 或候选已拥有 debuff 明确拒绝。Python bridge 提供 typed checkpoint 接口，当前插件记录因不完整会在进入原生桥前拒绝。此能力只经过合成/本地原生 smoke，不能把旧 9 窗口或下一场 raid 自动升级为 exact comparison。
+
+本阶段的新 checkpoint/importer/addon/bridge 定向回归 17/17 OK，dynamic bridge v2–v5 联合 17/17 OK；v15 补丁在固定 upstream+v14 上干净应用，Go core/o2o/bridge/Warrior 定向测试通过。它们是代码/合成原生验证，不是客户端加载或真实 raid 证据。没有六节点搜索、策略训练、Cat/Contra 胜负或上线接管。下一步先经一次客户端 `/reload` 确认 Lua 加载和真实 CustomData wire，再用一场正常 raid 的轻量记录核对字段覆盖与 Chronicle 对齐；已知 GUID 可以向客户端查询 HP，但 GUID 发现不完整，不能直接称为全波 target registry。之后针对实测缺口补全目标 registry、剩余计时器/光环与严格因果时点，才可判断是否存在 exact-ready 新 cohort。
