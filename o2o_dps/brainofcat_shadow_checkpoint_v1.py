@@ -214,7 +214,7 @@ def validate_record(raw: Mapping[str, Any]) -> dict[str, Any]:
     elif kind == "event_delta":
         event = _object(record.get("event"), "event")
         _text(event.get("name"), "event.name")
-        if event.get("kind") is not None and event["kind"] not in {"START", "GO", "FAIL", "DMG", "MISS", "CLIENT_OR_UNIT_CAST"}:
+        if event.get("kind") is not None and event["kind"] not in {"START", "GO", "FAIL", "DMG", "MISS", "CLIENT_OR_UNIT_CAST", "CLIENT_LOG_RESULT"}:
             raise ShadowCheckpointError("event.kind is not a supported server event kind")
         for name in ("sourceGuid", "targetGuid"):
             if event.get(name) is not None:

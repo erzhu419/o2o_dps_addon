@@ -1,12 +1,13 @@
 diff --git a/BrainOfCat.toc b/BrainOfCat.toc
-index 9be30ff..dab20d0 100644
+index 9be30ff..a2c5ed7 100644
 --- a/BrainOfCat.toc
 +++ b/BrainOfCat.toc
-@@ -18,5 +18,6 @@ addon\CalibrationLogger.lua
+@@ -18,5 +18,7 @@ addon\CalibrationLogger.lua
  addon\CalibrationTasks.lua
  addon\TimerCalibrationCampaign.lua
  addon\TimerCalibrationDebug.lua
 +addon\ShadowCheckpoint.lua
++addon\ShadowCheckpointSmoke.lua
  addon\ShadowPairExport.lua
  addon\ExpertTrace.lua
 diff --git a/addon/Runtime.lua b/addon/Runtime.lua
@@ -73,10 +74,10 @@ index 9445e44..bffdfb7 100644
  shadowOutcomeFrame:SetScript("OnEvent", function()
 diff --git a/addon/ShadowCheckpoint.lua b/addon/ShadowCheckpoint.lua
 new file mode 100644
-index 0000000..bc16f36
+index 0000000..24e7da5
 --- /dev/null
 +++ b/addon/ShadowCheckpoint.lua
-@@ -0,0 +1,457 @@
+@@ -0,0 +1,482 @@
 +-- Lightweight, append-only observations for later same-pull replay.  This is
 +-- evidence collection, not a simulator restore contract: missing timer and
 +-- aura fields must never be filled with zero or an empty set downstream.
@@ -92,6 +93,7 @@ index 0000000..bc16f36
 +checkpoint.LastError = nil
 +checkpoint.WrittenCount = 0
 +checkpoint.DroppedCount = 0
++checkpoint.CapturedCount = 0
 +
 +local pending = {}
 +local pullSequence = 0
@@ -351,7 +353,28 @@ index 0000000..bc16f36
 +        visibleTargetDebuffs = target and type(UnitDebuff) == "function"
 +            and CaptureAuras(UnitDebuff, "target") or nil,
 +    })
++    checkpoint.CapturedCount = checkpoint.CapturedCount + 1
 +    lastCheckpointAt = Now()
++end
++
++function checkpoint.CaptureNow(trigger)
++    if not checkpoint.PullId then return false end
++    Capture(trigger or "manual_smoke")
++    return true
++end
++
++-- Combat text is an explicitly client-only fallback when old Nampower does
++-- not emit typed white results. It never pretends to identify a server event.
++function checkpoint.RecordClientCombatText(eventName, message)
++    if not checkpoint.PullId then return false end
++    Queue("event_delta", eventName, {
++        event = {
++            name = eventName,
++            kind = "CLIENT_LOG_RESULT",
++            message = tostring(message or ""),
++        },
++    })
++    return true
 +end
 +
 +local function CaptureEquipment()
@@ -446,6 +469,9 @@ index 0000000..bc16f36
 +            missInfo = tonumber(record.missInfo),
 +        },
 +    }, record.causalOrdinal)
++    if type(checkpoint.SmokeOnTypedEvent) == "function" then
++        checkpoint.SmokeOnTypedEvent(record)
++    end
 +    if Now() - lastCheckpointAt >= checkpoint.IntervalSeconds then
 +        Capture("periodic_event")
 +    end
@@ -471,10 +497,10 @@ index 0000000..bc16f36
 +        end
 +        table.insert(lines, json)
 +    end
-+    local ok, errorMessage = pcall(
++    local ok, written, errorMessage = pcall(
 +        WriteCustomFile, checkpoint.FileName, table.concat(lines, "\n") .. "\n", "a")
-+    if not ok then
-+        checkpoint.LastError = tostring(errorMessage)
++    if not ok or written == false then
++        checkpoint.LastError = tostring(not ok and written or errorMessage or "WriteCustomFile_false")
 +        return false
 +    end
 +    checkpoint.WrittenCount = checkpoint.WrittenCount + table.getn(pending)
@@ -532,5 +558,371 @@ index 0000000..bc16f36
 +                "|cff6bc7e0BrainOfCat checkpoint：|r写入失败="
 +                .. tostring(checkpoint.LastError))
 +        end
++    end
++end)
+diff --git a/addon/ShadowCheckpointSmoke.lua b/addon/ShadowCheckpointSmoke.lua
+new file mode 100644
+index 0000000..874f0e4
+--- /dev/null
++++ b/addon/ShadowCheckpointSmoke.lua
+@@ -0,0 +1,360 @@
++-- One-key client smoke for the append-only Shadow checkpoint writer.  This
++-- checks actual white-result events and flushed records, never macro presses.
++local checkpoint = BrainOfCat.ShadowCheckpoint
++local smoke = { phase = "ready", nativeWhite = 0, typedWhite = 0 }
++checkpoint.Smoke = smoke
++
++local macroName = "BoC采集"
++local macroBody = "/boccp press"
++local guide = CreateFrame("Frame", "BrainOfCatCheckpointSmokeGuide", UIParent)
++guide:SetWidth(470)
++guide:SetHeight(112)
++guide:SetPoint("TOP", UIParent, "TOP", 0, -96)
++guide:SetFrameStrata("HIGH")
++guide:SetBackdrop({
++    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
++    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
++    tile = true, tileSize = 16, edgeSize = 12,
++    insets = { left = 4, right = 4, top = 4, bottom = 4 },
++})
++guide:SetBackdropColor(0.02, 0.06, 0.09, 0.94)
++local title = guide:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
++title:SetPoint("TOPLEFT", guide, "TOPLEFT", 13, -12)
++title:SetPoint("TOPRIGHT", guide, "TOPRIGHT", -13, -12)
++title:SetJustifyH("LEFT")
++local progress = guide:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
++progress:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
++progress:SetPoint("TOPRIGHT", title, "BOTTOMRIGHT", 0, -8)
++progress:SetJustifyH("LEFT")
++local action = guide:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++action:SetPoint("TOPLEFT", progress, "BOTTOMLEFT", 0, -8)
++action:SetPoint("TOPRIGHT", progress, "BOTTOMRIGHT", 0, -8)
++action:SetHeight(52)
++action:SetJustifyH("LEFT")
++action:SetJustifyV("TOP")
++guide:Hide()
++
++local function Show(header, detail, instruction)
++    title:SetText(header)
++    progress:SetText(detail)
++    action:SetText(instruction)
++    guide:Show()
++end
++
++local function Now()
++    return type(GetTime) == "function" and GetTime() or 0
++end
++
++local function HideOldGuides()
++    local tasks = BrainOfCat.CalibrationTasks
++    if type(tasks) == "table" and type(tasks.HideGuide) == "function" then
++        tasks.HideGuide()
++    end
++    local bridge = BrainOfCat.Cat2Bridge
++    if type(bridge) == "table" and bridge.ProgressPanel then
++        bridge.ProgressPanel:Hide()
++    end
++end
++
++local function AttackActionState()
++    if type(IsAttackAction) ~= "function"
++        or type(IsCurrentAction) ~= "function" then return nil, nil end
++    for slot = 1, 72 do
++        if IsAttackAction(slot) then
++            return slot, IsCurrentAction(slot) and true or false
++        end
++    end
++    return nil, nil
++end
++
++local function StartAttackFromPress(firstPress)
++    local slot, current = AttackActionState()
++    if slot and type(UseAction) == "function" then
++        if not current then UseAction(slot) end
++        return true
++    end
++    -- The fallback is requested only once per smoke, never on a repeated
++    -- macro press; AttackTarget itself can toggle an ongoing white attack.
++    if firstPress and type(Cat2) == "table"
++        and type(Cat2.StartAttack) == "function" then
++        Cat2.StartAttack()
++        return true
++    end
++    return false
++end
++
++local function StopAttackFromPress()
++    local slot, current = AttackActionState()
++    if slot and current and type(UseAction) == "function" then
++        UseAction(slot)
++        return true
++    end
++    if type(Cat2) == "table" and Cat2.AutoAttack == true
++        and type(Cat2.StopAttack) == "function" then
++        Cat2.StopAttack()
++        return true
++    end
++    return false
++end
++
++local function EndOwnedTelemetry(reason)
++    if not smoke.ownsTelemetry then return end
++    smoke.ownsTelemetry = false
++    local logger = BrainOfCat.CalibrationLogger
++    if type(logger) == "table"
++        and type(logger.EndShadowOutcomeSession) == "function" then
++        logger.EndShadowOutcomeSession(reason)
++    end
++end
++
++local function ResultCount()
++    return smoke.nativeWhite + smoke.typedWhite
++end
++
++local function RenderRunning()
++    local elapsed = smoke.pullStartedAt and math.floor(Now() - smoke.pullStartedAt) or 0
++    local captures = checkpoint.CapturedCount - smoke.capturedBefore
++    local written = checkpoint.WrittenCount - smoke.writtenBefore
++    local telemetry = smoke.telemetryError and
++        ("；typed不可用=" .. tostring(smoke.telemetryError)) or ""
++    Show(
++        "BrainOfCat checkpoint · 阶段 2/3 保持平砍",
++        tostring(elapsed) .. "/15 秒；白字结果：原生 " .. tostring(smoke.nativeWhite)
++            .. " / typed " .. tostring(smoke.typedWhite)
++            .. "；状态采样 " .. tostring(captures) .. "；已写盘 " .. tostring(written),
++        "现在不用再按宏，也不要释放技能；保持攻击木桩。"
++            .. telemetry
++    )
++end
++
++local function Finish()
++    if not checkpoint.Flush() then
++        smoke.phase = "write_failed"
++        Show("BrainOfCat checkpoint · 写盘失败", tostring(checkpoint.LastError),
++            "日志仍在内存，先别 /reload；请把屏幕上的错误发给我。")
++        return
++    end
++    if checkpoint.DroppedCount > smoke.droppedBefore then
++        smoke.phase = "write_failed"
++        Show("BrainOfCat checkpoint · 日志缓冲溢出", "已丢失采集记录",
++            "先别 /reload；请把这条提示发给我。")
++        return
++    end
++    if checkpoint.WrittenCount - smoke.writtenBefore < 2 then
++        smoke.phase = "write_failed"
++        Show("BrainOfCat checkpoint · 写盘未闭合", "不足 2 条新记录已写盘",
++            "先别 /reload；请把这条提示发给我。")
++        return
++    end
++    smoke.phase = "complete"
++    EndOwnedTelemetry("checkpoint_smoke_complete")
++    Show(
++        "BrainOfCat checkpoint · 阶段 3/3 已完成",
++        "真实白字结果：原生 " .. tostring(smoke.nativeWhite)
++            .. " / typed " .. tostring(smoke.typedWhite)
++            .. "；状态采样 " .. tostring(checkpoint.CapturedCount - smoke.capturedBefore)
++            .. "；已写盘 " .. tostring(checkpoint.WrittenCount - smoke.writtenBefore),
++        "数据已写入 CustomData，不用 /reload。再按一次同一宏可停止平砍。"
++    )
++end
++
++function checkpoint.SmokeOnTypedEvent(record)
++    if smoke.phase == "running" and record.event == "AUTO_ATTACK_SELF" then
++        smoke.typedWhite = smoke.typedWhite + 1
++    end
++end
++
++function checkpoint.SmokeOneKey()
++    if smoke.phase == "write_failed" then
++        Show("BrainOfCat checkpoint · 写盘失败", tostring(checkpoint.LastError or "记录未闭合"),
++            "先别 /reload；请把这条提示发给我。")
++        return
++    end
++    if smoke.phase == "complete" then
++        if smoke.stopRequested then return end
++        smoke.stopRequested = true
++        if StopAttackFromPress() then
++            action:SetText("平砍已停止；日志已写盘，不用 /reload。")
++        else
++            action:SetText("日志已写盘；若仍在平砍，请手动停止攻击。")
++        end
++        return
++    end
++    if smoke.phase == "running" then
++        StartAttackFromPress(false)
++        RenderRunning()
++        return
++    end
++    local exists, guid = nil, nil
++    if type(UnitExists) == "function" then
++        exists, guid = UnitExists("target")
++    end
++    if not exists or type(guid) ~= "string" or guid == ""
++        or type(UnitCanAttack) ~= "function"
++        or not UnitCanAttack("player", "target") then
++        Show("BrainOfCat checkpoint · 阶段 1/3", "尚未选中可攻击木桩",
++            "选中木桩后再按同一个“BoC采集”宏。")
++        return
++    end
++    if not checkpoint.SessionId or type(WriteCustomFile) ~= "function" then
++        Show("BrainOfCat checkpoint · 无法开始", "采集器或 CustomData 未就绪",
++            "请把这条提示发给我；现在不用 /reload。")
++        return
++    end
++    local logger = BrainOfCat.CalibrationLogger
++    local alreadyActive = type(logger) == "table"
++        and logger.shadowOutcomeSessionActive == true
++    smoke.telemetryError = nil
++    smoke.ownsTelemetry = false
++    if type(logger) == "table" and logger.enabled ~= true
++        and type(logger.BeginShadowOutcomeSession) == "function" then
++        local ready, reason = logger.BeginShadowOutcomeSession()
++        if ready and not alreadyActive then smoke.ownsTelemetry = true end
++        if not ready then smoke.telemetryError = reason or "unknown" end
++    end
++    smoke.phase = "running"
++    smoke.pressedAt = Now()
++    smoke.pullStartedAt = nil
++    smoke.lastCaptureAt = nil
++    smoke.nativeWhite = 0
++    smoke.typedWhite = 0
++    smoke.stopRequested = false
++    smoke.capturedBefore = checkpoint.CapturedCount
++    smoke.writtenBefore = checkpoint.WrittenCount
++    smoke.droppedBefore = checkpoint.DroppedCount
++    HideOldGuides()
++    StartAttackFromPress(true)
++    RenderRunning()
++end
++
++local function FindMacro()
++    if type(GetMacroIndexByName) == "function" then
++        local index = tonumber(GetMacroIndexByName(macroName)) or 0
++        if index > 0 then return index end
++    end
++    if type(GetMacroInfo) == "function" then
++        for index = 1, 36 do
++            local name = GetMacroInfo(index)
++            if name == macroName then return index end
++        end
++    end
++    return nil
++end
++
++function checkpoint.CreateSmokeMacro()
++    HideOldGuides()
++    local index = FindMacro()
++    if index and type(EditMacro) == "function" then
++        local _, _, _, isLocal = GetMacroInfo(index)
++        local ok = pcall(EditMacro, index, macroName, 1, macroBody, isLocal)
++        if not ok then index = nil end
++    elseif not index and type(CreateMacro) == "function" then
++        local ok, created = pcall(CreateMacro, macroName, 1, macroBody, nil, true)
++        index = ok and tonumber(created) or nil
++    end
++    if not index then
++        Show("BrainOfCat checkpoint · 宏创建失败", "手动创建“BoC采集”宏",
++            "宏内容：" .. macroBody)
++        return false
++    end
++    local picked = false
++    if type(PickupMacro) == "function" then picked = pcall(PickupMacro, index) end
++    Show("BrainOfCat checkpoint · 阶段 1/3 宏已就绪",
++        picked and "宏已放到鼠标上" or "宏已创建",
++        "放到动作条并绑定一个键；选中木桩后只按这个键一次。")
++    return true
++end
++
++SLASH_BOC_CHECKPOINT1 = "/boccp"
++SlashCmdList["BOC_CHECKPOINT"] = function(message)
++    local command = string.lower(tostring(message or ""))
++    if command == "macro" then
++        checkpoint.CreateSmokeMacro()
++    elseif command == "press" then
++        checkpoint.SmokeOneKey()
++    else
++        if smoke.phase == "running" then RenderRunning()
++        elseif smoke.phase == "complete" then
++            Show("BrainOfCat checkpoint · 已完成",
++                "状态采样和白字结果已写盘", "无需 /reload；如仍在平砍，再按“BoC采集”可停止。")
++        else
++            Show("BrainOfCat checkpoint · 阶段 1/3",
++                "输入 /boccp macro 自动创建“BoC采集”宏",
++                "把宏放到动作条，选中木桩后按一次。")
++        end
++    end
++end
++
++local frame = CreateFrame("Frame", "BrainOfCatCheckpointSmokeFrame")
++frame:RegisterEvent("PLAYER_LOGIN")
++frame:RegisterEvent("PLAYER_REGEN_ENABLED")
++frame:RegisterEvent("CHAT_MSG_COMBAT_SELF_HITS")
++frame:RegisterEvent("CHAT_MSG_COMBAT_SELF_MISSES")
++frame:RegisterEvent("PLAYER_LOGOUT")
++frame:SetScript("OnEvent", function()
++    if event == "PLAYER_LOGIN" then
++        local _, classFile = UnitClass("player")
++        if classFile == "WARRIOR" then
++            Show("BrainOfCat checkpoint · 阶段 1/3",
++                "输入 /boccp macro 自动创建“BoC采集”宏",
++                "把宏放到动作条，选中木桩后按一次；不用旧的“BoC标定”宏。")
++        end
++    elseif event == "CHAT_MSG_COMBAT_SELF_HITS"
++        or event == "CHAT_MSG_COMBAT_SELF_MISSES" then
++        if smoke.phase == "running"
++            and checkpoint.RecordClientCombatText(event, arg1) then
++            smoke.nativeWhite = smoke.nativeWhite + 1
++        end
++    elseif event == "PLAYER_REGEN_ENABLED" then
++        if smoke.phase == "running" then
++            if smoke.pullStartedAt and Now() - smoke.pullStartedAt >= 15
++                and ResultCount() > 0
++                and checkpoint.CapturedCount - smoke.capturedBefore >= 2 then
++                Finish()
++            else
++                smoke.phase = "retry"
++                EndOwnedTelemetry("checkpoint_smoke_interrupted")
++                Show("BrainOfCat checkpoint · 战斗提前结束",
++                    "本轮未达到 15 秒且有真实白字的完成条件",
++                    "选一个能持续战斗的木桩，再按同一个宏重试。")
++            end
++        end
++    elseif event == "PLAYER_LOGOUT" then
++        EndOwnedTelemetry("checkpoint_smoke_logout")
++    end
++end)
++
++local elapsedUpdate = 0
++frame:SetScript("OnUpdate", function()
++    if smoke.phase ~= "running" then return end
++    elapsedUpdate = elapsedUpdate + (arg1 or 0)
++    if elapsedUpdate < 0.5 then return end
++    elapsedUpdate = 0
++    local now = Now()
++    if not checkpoint.PullId then
++        if now - smoke.pressedAt >= 8 then
++            Show("BrainOfCat checkpoint · 尚未进入战斗", "未观察到 pull 起点",
++                "检查是否在平砍木桩；若攻击未启动，把“攻击”放到动作条，再按同一宏。")
++        end
++        return
++    end
++    if not smoke.pullStartedAt then
++        smoke.pullStartedAt = now
++        smoke.lastCaptureAt = now
++    end
++    if now - smoke.lastCaptureAt >= checkpoint.IntervalSeconds then
++        checkpoint.CaptureNow("smoke_periodic")
++        smoke.lastCaptureAt = now
++    end
++    if now - smoke.pullStartedAt >= 15 and ResultCount() > 0
++        and checkpoint.CapturedCount - smoke.capturedBefore >= 2 then
++        Finish()
++    elseif now - smoke.pullStartedAt >= 30 and ResultCount() == 0 then
++        smoke.phase = "retry"
++        EndOwnedTelemetry("checkpoint_smoke_no_white_result")
++        Show("BrainOfCat checkpoint · 没收到平砍结果", "已有状态但没有白字事件",
++            "确认在攻击木桩，再按同一宏重试；日志已保留。")
++    else
++        RenderRunning()
 +    end
 +end)

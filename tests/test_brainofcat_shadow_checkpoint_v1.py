@@ -66,6 +66,17 @@ def _chronicle(timestamp: int, *, amount: int = 1800, event_index: int = 1,
 
 
 class ShadowCheckpointV1Tests(unittest.TestCase):
+    def test_client_combat_message_is_kept_but_not_a_server_anchor(self) -> None:
+        row = _base("event_delta", 12)
+        row["event"] = {
+            "name": "CHAT_MSG_COMBAT_SELF_HITS",
+            "kind": "CLIENT_LOG_RESULT",
+            "message": "client white-result text",
+        }
+        validated = checkpoint.validate_record(row)
+        self.assertEqual(validated["event"]["kind"], "CLIENT_LOG_RESULT")
+        self.assertIsNone(checkpoint._signature(validated, chronicle=False))
+
     def test_partial_client_checkpoint_is_retained_without_default_fill(self) -> None:
         validated = checkpoint.validate_record(_base())
         self.assertFalse(validated["exactCheckpointReady"])

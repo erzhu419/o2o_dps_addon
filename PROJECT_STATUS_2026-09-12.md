@@ -626,3 +626,9 @@ simulator 侧发布 dynamic-v4 与响应式队友事件链：
 原生 simulator `load_dynamic_v5` 在首个事件前恢复 Warrior 怒气、姿态、GCD、显式列出的技能 CD、主/副手挥击 deadline，并延续 v4 的 target max/current HP；非空 next-swing queue、self aura/proc 或候选已拥有 debuff 明确拒绝。Python bridge 提供 typed checkpoint 接口，当前插件记录因不完整会在进入原生桥前拒绝。此能力只经过合成/本地原生 smoke，不能把旧 9 窗口或下一场 raid 自动升级为 exact comparison。
 
 本阶段的新 checkpoint/importer/addon/bridge 定向回归 17/17 OK，dynamic bridge v2–v5 联合 17/17 OK；v15 补丁在固定 upstream+v14 上干净应用，Go core/o2o/bridge/Warrior 定向测试通过。它们是代码/合成原生验证，不是客户端加载或真实 raid 证据。没有六节点搜索、策略训练、Cat/Contra 胜负或上线接管。下一步先经一次客户端 `/reload` 加短时木桩战斗确认 Lua 加载、真实 CustomData wire 和字段质量；当前 v1 必然缺完整目标 registry，不应为了它专门消耗一场 raid。已知 GUID 可以向客户端查询 HP，但 GUID 发现不完整，不能直接称为全波 target registry。针对实测缺口补全目标 registry、剩余计时器/光环与严格因果时点后，再判断何时值得采集正常 raid 的 exact-ready 新 cohort。
+
+## 16. 2026-09-13：一键木桩短测与游戏内引导
+
+新增独立“BoC采集”角色宏（`/boccp press`），可在游戏内输入 `/boccp macro` 自动创建并放到鼠标上；不复用会执行旧标定动作的“BoC标定”，也不调用完整 Cat2 技能循环。顶部提示依次显示选木桩/放宏、保持平砍、真实结果与状态写盘完成。重复按宏只检查攻击按钮当前状态，不反复调用可能切换平砍的 `AttackTarget`；满 15 秒且有至少一个真实白字结果、两次状态采样并成功写盘才完成。完成后同一宏可尝试停止攻击，不需要第二次 `/reload`。
+
+Nampower 4.1 的 typed 白字可能因既有 CVar 读取失败而缺席；短测独立尝试开启 typed 会话，但同时记录 WoW 原生 `CHAT_MSG_COMBAT_SELF_HITS/MISSES` 作为明确标注的客户端低质量结果。两种来源在顶部分别计数，原生文字不能伪装成 Chronicle EventMeta 锚。现有相关静态/导入器/bridge 联合回归 21/21 OK，增量 addon 补丁反向匹配已安装文件；仍须一次客户端 `/reload` 证实 Lua、宏创建、CustomData 和真实事件链。
