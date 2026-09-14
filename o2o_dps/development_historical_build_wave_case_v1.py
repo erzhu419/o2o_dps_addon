@@ -11,7 +11,7 @@ from copy import deepcopy
 from dataclasses import replace
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .build_request_composer_v1 import (
     EncounterModel,
@@ -30,6 +30,7 @@ from .fury_contra_adapter_v2 import ContraEvidenceKindV2, ContraFieldEvidenceV2
 from .fury_dynamic_target_semantics_v5 import DynamicRolloutLoadV3
 from .fury_paired_multiseed_runner_v2 import sha256_json
 from .historical_representative_character_profile_v1 import (
+    DEFAULT_SELECTOR_MANIFEST,
     load_historical_representative_character_profile,
 )
 
@@ -49,14 +50,17 @@ _CONTRA_BROTHERHOOD_NAMES = {
 }
 
 
-def _equipment_names(items: list[dict[str, Any]], database_path: Path) -> tuple[str, ...]:
+def _item_definitions(database_path: Path) -> dict[int, dict[str, Any]]:
     database = json.loads(database_path.read_text(encoding="utf-8"))
-    names_by_id = {
-        int(row["id"]): str(row["name"])
+    return {
+        int(row["id"]): row
         for row in database["items"]
         if isinstance(row, dict) and isinstance(row.get("id"), int)
-        and isinstance(row.get("name"), str) and row["name"]
     }
+
+
+def _equipment_names(items: list[dict[str, Any]], database_path: Path) -> tuple[str, ...]:
+    definitions = _item_definitions(database_path)
     names: list[str] = []
     for index, item in enumerate(items):
         if item == {}:  # observed empty simulator slot, e.g. two-hand offhand
@@ -66,10 +70,43 @@ def _equipment_names(items: list[dict[str, Any]], database_path: Path) -> tuple[
             raise ValueError(f"equipment.items[{index}] has no integer item id")
         if item_id <= 0:
             continue
-        if item_id not in names_by_id:
+        definition = definitions.get(item_id)
+        if (
+            definition is None
+            or not isinstance(definition.get("name"), str)
+            or not definition["name"]
+        ):
             raise ValueError(f"item {item_id} has no name in the pinned simulator database")
-        names.append(_CONTRA_BROTHERHOOD_NAMES.get(item_id, names_by_id[item_id]))
+        names.append(_CONTRA_BROTHERHOOD_NAMES.get(item_id, definition["name"]))
     return tuple(names)
+
+
+def _weapon_mode(items: list[dict[str, Any]], database_path: Path) -> str:
+    """Classify swinging weapons; an equipped shield is not dual wield."""
+
+    if len(items) < 16:
+        return "UNKNOWN"
+    definitions = _item_definitions(database_path)
+
+    def definition(index: int) -> dict[str, Any] | None:
+        raw = items[index]
+        if not isinstance(raw, dict):
+            return None
+        identifier = raw.get("id")
+        return definitions.get(identifier) if isinstance(identifier, int) else None
+
+    main, off = definition(14), definition(15)
+    if main is None or main.get("type") != 13:
+        return "UNKNOWN"
+    if main.get("handType") == 4:
+        return "TWO_HAND" if off is None else "UNKNOWN"
+    if not isinstance(main.get("weaponSpeed"), (int, float)):
+        return "UNKNOWN"
+    if off is None:
+        return "ONE_HAND"
+    if isinstance(off.get("weaponSpeed"), (int, float)) and off["weaponSpeed"] > 0:
+        return "DUAL_WIELD"
+    return "ONE_HAND_WITH_EQUIPPED_OFFHAND"
 
 
 def build_historical_representative_development_wave_case_v1(
@@ -77,12 +114,16 @@ def build_historical_representative_development_wave_case_v1(
     *,
     rank: int = 7,
     item_database_path: Path = DEFAULT_ITEM_DATABASE,
+    selector_manifest_path: Path = DEFAULT_SELECTOR_MANIFEST,
+    profile_path_overrides: Mapping[str, str | Path] | None = None,
 ) -> DevelopmentWaveCaseV1:
     """Import one verified representative without inheriting live-player state."""
 
     environment = build_development_wave_case_v1(seed)
     character = load_historical_representative_character_profile(
-        rank=rank, consumes={}, database={},
+        selector_manifest_path,
+        rank=rank, path_overrides=profile_path_overrides,
+        consumes={}, database={},
     )
     learned_talents = character.selection.record["state"]["talents"]
     if not any(
@@ -127,8 +168,7 @@ def build_historical_representative_development_wave_case_v1(
     request["simOptions"].pop("randomSeed")  # dynamic load binds paired seed
     load = DynamicRolloutLoadV3.bind(request, seed, environment.dynamic_load.config)
     player = request["raid"]["parties"][0]["players"][0]
-    offhand_item = player["equipment"]["items"][15]
-    dual_wield = isinstance(offhand_item, dict) and isinstance(offhand_item.get("id"), int) and offhand_item["id"] > 0
+    weapon_mode = _weapon_mode(player["equipment"]["items"], item_database_path)
     equipped_names = _equipment_names(
         player["equipment"]["items"], item_database_path
     )
@@ -159,12 +199,17 @@ def build_historical_representative_development_wave_case_v1(
         "historical_player_policy_used": False,
         "baseline_fidelity": {
             "deployed_contra_source_branch": "RAID_A_ONLY",
-            "weapon_mode": "DUAL_WIELD" if dual_wield else "TWO_HAND",
+            "weapon_mode": weapon_mode,
             "deployed_contra_build_interpretation": (
                 "RAID_A_BEHAVIOR_TRANSPLANT_ON_DUAL_WIELD_BUILD"
-                if dual_wield else "RAID_A_TWO_HAND_BUILD_CANDIDATE"
+                if weapon_mode == "DUAL_WIELD"
+                else "RAID_A_TWO_HAND_BUILD_CANDIDATE"
+                if weapon_mode == "TWO_HAND"
+                else "RAID_A_FURY_BEHAVIOR_NOT_APPLICABLE_TO_NONSWINGING_OFFHAND"
             ),
-            "source_faithful_four_way_eligible": False if dual_wield else "NOT_YET_ASSESSED",
+            "source_faithful_four_way_eligible": (
+                False if weapon_mode != "TWO_HAND" else "NOT_YET_ASSESSED"
+            ),
         },
         "historical_build": {
             "representative_rank": rank,
@@ -192,11 +237,15 @@ def build_historical_representative_development_wave_scenario_v1(
     *,
     rank: int = 7,
     item_database_path: Path = DEFAULT_ITEM_DATABASE,
+    selector_manifest_path: Path = DEFAULT_SELECTOR_MANIFEST,
+    profile_path_overrides: Mapping[str, str | Path] | None = None,
 ) -> dict[str, Any]:
     """Bind the imported build to the existing runner-v4 whole-wave wire."""
 
     case = build_historical_representative_development_wave_case_v1(
         seed, rank=rank, item_database_path=item_database_path,
+        selector_manifest_path=selector_manifest_path,
+        profile_path_overrides=profile_path_overrides,
     )
     scenario = build_development_wave_scenario_v1(seed)
     scenario["scenario_id"] = f"upper-kara-61944-historical-build-rank-{rank}-model"

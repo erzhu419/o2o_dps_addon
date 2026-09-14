@@ -5,15 +5,33 @@ import unittest
 from o2o_dps.development_historical_build_wave_case_v1 import (
     DEFAULT_ITEM_DATABASE,
     _equipment_names,
+    _weapon_mode,
     build_historical_representative_development_wave_case_v1,
     build_historical_representative_development_wave_scenario_v1,
 )
 from o2o_dps.fury_dynamic_target_semantics_v5 import validate_dynamic_load_request_v3
 from o2o_dps.fury_dynamic_v5_baseline_adapter_v4 import target_contexts_from_runner_v4
 from o2o_dps.fury_paired_multiseed_runner_v4 import normalize_runner_scenarios
+from o2o_dps.historical_representative_character_profile_v1 import (
+    DEFAULT_SELECTOR_MANIFEST,
+)
 
 
 class DevelopmentHistoricalBuildWaveCaseV1Tests(unittest.TestCase):
+    def test_relocated_compact_build_artifacts_are_supported(self) -> None:
+        derived = DEFAULT_SELECTOR_MANIFEST.parents[2]
+        case = build_historical_representative_development_wave_case_v1(
+            20260913,
+            rank=7,
+            selector_manifest_path=DEFAULT_SELECTOR_MANIFEST,
+            profile_path_overrides={
+                "representatives": DEFAULT_SELECTOR_MANIFEST.parent / "representatives.jsonl",
+                "catalog_manifest": derived / "historical_build_catalog/v1/manifest.json",
+                "catalog_data": derived / "historical_build_catalog/v1/catalog.jsonl.gz",
+            },
+        )
+        self.assertEqual(7, case.case_spec["historical_build"]["representative_rank"])
+
     def test_rank7_exact_historical_dual_wield_build_in_model_wave(self) -> None:
         case = build_historical_representative_development_wave_case_v1(20260913)
         spec = case.case_spec
@@ -75,6 +93,26 @@ class DevelopmentHistoricalBuildWaveCaseV1Tests(unittest.TestCase):
         self.assertEqual({}, items[15])
         self.assertEqual("RAID_A_TWO_HAND_BUILD_CANDIDATE", case.case_spec["baseline_fidelity"]["deployed_contra_build_interpretation"])
         self.assertEqual("NOT_YET_ASSESSED", case.case_spec["baseline_fidelity"]["source_faithful_four_way_eligible"])
+
+    def test_rank2_and_rank14_shields_are_not_classified_as_dual_wield(self) -> None:
+        for rank in (2, 14):
+            with self.subTest(rank=rank):
+                case = build_historical_representative_development_wave_case_v1(
+                    20260913, rank=rank
+                )
+                items = case.request["raid"]["parties"][0]["players"][0]["equipment"]["items"]
+                self.assertEqual(23043, items[15]["id"])
+                self.assertEqual(
+                    "ONE_HAND_WITH_EQUIPPED_OFFHAND",
+                    _weapon_mode(items, DEFAULT_ITEM_DATABASE),
+                )
+                self.assertEqual(
+                    "ONE_HAND_WITH_EQUIPPED_OFFHAND",
+                    case.case_spec["baseline_fidelity"]["weapon_mode"],
+                )
+                self.assertFalse(
+                    case.case_spec["baseline_fidelity"]["source_faithful_four_way_eligible"]
+                )
 
     def test_two_hand_empty_offhand_is_preserved_but_no_bt_is_not_panel_eligible(self) -> None:
         self.assertEqual(

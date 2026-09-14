@@ -180,6 +180,7 @@ def build_source_stratified_wave_case_v1(
             "scheduled_hit_count_to_watchdog": scheduled_count,
             "post_source_death_rate_extrapolated": True,
             "damage_per_hit": hit,
+            "damage_interval_ms": TEAM_INTERVAL_MS,
             "focal_player_direct_guid_excluded_from_source_budget": True,
         })
     raw_events.sort(key=lambda item: (item[0], item[1]))

@@ -316,6 +316,7 @@ def execute_contra260817_ordered_sinks_v4(
     *,
     attempt_id_prefix: str | None = None,
     result_bearing_action_keys: Sequence[str] = (),
+    external_press_clock: bool = False,
 ) -> JSONMap:
     """Preflight and submit one complete Contra source invocation in order."""
 
@@ -327,6 +328,8 @@ def execute_contra260817_ordered_sinks_v4(
         not isinstance(attempt_id_prefix, str) or not attempt_id_prefix
     ):
         raise TypeError("attempt_id_prefix must be nonempty or None")
+    if not isinstance(external_press_clock, bool):
+        raise TypeError("external_press_clock must be boolean")
     resolved, reasons = _preflight(bridge, decision)
     current = dict(state)
     blocked = bool(reasons)
@@ -434,7 +437,8 @@ def execute_contra260817_ordered_sinks_v4(
     accepted_queue_reentry = _accepted_swing_queue_nonconsuming(events)
     if decision.gcd == WAIT_ACTION and not accepted_queue_reentry:
         wait_event, current, wait_consumed, wait_reason = _execute_wait(
-            bridge, decision, current, blocked=blocked, consumed=consumed
+            bridge, decision, current, blocked=blocked, consumed=consumed,
+            external_press_clock=external_press_clock,
         )
         consumed = consumed or wait_consumed
         if wait_reason:
@@ -444,7 +448,8 @@ def execute_contra260817_ordered_sinks_v4(
     source_reentry_clock: JSONMap | None = None
     reentry_trigger = _source_reentry_trigger_v4(events)
     if (
-        not blocked
+        not external_press_clock
+        and not blocked
         and not consumed
         and (decision.gcd != WAIT_ACTION or accepted_queue_reentry)
         and bool(current.get("needs_input", True))
@@ -997,6 +1002,7 @@ def _execute_wait(
     *,
     blocked: bool,
     consumed: bool,
+    external_press_clock: bool = False,
 ) -> tuple[JSONMap, JSONMap, bool, str | None]:
     event: JSONMap = {
         "kind": "SOURCE_WAIT_DECISION",
@@ -1015,6 +1021,16 @@ def _execute_wait(
     if decision.wait_ms is None or decision.wait_ms <= 0:
         _not_submitted(event, "INVALID_SOURCE_WAIT")
         return event, current, False, "gcd:invalid_source_wait"
+    if external_press_clock:
+        event["external_press_disposition"] = "ABSTAINED_NO_EXTRA_KEY"
+        event["simulator_submission"] = {"status": "NOT_SUBMITTED_EXTERNAL_PRESS_CLOCK"}
+        event["simulator_acceptance"] = {"status": "NOT_APPLICABLE"}
+        event["decision_consumption"] = {
+            "status": "PHYSICAL_KEY_CLOSED_BY_FINISH_PRESS",
+            "consumes_decision": False,
+        }
+        event["simulator_outcome"] = {"status": "NO_POLICY_WAIT_SCHEDULED"}
+        return event, current, False, None
     after = bridge.wait(decision.wait_ms)
     if not isinstance(after, Mapping):
         raise Contra260817OrderedSinkExecutorV4Error("bridge.wait returned non-mapping")

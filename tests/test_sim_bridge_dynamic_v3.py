@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from o2o_dps.sim_bridge import (
     BackgroundDamageEventV1,
@@ -32,6 +32,7 @@ from o2o_dps.sim_bridge_dynamic_v3 import (
     _validate_dynamic_state_binding_v3,
     dynamic_target_semantics_config_from_wire_v3,
 )
+from o2o_dps.development_wave_team_retarget_v1 import V14ProjectedDynamicV3Bridge
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,7 @@ WINDOWS_BRIDGE = (
     / "bin"
     / "o2obridge.seedfix-v8.dynamicv3horizon.withdb.goamd64v1.windows-amd64.exe"
 )
+ATOMIC_WINDOWS_BRIDGE = PROJECT_ROOT / "bin" / "o2obridge.press-v19.exe"
 EXPECTED_WINDOWS_SHA256 = (
     "8eef6766dec7e95a991597fd319992531c2c258639f8414d64ee420524635bc4"
 )
@@ -202,6 +204,68 @@ def external_request_v3() -> dict:
 
 
 class SimulatorBridgeDynamicV3Tests(unittest.TestCase):
+    def test_atomic_press_load_sends_one_bound_command_and_checks_first_tick(self):
+        config = config_v3()
+        request = {"encounter": {"duration": 0.2}}
+        state = {
+            "time_ms": 0,
+            "finished": False,
+            "press_clock": {
+                "period_ms": 100,
+                "phase_ms": 0,
+                "press_index": 1,
+                "ready": True,
+                "next_time_ms": 0,
+            },
+        }
+        bridge = object.__new__(SimulatorBridgeDynamicV3)
+        bridge._dynamic_binding = None
+        bridge._request = Mock(return_value={
+            "dynamic_load": {},
+            "environment_generation": 1,
+            "state": state,
+        })
+        receipt = Mock(environment_generation=1)
+        with (
+            patch(
+                "o2o_dps.sim_bridge_dynamic_v3._dynamic_load_receipt_v3",
+                return_value=receipt,
+            ),
+            patch("o2o_dps.sim_bridge_dynamic_v3._validate_dynamic_state_binding_v3"),
+        ):
+            result = bridge.load_dynamic_v3_press_clock(
+                request, 71, config, period_ms=100, phase_ms=0,
+            )
+        self.assertEqual(state, result.state)
+        bridge._request.assert_called_once_with(
+            "load_dynamic_v3_press_clock",
+            request=request,
+            seed=71,
+            dynamic=config.to_wire(),
+            press_period_ms=100,
+            press_phase_ms=0,
+        )
+
+        malformed = dict(state)
+        malformed["press_clock"] = dict(state["press_clock"], period_ms=125)
+        bridge._dynamic_binding = None
+        bridge._request = Mock(return_value={
+            "dynamic_load": {},
+            "environment_generation": 1,
+            "state": malformed,
+        })
+        with (
+            patch(
+                "o2o_dps.sim_bridge_dynamic_v3._dynamic_load_receipt_v3",
+                return_value=receipt,
+            ),
+            patch("o2o_dps.sim_bridge_dynamic_v3._validate_dynamic_state_binding_v3"),
+            self.assertRaisesRegex(SimBridgeProtocolError, "atomic dynamic-v3"),
+        ):
+            bridge.load_dynamic_v3_press_clock(
+                request, 71, config, period_ms=100, phase_ms=0,
+            )
+
     def test_press_clock_commands_validate_typed_receipts(self):
         bridge = object.__new__(SimulatorBridgeDynamicV3)
         bridge._dynamic_binding = None
@@ -332,6 +396,17 @@ class SimulatorBridgeDynamicV3Tests(unittest.TestCase):
             _validate_dynamic_state_binding_v3(
                 leaked_input, generation=1, config=config
             )
+        leaked_input["press_clock"] = {
+            "period_ms": 100,
+            "phase_ms": 0,
+            "press_index": 2,
+            "ready": True,
+            "next_time_ms": 100,
+        }
+        parsed_press = _validate_dynamic_state_binding_v3(
+            leaked_input, generation=1, config=config
+        )
+        self.assertFalse(parsed_press.target_semantics.targets[0].attackable)
         terminal = bound_state_v3(config)
         terminal["finished"] = True
         terminal["num_targets"] = 0
@@ -472,6 +547,47 @@ class SimulatorBridgeDynamicV3Tests(unittest.TestCase):
                 bridge._process.stdout.close()
             if bridge._process.stderr is not None:
                 bridge._process.stderr.close()
+
+    @unittest.skipUnless(
+        os.name == "nt" and ATOMIC_WINDOWS_BRIDGE.is_file(),
+        "v19 atomic dynamic press-clock bridge is unavailable",
+    )
+    def test_real_v19_atomic_press_load_keeps_no_target_ticks_from_zero(self):
+        config = config_v3(horizon_ms=2000)
+        with V14ProjectedDynamicV3Bridge(
+            ATOMIC_WINDOWS_BRIDGE, cwd=SIMULATOR_ROOT,
+        ) as bridge:
+            loaded = bridge.load_dynamic_v3_press_clock(
+                external_request_v3(), seed=2026091407, config=config,
+                period_ms=50, phase_ms=0,
+            )
+            state = loaded.state
+            self.assertEqual(0, state["time_ms"])
+            self.assertEqual(0, state["num_targets"])
+            self.assertTrue(state["needs_input"])
+            self.assertTrue(state["press_clock"]["ready"])
+            self.assertEqual(1, state["press_clock"]["press_index"])
+            self.assertEqual(0, bridge.parsed_dynamic_state(state).idle_advance.receipts_processed)
+
+            bridge.finish_press()
+            second = bridge.advance()
+            self.assertEqual(50, second["time_ms"])
+            self.assertEqual(0, second["num_targets"])
+            self.assertEqual(2, second["press_clock"]["press_index"])
+            bridge.finish_press()
+            restored = bridge.advance()
+            self.assertEqual(100, restored["time_ms"])
+            self.assertEqual(1, restored["num_targets"])
+            self.assertEqual(3, restored["press_clock"]["press_index"])
+            self.assertEqual(0, bridge.dynamic_idle_advance_receipts(cursor=0).next_cursor)
+
+            legacy = bridge.load_dynamic_v3(
+                external_request_v3(), seed=2026091408, config=config,
+            )
+            self.assertEqual(100, legacy.state["time_ms"])
+            self.assertEqual(1, legacy.state["num_targets"])
+            self.assertNotIn("press_clock", legacy.state)
+            self.assertEqual(1, bridge.dynamic_idle_advance_receipts(cursor=0).next_cursor)
 
 
 if __name__ == "__main__":

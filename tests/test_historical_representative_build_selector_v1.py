@@ -13,6 +13,7 @@ from o2o_dps.historical_representative_build_selector_v1 import (
     CATALOG_SCHEMA,
     HistoricalRepresentativeBuildSelectorError,
     _Candidate,
+    _exact_features,
     _select_representatives,
     select_historical_representative_builds,
 )
@@ -119,6 +120,41 @@ def _distance_candidate(
 
 
 class HistoricalRepresentativeBuildSelectorV1Tests(unittest.TestCase):
+    def test_offhand_only_item_is_not_a_dual_wield_weapon(self) -> None:
+        record = _record(
+            timestamp_ms=1_100,
+            event_index=10,
+            ordinal=0,
+            item_id=200,
+            representative=True,
+        )
+        record["gear"][16] = {
+            "slot_index": 16,
+            "item_id": 300,
+            "enchant_id": None,
+            "temporary_enchant_id": None,
+            "gem_enchant_ids": [],
+        }
+        coverage = _coverage()
+        coverage["items"]["300"] = {
+            "definition_status": "KNOWN",
+            "effect_status": "NO_SPECIAL_EFFECT",
+            "calibrated_scopes": ["fixture"],
+            "weapon_mode": "OFF_HAND_ONLY",
+        }
+        segment = next(
+            row for row in compile_instance_segments(
+                _instance((record,)), coverage_registry=coverage,
+            )
+            if row["identity"]["player_guid"] == GUID
+        )
+
+        self.assertTrue(segment["coverage"]["development_build_eligible"])
+        self.assertEqual(
+            "ONE_HAND_WITH_EQUIPPED_OFFHAND",
+            _exact_features(segment)["weapon_mode"],
+        )
+
     def test_no_eligible_builds_emit_exact_blocker_and_remove_stale_output(self) -> None:
         row = _valid_segment()
         row["coverage"]["development_build_eligible"] = False

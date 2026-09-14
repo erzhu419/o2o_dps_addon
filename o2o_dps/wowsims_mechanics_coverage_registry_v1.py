@@ -71,7 +71,9 @@ ENCHANT_REGISTRATION_CALLS = ("NewEnchantEffect", "AddWeaponEffect")
 HAND_TYPE_TO_MODE = {
     1: "ONE_HAND",  # main-hand-only
     2: "ONE_HAND",
-    3: "ONE_HAND",  # off-hand-only
+    # Off-hand-only items include shields and held items.  They occupy the
+    # off-hand slot but cannot establish a second swinging weapon.
+    3: "OFF_HAND_ONLY",
     4: "TWO_HAND",
 }
 

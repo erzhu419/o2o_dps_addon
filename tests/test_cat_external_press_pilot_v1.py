@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from o2o_dps.cat_external_press_pilot_v1 import run_cat_external_press_pilot_v1
+from o2o_dps.cat_external_press_pilot_v1 import (
+    _required_targets_dead,
+    run_cat_external_press_pilot_v1,
+)
 from o2o_dps.cat_fury_full_policy_rollout_v5 import CatFurySimulatorInputsV5
 from o2o_dps.cat_fury_ordered_sink_executor_v5 import execute_cat_fury_ordered_sinks_v5
+from o2o_dps.development_wave_case_v1 import build_development_wave_case_v1
 from o2o_dps.expert_policy import ExpertDecision, ExpertProvenance, ExpertRole, ProvenanceKind
+from o2o_dps.fury_dynamic_target_semantics_v5 import DynamicRolloutLoadV3
 from o2o_dps.fury_expert_guided_search_v1 import ACTION_KEY_TO_REF
-from o2o_dps.sim_bridge import ActResult, AvailableAction
+from o2o_dps.sim_bridge import ActResult, AvailableAction, DynamicTargetHealthV1
+from o2o_dps.sim_bridge_dynamic_v3 import DynamicTargetSemanticsConfigV3
 
 
 REQUEST = {
@@ -178,6 +185,57 @@ class CatExternalPressPilotTests(unittest.TestCase):
         self.assertTrue(artifact["terminal"]["watchdog_truncated"])
         self.assertEqual(2, bridge.commands.count("finish_press"))
 
+    def test_dynamic_no_live_target_press_closes_without_policy_resolution(self):
+        seed = 2026091404
+        case = build_development_wave_case_v1(seed)
+
+        class NoTargetPressBridge(StaticPressBridge):
+            def __init__(self):
+                super().__init__()
+                self.current["num_targets"] = 0
+                self.current["dynamic_target_semantics"] = {
+                    "targets": [{
+                        "target_index": 0, "dead": False, "attackable": False,
+                    }],
+                }
+                self.current["dynamic_team_background"] = {
+                    "targets": [{"target_index": 0, "dead": False}],
+                    "simulated_damage_applied": 0.0,
+                }
+
+            def load_dynamic_v3(self, request, received_seed, config):
+                self.commands.append("load_dynamic_v3")
+                return SimpleNamespace(state=self._state())
+
+            def advance(self):
+                state = super().advance()
+                if self.current["time_ms"] >= 100:
+                    self.current["num_targets"] = 1
+                    self.current["dynamic_target_semantics"]["targets"][0][
+                        "attackable"
+                    ] = True
+                return self._state()
+
+        bridge = NoTargetPressBridge()
+        with patch(
+            "o2o_dps.cat_external_press_pilot_v1._resolve_target_semantics_v4",
+            return_value=TARGET,
+        ) as resolve:
+            artifact = run_cat_external_press_pilot_v1(
+                bridge, case.request, case.target_contexts,
+                seed=seed, period_ms=100, policy_kind="cat",
+                dynamic_load=case.dynamic_load, max_presses=3,
+            )
+        self.assertEqual("WATCHDOG_TRUNCATED_NONVOTING", artifact["status"])
+        self.assertEqual([0, 100, 200], [row["time_ms"] for row in artifact["presses"]])
+        first = artifact["presses"][0]
+        self.assertEqual(0, first["source_invocation_count"])
+        self.assertEqual("NO_LIVE_TARGET_ENVIRONMENT_NOOP", first["policy_disposition"])
+        self.assertEqual("NO_LIVE_ATTACKABLE_TARGET", first["no_live_target_reason"])
+        self.assertIsNone(first["proposal"])
+        self.assertEqual(2, resolve.call_count)
+        self.assertEqual(3, bridge.commands.count("finish_press"))
+
     def test_target_defeat_requires_observed_zero_health(self):
         class DefeatedBridge(StaticPressBridge):
             def advance(self):
@@ -188,9 +246,25 @@ class CatExternalPressPilotTests(unittest.TestCase):
                 return state
 
         artifact, _ = self._run("cat", bridge_type=DefeatedBridge)
-        self.assertEqual("TARGET_DEFEATED_SIMULATOR_ONLY_NONVOTING", artifact["status"])
+        self.assertEqual("TARGET_DEFEATED_SIMULATOR_ONLY_NONVOTING", artifact["status"], artifact["terminal"])
         self.assertEqual("MODEL_TARGET_DEFEATED", artifact["terminal"]["kind"])
         self.assertTrue(artifact["terminal"]["required_hostiles_defeated"])
+
+    def test_sink_killing_last_target_closes_key_without_finish_press(self):
+        class KillingBridge(StaticPressBridge):
+            def act(self, action, *, attempt_id=None):
+                super().act(action, attempt_id=attempt_id)
+                self.current["target_health"] = 0
+                self.current["finished"] = True
+                self.current["needs_input"] = False
+                return ActResult(True, True, True, False, self._state())
+
+        artifact, bridge = self._run("cat", bridge_type=KillingBridge)
+        self.assertEqual("TARGET_DEFEATED_SIMULATOR_ONLY_NONVOTING", artifact["status"], artifact["terminal"])
+        self.assertEqual(1, artifact["press_count"])
+        self.assertEqual("SKIPPED_MODEL_TERMINAL", artifact["presses"][0]["press_closure"])
+        self.assertIsNone(artifact["presses"][0]["finish_press_ready"])
+        self.assertNotIn("finish_press", bridge.commands)
 
     def test_unknown_static_health_does_not_report_raw_zero_as_defeat(self):
         class UnknownHealthBridge(StaticPressBridge):
@@ -245,6 +319,96 @@ class CatExternalPressPilotTests(unittest.TestCase):
         self.assertEqual([125], bridge.waits)
         self.assertEqual("SUBMITTED", receipt["wait_event"]["simulator_submission"]["status"])
         self.assertTrue(receipt["decision_consumed"])
+
+    def test_dynamic_wave_uses_same_ticks_and_requires_all_targets_dead(self):
+        seed = 2026091401
+        case = build_development_wave_case_v1(seed)
+        request = deepcopy(case.request)
+        request["encounter"]["targets"].append(deepcopy(request["encounter"]["targets"][0]))
+        request["encounter"]["targets"][1]["name"] = "Target 1"
+        health = case.dynamic_load.config.target_health[0].health
+        config = DynamicTargetSemanticsConfigV3(
+            target_health=(
+                DynamicTargetHealthV1(0, health), DynamicTargetHealthV1(1, health),
+            ),
+            idle_advance_horizon_ms=case.dynamic_load.config.idle_advance_horizon_ms,
+        )
+        load = DynamicRolloutLoadV3.bind(request, seed, config)
+        contexts = {
+            0: case.target_contexts[0],
+            1: replace(
+                case.target_contexts[0], target_index=1,
+                target_name="Target 1", context_id="target-1",
+            ),
+        }
+
+        class DynamicPressBridge(StaticPressBridge):
+            def __init__(self):
+                super().__init__()
+                self.current["target_health"] = health
+                self.current["target_health_max"] = health
+                self.current["dynamic_team_background"] = {
+                    "targets": [
+                        {"target_index": 0, "dead": False},
+                        {"target_index": 1, "dead": False},
+                    ],
+                }
+                self.current["num_targets"] = 2
+
+            def load_dynamic_v3(self, received_request, received_seed, received_config):
+                self.commands.append("load_dynamic_v3")
+                assert received_request == request
+                assert received_seed == seed
+                assert received_config == config
+                return SimpleNamespace(state=self._state())
+
+            def advance(self):
+                state = super().advance()
+                if self.current["time_ms"] >= 100:
+                    self.current["dynamic_team_background"]["targets"][0]["dead"] = True
+                    self.current["target_index"] = 1
+                    self.current["num_targets"] = 1
+                if self.current["finished"]:
+                    self.current["dynamic_team_background"]["targets"][1]["dead"] = True
+                    self.current["target_health"] = 0
+                    self.current["num_targets"] = 0
+                return self._state()
+
+        results = []
+        for kind in ("cat", "zero_residual"):
+            bridge = DynamicPressBridge()
+            with patch(
+                "o2o_dps.cat_external_press_pilot_v1._resolve_target_semantics_v4",
+                side_effect=lambda state, request, contexts: {
+                    **TARGET, "target_index": state["target_index"],
+                    "target_name": request["encounter"]["targets"][state["target_index"]]["name"],
+                },
+            ):
+                artifact = run_cat_external_press_pilot_v1(
+                    bridge, request, contexts, seed=seed, period_ms=100,
+                    policy_kind=kind, dynamic_load=load,
+                    simulator_inputs=CatFurySimulatorInputsV5(initial_autoattack_active=False),
+                )
+            self.assertEqual("DYNAMIC_V3_WHOLE_WAVE", artifact["mode"])
+            self.assertEqual("TARGET_DEFEATED_SIMULATOR_ONLY_NONVOTING", artifact["status"])
+            self.assertTrue(artifact["terminal"]["required_hostiles_defeated"])
+            self.assertEqual([0, 100, 200], [row["time_ms"] for row in artifact["presses"]])
+            self.assertEqual([0, 1, 1], [row["target_index"] for row in artifact["presses"]])
+            self.assertEqual([1, 1, 1], [row["source_invocation_count"] for row in artifact["presses"]])
+            self.assertEqual(3, bridge.commands.count("finish_press"))
+            self.assertNotIn("wait", bridge.commands)
+            self.assertNotIn("load", bridge.commands)
+            self.assertFalse(artifact["comparison_ready"])
+            results.append((artifact, bridge))
+        self.assertEqual(results[0][1].commands, results[1][1].commands)
+        self.assertEqual(
+            [row["proposal"] for row in results[0][0]["presses"]],
+            [row["proposal"] for row in results[1][0]["presses"]],
+        )
+
+        state = results[0][0]["final_state"]
+        state["dynamic_team_background"]["targets"][1]["dead"] = False
+        self.assertFalse(_required_targets_dead(state, dynamic=True, target_count=2))
 
 
 if __name__ == "__main__":

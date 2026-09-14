@@ -37,6 +37,12 @@ from .sim_bridge_dynamic_v3 import SimulatorBridgeDynamicV3
 SCHEMA = "conditional_cat_action_branch/v1"
 POLICY_ID = "conditional_cat_action_branch_candidate/v1"
 _QUEUE_KINDS = {"SUPPRESS_QUEUE", "ADD_HS_QUEUE"}
+_CROSSFIT_FOLD_COUNT = 3
+_RULE_SIGNATURE_FIELDS = (
+    "rage_band", "swing_band", "target_phase", "target_count", "weapon_mode",
+    "bloodthirst_ready_band", "whirlwind_ready_band", "queued_swing_state",
+    "flurry_state", "execution_phase",
+)
 
 
 @dataclass(frozen=True)
@@ -49,11 +55,18 @@ class FrozenRuleV1:
     target_phase: str | None = None
     target_count: str | None = None
     weapon_mode: str | None = None
+    bloodthirst_ready_band: str | None = None
+    whirlwind_ready_band: str | None = None
+    queued_swing_state: str | None = None
+    flurry_state: str | None = None
+    execution_phase: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind is None:
             if any(getattr(self, key) is not None for key in (
                 "rage_band", "swing_band", "target_phase", "target_count", "weapon_mode",
+                "bloodthirst_ready_band", "whirlwind_ready_band",
+                "queued_swing_state", "flurry_state", "execution_phase",
             )):
                 raise ValueError("abstaining rule must not constrain observations")
         elif self.kind not in _branch.BRANCH_KINDS:
@@ -65,12 +78,35 @@ def _signature(combat: Mapping[str, Any], kind: str) -> tuple[str, ...]:
     swing = float(combat["mainhand_swing_remaining_s"])
     target_hp = float(combat["target_health_pct"])
     enemies = int(combat["nearby_enemies"])
+    cooldown_band = lambda value: (
+        "ready" if float(value) <= 0.0
+        else "within_1_5s" if float(value) <= 1.5
+        else "later"
+    )
+    queued = combat.get("queued_swing", "KEEP")
+    queued_value = str(getattr(queued, "value", queued))
+    flurry = (
+        "no_talent" if combat.get("flurry_talent", True) is not True
+        else "active" if combat.get("flurry_active", True) is True
+        else "inactive"
+    )
+    execution = (
+        "slam_cast" if combat.get("casting_slam", False) is True
+        else "gcd_ready" if combat.get("gcd_ready", True) is True
+        else "gcd_locked"
+    )
     return (
         "low" if rage < 40 else "mid" if rage < 70 else "high",
         ("imminent" if swing <= 0.8 else "later") if kind in _QUEUE_KINDS else "any",
         "execute" if target_hp < 20 else "normal",
-        "single" if enemies == 1 else "multiple",
+        "one" if enemies == 1 else "two" if enemies == 2
+        else "three_to_four" if enemies <= 4 else "five_plus",
         str(getattr(combat["weapon_mode"], "value", combat["weapon_mode"])),
+        cooldown_band(combat.get("bloodthirst_ready_in_s", 0.0)),
+        cooldown_band(combat.get("whirlwind_ready_in_s", 0.0)),
+        queued_value,
+        flurry,
+        execution,
     )
 
 
@@ -95,15 +131,12 @@ def _training_row(row: Mapping[str, Any]) -> tuple[int, str, tuple[str, ...], fl
     return int(row["seed"]), kind, _signature(combat, kind), float(delta)
 
 
-def fit_conditional_cat_branch_v1(
-    rows: Iterable[Mapping[str, Any]], *, training_seeds: Iterable[int],
-    min_distinct_seeds: int = 6,
-) -> dict[str, Any]:
-    """Use complete, accepted labels; aggregate repeated states by seed."""
-    seeds = frozenset(int(seed) for seed in training_seeds)
-    if not seeds or min_distinct_seeds < 2:
-        raise ValueError("training seeds and minimum support are required")
-    by_cell: dict[tuple[str, tuple[str, ...]], dict[int, list[float]]] = {}
+def _aggregate_seed_cell_values(
+    rows: Iterable[Mapping[str, Any]], seeds: frozenset[int],
+) -> tuple[dict[tuple[str, tuple[str, ...]], dict[int, float]], int]:
+    """Return one mean label per seed and observable rule cell."""
+
+    repeated: dict[tuple[str, tuple[str, ...]], dict[int, list[float]]] = {}
     label_count = 0
     for row in rows:
         seed = int(row["seed"])
@@ -113,34 +146,205 @@ def fit_conditional_cat_branch_v1(
         if label is None:
             continue
         _, kind, signature, delta = label
-        by_cell.setdefault((kind, signature), {}).setdefault(seed, []).append(delta)
+        repeated.setdefault((kind, signature), {}).setdefault(seed, []).append(delta)
         label_count += 1
+    return ({
+        key: {
+            seed: mean(values) for seed, values in sorted(per_seed.items())
+        }
+        for key, per_seed in repeated.items()
+    }, label_count)
+
+
+def _cell_rows(
+    by_cell: Mapping[tuple[str, tuple[str, ...]], Mapping[int, float]], *,
+    seeds: frozenset[int], min_distinct_seeds: int,
+) -> list[dict[str, Any]]:
     cells: list[dict[str, Any]] = []
-    for (kind, signature), seed_values in sorted(by_cell.items()):
-        deltas = [mean(values) for _, values in sorted(seed_values.items())]
+    for (kind, signature), all_seed_values in sorted(by_cell.items()):
+        deltas = [
+            value for seed, value in sorted(all_seed_values.items()) if seed in seeds
+        ]
+        if not deltas:
+            continue
         n = len(deltas)
         avg = mean(deltas)
         sem = stdev(deltas) / math.sqrt(n) if n >= 2 else math.inf
         lower = avg - 1.96 * sem
         fraction_positive = sum(value > 0 for value in deltas) / n
-        eligible = n >= min_distinct_seeds and fraction_positive >= 0.75 and lower > 0
+        eligible = (
+            n >= min_distinct_seeds
+            and fraction_positive >= 0.75
+            and lower > 0
+        )
         cells.append({
             "rule": asdict(_rule_for_signature(kind, signature)),
-            "distinct_seed_count": n, "mean_paired_label_delta": avg,
+            "distinct_seed_count": n,
+            "mean_paired_label_delta": avg,
             "lower_95_normal_label_bound": lower if math.isfinite(lower) else None,
             "positive_seed_fraction": fraction_positive,
             "eligible_for_fresh_test": eligible,
         })
-    eligible_cells = [cell for cell in cells if cell["eligible_for_fresh_test"]]
-    selected = max(eligible_cells, key=lambda cell: cell["lower_95_normal_label_bound"]) if eligible_cells else None
+    return cells
+
+
+def _selected_cell(cells: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    eligible = [cell for cell in cells if cell["eligible_for_fresh_test"]]
+    return max(
+        eligible, key=lambda cell: cell["lower_95_normal_label_bound"],
+    ) if eligible else None
+
+
+def _rule_cell_key(rule: Mapping[str, Any]) -> tuple[str, tuple[str, ...]]:
+    kind = rule.get("kind")
+    if not isinstance(kind, str):
+        raise ValueError("selected cross-fit rule lacks an action kind")
+    return kind, tuple(str(rule[field]) for field in _RULE_SIGNATURE_FIELDS)
+
+
+def _label_statistics(values: Iterable[float]) -> dict[str, Any]:
+    deltas = list(values)
+    if not deltas:
+        return {
+            "distinct_seed_count": 0,
+            "mean_paired_label_delta": None,
+            "lower_95_normal_label_bound": None,
+            "positive_seed_fraction": None,
+        }
+    avg = mean(deltas)
+    sem = stdev(deltas) / math.sqrt(len(deltas)) if len(deltas) >= 2 else None
+    lower = avg - 1.96 * sem if sem is not None else None
     return {
-        "schema": SCHEMA, "scope": "MODEL_DEFINED_DEVELOPMENT_ONLY",
-        "status": "FROZEN_RULE_FOR_FRESH_TEST" if selected else "ABSTAIN_INSUFFICIENT_CONDITIONAL_EVIDENCE",
-        "training_seeds": sorted(seeds), "usable_teacher_label_count": label_count,
-        "candidate_cell_count": len(cells), "min_distinct_seeds": min_distinct_seeds,
+        "distinct_seed_count": len(deltas),
+        "mean_paired_label_delta": avg,
+        "lower_95_normal_label_bound": lower,
+        "positive_seed_fraction": sum(value > 0 for value in deltas) / len(deltas),
+    }
+
+
+def fit_conditional_cat_branch_v1(
+    rows: Iterable[Mapping[str, Any]], *, training_seeds: Iterable[int],
+    min_distinct_seeds: int = 6,
+) -> dict[str, Any]:
+    """Select only a seed-cross-fit-stable rule; aggregate repeats per seed."""
+
+    seeds = frozenset(int(seed) for seed in training_seeds)
+    if not seeds or min_distinct_seeds < 2:
+        raise ValueError("training seeds and minimum support are required")
+    materialized = list(rows)
+    by_cell, label_count = _aggregate_seed_cell_values(materialized, seeds)
+    cells = _cell_rows(
+        by_cell, seeds=seeds, min_distinct_seeds=min_distinct_seeds,
+    )
+    full_selected = _selected_cell(cells)
+
+    ordered_seeds = sorted(seeds)
+    folds = [
+        frozenset(ordered_seeds[index::_CROSSFIT_FOLD_COUNT])
+        for index in range(_CROSSFIT_FOLD_COUNT)
+    ]
+    # A fold fit sees two thirds of the evidence, so its support floor scales
+    # with that exposure.  The pooled OOF gate still requires the full support.
+    fold_minimum = max(
+        2, math.ceil(min_distinct_seeds * (_CROSSFIT_FOLD_COUNT - 1)
+                     / _CROSSFIT_FOLD_COUNT),
+    )
+    fold_diagnostics: list[dict[str, Any]] = []
+    selected_keys: list[tuple[str, tuple[str, ...]]] = []
+    oof_values: list[float] = []
+    for fold_index, validation_seeds in enumerate(folds):
+        fold_training_seeds = seeds.difference(validation_seeds)
+        fold_cells = _cell_rows(
+            by_cell, seeds=fold_training_seeds,
+            min_distinct_seeds=fold_minimum,
+        )
+        fold_selected = _selected_cell(fold_cells)
+        selected_rule = dict(fold_selected["rule"]) if fold_selected else None
+        heldout_values: list[float] = []
+        if selected_rule is not None:
+            key = _rule_cell_key(selected_rule)
+            selected_keys.append(key)
+            heldout_values = [
+                value for seed, value in sorted(by_cell.get(key, {}).items())
+                if seed in validation_seeds
+            ]
+            oof_values.extend(heldout_values)
+        heldout = _label_statistics(heldout_values)
+        fold_diagnostics.append({
+            "fold_index": fold_index,
+            "training_seeds": sorted(fold_training_seeds),
+            "validation_seeds": sorted(validation_seeds),
+            "training_min_distinct_seeds": fold_minimum,
+            "selected_rule": selected_rule,
+            "heldout_distinct_seed_count": heldout["distinct_seed_count"],
+            "heldout_mean_paired_label_delta": heldout["mean_paired_label_delta"],
+            "heldout_lower_95_normal_label_bound": heldout[
+                "lower_95_normal_label_bound"
+            ],
+            "heldout_positive_seed_fraction": heldout["positive_seed_fraction"],
+        })
+
+    stable_selection_fold_count = max(
+        (selected_keys.count(key) for key in set(selected_keys)), default=0,
+    )
+    stable_key = (
+        selected_keys[0]
+        if stable_selection_fold_count == _CROSSFIT_FOLD_COUNT
+        else None
+    )
+    stable_rule = (
+        asdict(_rule_for_signature(*stable_key)) if stable_key is not None else None
+    )
+    oof = _label_statistics(oof_values if stable_key is not None else ())
+    full_key = _rule_cell_key(full_selected["rule"]) if full_selected else None
+
+    if len(seeds) < _CROSSFIT_FOLD_COUNT:
+        stability_status = "INSUFFICIENT_SEEDS_FOR_THREE_FOLD_CROSSFIT"
+    elif len(selected_keys) < _CROSSFIT_FOLD_COUNT:
+        stability_status = "FOLD_SELECTION_ABSTAINED"
+    elif stable_key is None:
+        stability_status = "UNSTABLE_RULE_ACROSS_FOLDS"
+    elif oof["distinct_seed_count"] < min_distinct_seeds:
+        stability_status = "INSUFFICIENT_OOF_SUPPORT"
+    elif oof["positive_seed_fraction"] < 0.75:
+        stability_status = "OOF_POSITIVE_FRACTION_BELOW_GATE"
+    elif (
+        oof["lower_95_normal_label_bound"] is None
+        or oof["lower_95_normal_label_bound"] <= 0
+    ):
+        stability_status = "OOF_LOWER_BOUND_NOT_POSITIVE"
+    elif full_key != stable_key:
+        stability_status = "FULL_REFIT_DISAGREES_WITH_STABLE_RULE"
+    else:
+        stability_status = "PASSED"
+    selected = full_selected if stability_status == "PASSED" else None
+
+    return {
+        "schema": SCHEMA,
+        "scope": "MODEL_DEFINED_DEVELOPMENT_ONLY",
+        "status": (
+            "FROZEN_RULE_FOR_FRESH_TEST" if selected
+            else "ABSTAIN_INSUFFICIENT_CONDITIONAL_EVIDENCE"
+        ),
+        "training_seeds": ordered_seeds,
+        "usable_teacher_label_count": label_count,
+        "candidate_cell_count": len(cells),
+        "min_distinct_seeds": min_distinct_seeds,
         "policy": selected["rule"] if selected else asdict(FrozenRuleV1()),
         "selected_training_cell": selected,
         "cells": cells,
+        "selection_protocol": "DETERMINISTIC_THREE_FOLD_SEED_BLOCKED_CROSSFIT_STABILITY_THEN_FULL_REFIT",
+        "crossfit_fold_count": _CROSSFIT_FOLD_COUNT,
+        "crossfit_fold_training_min_distinct_seeds": fold_minimum,
+        "crossfit_folds": fold_diagnostics,
+        "stable_rule": stable_rule,
+        "stable_selection_fold_count": stable_selection_fold_count,
+        "crossfit_oof_distinct_seed_count": oof["distinct_seed_count"],
+        "crossfit_oof_mean_paired_label_delta": oof["mean_paired_label_delta"],
+        "crossfit_oof_lower_95_normal_label_bound": oof["lower_95_normal_label_bound"],
+        "crossfit_oof_positive_seed_fraction": oof["positive_seed_fraction"],
+        "full_fit_selected_cell": full_selected,
+        "stability_gate_status": stability_status,
         "teacher_labels_are_policy_outcome": False,
         "scientific_run_launched": False,
     }
@@ -159,6 +363,9 @@ def diagnose_teacher_cells_v1(
         key = (rule["kind"], (
             rule["rage_band"], rule["swing_band"], rule["target_phase"],
             rule["target_count"], rule["weapon_mode"],
+            rule["bloodthirst_ready_band"], rule["whirlwind_ready_band"],
+            rule["queued_swing_state"], rule["flurry_state"],
+            rule["execution_phase"],
         ))
         per_seed: dict[int, list[float]] = {}
         for row in rows:
@@ -186,6 +393,8 @@ def _matches(rule: FrozenRuleV1, state: CatFuryFullPolicyStateV4) -> bool:
     return _signature(asdict(state.combat), rule.kind) == (
         rule.rage_band, rule.swing_band, rule.target_phase,
         rule.target_count, rule.weapon_mode,
+        rule.bloodthirst_ready_band, rule.whirlwind_ready_band,
+        rule.queued_swing_state, rule.flurry_state, rule.execution_phase,
     )
 
 

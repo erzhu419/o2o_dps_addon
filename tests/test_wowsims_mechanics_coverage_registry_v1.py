@@ -39,7 +39,7 @@ def _talent_tree() -> list[dict[str, object]]:
 
 def _catalog_row() -> dict[str, object]:
     slots: list[dict[str, object]] = []
-    item_ids = [100, 101, 102, 999, 22798]
+    item_ids = [100, 101, 102, 999, 22798, 104]
     enchant_ids = [10, 11, 12]
     for index, item_id in enumerate(item_ids):
         slots.append(
@@ -119,6 +119,12 @@ class MechanicsCoverageRegistryTests(unittest.TestCase):
                             "hasImplementedEffects": True,
                         },
                         {
+                            "id": 104,
+                            "name": "Static shield",
+                            "handType": 3,
+                            "stats": [1],
+                        },
+                        {
                             "id": 22798,
                             "name": "Might of Menethil",
                             "handType": 4,
@@ -183,6 +189,7 @@ func init() {
         self.assertTrue(registry["items"]["100"]["database_known"])
         self.assertEqual(registry["items"]["100"]["effect_status"], "NO_SPECIAL_EFFECT")
         self.assertEqual(registry["items"]["100"]["weapon_mode"], "TWO_HAND")
+        self.assertEqual(registry["items"]["104"]["weapon_mode"], "OFF_HAND_ONLY")
         self.assertEqual(registry["items"]["101"]["effect_status"], "IMPLEMENTED")
         self.assertTrue(registry["items"]["101"]["source_registration_found"])
         self.assertEqual(

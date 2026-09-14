@@ -596,6 +596,62 @@ class SimulatorBridgeDynamicV3(SimulatorBridgeDynamicV2):
         seed: int,
         config: DynamicTargetSemanticsConfigV3,
     ) -> DynamicLoadResultV3:
+        return self._load_dynamic_v3_command(
+            "load_dynamic_v3", request, seed, config,
+        )
+
+    def load_dynamic_v3_press_clock(
+        self,
+        request: Mapping[str, Any],
+        seed: int,
+        config: DynamicTargetSemanticsConfigV3,
+        period_ms: int,
+        phase_ms: int = 0,
+    ) -> DynamicLoadResultV3:
+        """Atomically bind dynamic-v3 and its first physical key grid."""
+
+        if type(period_ms) is not int or not 1 <= period_ms <= 60_000:
+            raise ValueError("period_ms must be an integer in 1..60000")
+        if type(phase_ms) is not int or not 0 <= phase_ms < period_ms:
+            raise ValueError("phase_ms must be an integer in 0..period_ms-1")
+        result = self._load_dynamic_v3_command(
+            "load_dynamic_v3_press_clock", request, seed, config,
+            press_period_ms=period_ms, press_phase_ms=phase_ms,
+        )
+        state = result.state
+        clock = _press_clock_state_v1(state)
+        finished = _v2._strict_bool_field(state, "finished")
+        if (
+            clock.period_ms != period_ms
+            or clock.phase_ms != phase_ms
+            or (
+                not finished
+                and (
+                    not clock.ready
+                    or clock.press_index != 1
+                    or clock.next_time_ms != phase_ms
+                    or _v2._nonnegative_int_field(state, "time_ms") != phase_ms
+                )
+            )
+            or (
+                finished
+                and (clock.ready or clock.press_index != 0)
+            )
+        ):
+            self._dynamic_binding = None
+            raise SimBridgeProtocolError(
+                "atomic dynamic-v3 press-clock receipt differs from request"
+            )
+        return result
+
+    def _load_dynamic_v3_command(
+        self,
+        command: str,
+        request: Mapping[str, Any],
+        seed: int,
+        config: DynamicTargetSemanticsConfigV3,
+        **command_fields: Any,
+    ) -> DynamicLoadResultV3:
         if not isinstance(request, Mapping):
             raise TypeError("RaidSimRequest must be a mapping")
         if not isinstance(config, DynamicTargetSemanticsConfigV3):
@@ -604,10 +660,11 @@ class SimulatorBridgeDynamicV3(SimulatorBridgeDynamicV2):
         request_copy = _v2._strict_json_object_v2(request, "RaidSimRequest")
         _validate_request_horizon_v3(request_copy, config)
         response = self._request(
-            "load_dynamic_v3",
+            command,
             request=request_copy,
             seed=_v2._signed_int64(seed, "seed"),
             dynamic=config.to_wire(),
+            **command_fields,
         )
         raw_receipt = response.get("dynamic_load")
         if not isinstance(raw_receipt, Mapping):
@@ -622,7 +679,7 @@ class SimulatorBridgeDynamicV3(SimulatorBridgeDynamicV2):
             raise SimBridgeProtocolError(
                 "load_dynamic_v3 response generation differs from its receipt"
             )
-        state = _v2._state_field(response, "load_dynamic_v3")
+        state = _v2._state_field(response, command)
         _validate_dynamic_state_binding_v3(
             state, generation=receipt.environment_generation, config=config
         )
@@ -1076,6 +1133,9 @@ def _parse_idle_state_v3(
     needs_input = _v2._strict_bool_field(state, "needs_input")
     time_ms = _v2._nonnegative_int_field(state, "time_ms")
     num_targets = _v2._nonnegative_int_field(state, "num_targets")
+    no_target_press_ready = False
+    if needs_input and num_targets == 0 and not finished and "press_clock" in state:
+        no_target_press_ready = _press_clock_state_v1(state).ready
     if (
         result.schema != DYNAMIC_IDLE_ADVANCE_RECEIPT_SCHEMA_V3
         or result.config_digest != config.content_sha256
@@ -1103,6 +1163,7 @@ def _parse_idle_state_v3(
         or needs_input
         and num_targets == 0
         and not finished
+        and not no_target_press_ready
     ):
         raise SimBridgeProtocolError(
             "dynamic idle state violates its lifecycle/horizon binding"

@@ -83,9 +83,34 @@ class ConditionalCatBranchV1Tests(unittest.TestCase):
         self.assertEqual(CatFuryFullPolicyAdapterV4().propose(state).to_dict(), second.to_dict())
         self.assertEqual(1, len(candidate.interventions))
 
+    def test_signature_separates_cooldown_queue_proc_and_execution_state(self) -> None:
+        base = {
+            "rage": 55.0, "mainhand_swing_remaining_s": 1.0,
+            "target_health_pct": 70.0, "nearby_enemies": 2,
+            "weapon_mode": "DUAL_WIELD", "bloodthirst_ready_in_s": 0.0,
+            "whirlwind_ready_in_s": 2.0, "queued_swing": "KEEP",
+            "flurry_talent": True, "flurry_active": False,
+            "gcd_ready": True, "casting_slam": False,
+        }
+        expected = _signature(base, "ADD_HS_QUEUE")
+        for field, value in (
+            ("bloodthirst_ready_in_s", 0.5),
+            ("whirlwind_ready_in_s", 1.0),
+            ("queued_swing", "HEROIC_STRIKE"),
+            ("flurry_active", True),
+            ("gcd_ready", False),
+            ("nearby_enemies", 5),
+        ):
+            changed = dict(base, **{field: value})
+            self.assertNotEqual(expected, _signature(changed, "ADD_HS_QUEUE"), field)
+
     def test_rule_has_no_seed_or_future_field(self) -> None:
         self.assertEqual(
-            {"kind", "rage_band", "swing_band", "target_phase", "target_count", "weapon_mode"},
+            {
+                "kind", "rage_band", "swing_band", "target_phase", "target_count",
+                "weapon_mode", "bloodthirst_ready_band", "whirlwind_ready_band",
+                "queued_swing_state", "flurry_state", "execution_phase",
+            },
             set(FrozenRuleV1.__dataclass_fields__),
         )
         with self.assertRaises(ValueError):
