@@ -105,6 +105,40 @@ class _DrivenBridge:
                 "event_count": 2}
 
 
+class _TelemetryBridge(_DrivenBridge):
+    def dynamic_candidate_damage_receipts(self, *, cursor=0):
+        assert cursor == 0
+
+        def row(action, ordinal, damage):
+            return SimpleNamespace(
+                damage_ordinal=ordinal,
+                time_ms=100,
+                target_index=0,
+                requested_damage=damage,
+                applied_damage=damage,
+                overkill_damage=0.0,
+                killed=False,
+                status="APPLIED",
+                action=action,
+                outcome="HIT",
+                execution_id=ordinal,
+                execution_index=ordinal,
+                landed_execution_index=ordinal,
+                resolution_phase="APPLIED_AFTER_OUTCOME",
+                outcome_computed=True,
+                random_stream_rewound=False,
+                attempt_id=f"attempt-{ordinal}",
+                retargeted_to=None,
+            )
+
+        return SimpleNamespace(
+            receipts=(
+                row(STRIKE, 1, 12.0),
+                row(WHIRLWIND, 2, 7.0),
+            )
+        )
+
+
 def _case(_seed):
     return CompiledResponsiveIncantagosCaseV1(
         request={"loadout": "one-identical-build"},
@@ -258,6 +292,31 @@ def test_responsive_replay_reports_only_current_decision_execution_receipts():
     assert "IMPORTED_REACTIVE_INCUMBENT_SELECTED" not in {
         row["kind"] for row in execution_receipts
     }
+
+
+def test_responsive_replay_retains_requested_terminal_telemetry():
+    result = NativeDynamicV4ResponsiveActionProgramReplayV1(
+        bridge_factory=_TelemetryBridge,
+        case_factory=_case,
+        observation_projector_factory=_projector,
+        imported_bindings=(
+            _decision_binding("offline", ProgramDecisionV1(gcd_action=STRIKE)),
+        ),
+        terminal_telemetry_action_refs=(STRIKE,),
+    ).replay(79, _program("offline"))
+
+    assert result.status is ReplayStatusV1.COMPLETE
+    assert tuple(row.action for row in result.available_actions) == (STRIKE,)
+    telemetry = result.receipts[-1]
+    assert telemetry["kind"] == "NATIVE_TERMINAL_TELEMETRY_V1"
+    assert telemetry["state_time_ms"] == 100
+    assert telemetry["terminal_action_surface"]["status"] == "OBSERVED"
+    damage = telemetry["candidate_damage_surface"]
+    assert damage["status"] == "OBSERVED"
+    assert damage["source_receipt_count"] == 2
+    assert damage["retained_receipt_count"] == 1
+    assert damage["retained_actions"] == [STRIKE.to_wire()]
+    assert [row["action"] for row in damage["receipts"]] == [STRIKE.to_wire()]
 
 
 def test_raw_future_field_reaches_no_imported_resolver():

@@ -20,11 +20,13 @@ from .causal_action_program_v1 import (
     ImportedReactiveQueueGcdBlockSelectorV1,
     ImportedReactiveSelectorV1,
     _ImportedReactiveProgramSessionV1,
+    _action,
     _available_by_action,
     _execute_decision,
     _project_observation,
     _select_decision,
     _state_damage,
+    _terminal_telemetry_receipt_v1,
 )
 from .upper_kara_responsive_incantagos_case_v1 import (
     CompiledResponsiveIncantagosCaseV1,
@@ -93,6 +95,7 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
         result_bearing_action_refs: Sequence[ActionRef] = tuple(
             FURY_RESULT_BEARING_ACTION_REFS_V1
         ),
+        terminal_telemetry_action_refs: Sequence[ActionRef] = (),
         target_gate: RuntimeTargetGateV1 | None = None,
     ) -> None:
         if not all(callable(value) for value in (
@@ -109,6 +112,12 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
         self._projector_factory = observation_projector_factory
         self._bindings = tuple(imported_bindings)
         self._result_refs = frozenset(result_bearing_action_refs)
+        telemetry_refs = tuple(terminal_telemetry_action_refs)
+        for index, action in enumerate(telemetry_refs):
+            _action(action, f"terminal_telemetry_action_refs[{index}]")
+        if len(telemetry_refs) != len(set(telemetry_refs)):
+            raise ValueError("terminal_telemetry_action_refs must be unique")
+        self._terminal_telemetry_action_refs = frozenset(telemetry_refs)
         if target_gate is not None and not isinstance(
             target_gate, RuntimeTargetGateV1
         ):
@@ -287,9 +296,19 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
                     ),
                     "comparison_authorized": False,
                 })
+                terminal_actions: tuple[AvailableAction, ...] = ()
+                if self._terminal_telemetry_action_refs:
+                    telemetry, terminal_actions = _terminal_telemetry_receipt_v1(
+                        bridge,
+                        state,
+                        self._terminal_telemetry_action_refs,
+                    )
+                    receipts.append(telemetry)
                 return ScheduleReplayOutcomeV1(
                     seed=seed, status=ReplayStatusV1.COMPLETE,
-                    state=state, receipts=tuple(receipts),
+                    state=state,
+                    available_actions=terminal_actions,
+                    receipts=tuple(receipts),
                     target_gate=(tracker.decision if tracker is not None else None),
                 )
         except Exception as error:
