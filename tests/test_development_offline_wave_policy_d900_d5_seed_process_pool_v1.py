@@ -8,6 +8,10 @@ from types import SimpleNamespace
 import pytest
 
 import scripts.development_offline_wave_policy_d900_d5_seed_v1 as d5_seed
+from o2o_dps.offline_wave_d4_all_seed_endpoint_v1 import _invalid_terminal
+from o2o_dps.offline_wave_d5_selection_v1 import (
+    OfflineWaveD5SelectionV1Error,
+)
 
 
 def _fake_replay_for_real_fork(*, controller, simulator_seed, teammate_seed, **_):
@@ -150,6 +154,51 @@ def test_fork_pool_propagates_worker_exception_and_clears_parent_context(monkeyp
             workers=2,
         )
     assert d5_seed._FORK_REPLAY_CONTEXT_V1 is None
+
+
+def test_invalid_selection_endpoint_reports_candidate_and_terminal_reason():
+    terminal = _invalid_terminal(
+        "CausalActionProgramError: program exceeded max_decisions=300",
+        horizon_ms=15_531,
+    )
+    with pytest.raises(OfflineWaveD5SelectionV1Error) as caught:
+        d5_seed._build_endpoint_row_v1(
+            phase="selection",
+            candidate_id="d5-searched-042",
+            controller_id="PI_STAR",
+            simulator_seed=2_026_102_003,
+            teammate_seed=2_026_202_003,
+            replay_status="INVALID",
+            terminal_endpoint=terminal,
+            domain_fallback_calls=0,
+            requires_zero_fallback=True,
+            action_attribution={},
+        )
+    message = str(caught.value)
+    assert "d5-searched-042" in message
+    assert "program exceeded max_decisions=300" in message
+    assert '"replay_status": "INVALID"' in message
+
+
+def test_invalid_confirmation_endpoint_reports_controller_and_seed():
+    terminal = _invalid_terminal("bridge exited unexpectedly", horizon_ms=15_531)
+    with pytest.raises(OfflineWaveD5SelectionV1Error) as caught:
+        d5_seed._build_endpoint_row_v1(
+            phase="confirmation",
+            candidate_id="frozen-winner",
+            controller_id="CAT",
+            simulator_seed=2_026_102_049,
+            teammate_seed=2_026_202_049,
+            replay_status="INVALID",
+            terminal_endpoint=terminal,
+            domain_fallback_calls=None,
+            requires_zero_fallback=False,
+            action_attribution=None,
+        )
+    message = str(caught.value)
+    assert '"controller_id": "CAT"' in message
+    assert '"simulator_seed": 2026102049' in message
+    assert "bridge exited unexpectedly" in message
 
 
 @pytest.mark.skipif(

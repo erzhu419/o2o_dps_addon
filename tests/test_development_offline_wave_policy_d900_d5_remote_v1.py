@@ -17,6 +17,7 @@ from scripts.development_offline_wave_policy_d900_d5_remote_v1 import (
     MAX_CANDIDATE_WORKERS,
     NODES,
     SELECTION_PLAN,
+    SELECTION_MAX_CONCURRENT_PROCESSES_PER_NODE,
     SELECTION_PROCESSES_PER_NODE,
     SELECTION_RECEIPT_REMOTE,
     _expected_shard_identity_v1,
@@ -153,9 +154,10 @@ def test_selection_node_batch_has_two_process_cap_and_checkpoint_files():
         selection_receipt_sha256=None,
     )
     assert len(specs) == 2
-    assert command.count(" & pids=\"$pids $!\"") == 2
+    assert command.count(" & pids=\"$pids $!\"") == 0
     assert command.count("if test ! -s ") == 2
-    assert "for pid in $pids; do wait $pid || status=1; done" in command
+    assert "for pid in $pids; do wait $pid || status=1; done" not in command
+    assert command.count("|| status=1; fi") == 2
     with pytest.raises(ValueError, match="two-process cap"):
         build_node_batch_command_v1(
             SELECTION_PLAN,
@@ -183,8 +185,11 @@ def test_confirmation_node_batch_launches_eight_seed_processes():
 
 def test_plan_receipt_freezes_panel_workers_and_cohort_boundary():
     receipt = plan_receipt_v1(("selection", "confirmation"))
+    assert SELECTION_PLAN.expansion_id.endswith("-v2")
+    assert CONFIRMATION_PLAN.expansion_id.endswith("-v2")
     assert receipt["candidate_panel_size"] == EXPECTED_SELECTION_LANES == 256
     assert receipt["searched_candidate_budget"] == 254
+    assert d5_remote.MAX_DECISIONS == 300
     assert receipt["selection_and_confirmation_seed_components_disjoint"] is True
     assert receipt["candidates_frozen_before_seed_execution"] is True
     assert receipt["confirmation_cannot_reselect"] is True
@@ -199,13 +204,19 @@ def test_plan_receipt_freezes_panel_workers_and_cohort_boundary():
     ] == 48
     assert receipt["phase_plans"]["selection"][
         "maximum_candidate_lanes_per_node"
-    ] == 96
+    ] == 48
+    assert receipt["phase_plans"]["selection"][
+        "maximum_concurrent_seed_processes_per_node"
+    ] == SELECTION_MAX_CONCURRENT_PROCESSES_PER_NODE == 1
     assert receipt["phase_plans"]["confirmation"][
         "lane_workers_per_process"
     ] == 7
     assert receipt["phase_plans"]["confirmation"][
         "maximum_candidate_lanes_per_node"
     ] == 56
+    assert receipt["phase_plans"]["confirmation"][
+        "maximum_concurrent_seed_processes_per_node"
+    ] == 8
 
 
 def _shard(plan, spec):
@@ -289,6 +300,20 @@ def test_merge_surface_rejects_stale_parallel_lane_worker_count():
     results = {spec.job_id: _shard(SELECTION_PLAN, spec) for spec in specs}
     target = specs[0]
     results[target.job_id]["parallel_lane_workers"] = 64
+    with pytest.raises(ValueError, match="stale shard identity"):
+        _validated_rows_v1(
+            SELECTION_PLAN,
+            specs,
+            results,
+            expected_identities=_expected_identities(SELECTION_PLAN, specs),
+        )
+
+
+def test_merge_surface_rejects_stale_max_decisions():
+    specs = build_seed_job_specs_v1(SELECTION_PLAN)
+    results = {spec.job_id: _shard(SELECTION_PLAN, spec) for spec in specs}
+    target = specs[0]
+    results[target.job_id]["max_decisions"] = 1_000
     with pytest.raises(ValueError, match="stale shard identity"):
         _validated_rows_v1(
             SELECTION_PLAN,

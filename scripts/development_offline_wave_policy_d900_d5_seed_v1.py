@@ -127,7 +127,7 @@ from scripts.development_responsive_upper_kara_trash_smoke_v1 import (
 
 JSONMap = dict[str, Any]
 OUTPUT_SCHEMA = "development_offline_wave_policy_d900_d5_seed/v1"
-IMPLEMENTATION_REVISION = "d900-d5-one-seed-shard-v3"
+IMPLEMENTATION_REVISION = "d900-d5-one-seed-shard-v4"
 @dataclass(frozen=True)
 class _ControllerV1:
     controller_id: str
@@ -406,6 +406,7 @@ def _build_endpoint_row_v1(
 ) -> JSONMap:
     if phase == "selection":
         from o2o_dps.offline_wave_d5_selection_v1 import (
+            OfflineWaveD5SelectionV1Error,
             SELECTION,
             build_d5_selection_row_v1,
         )
@@ -421,13 +422,36 @@ def _build_endpoint_row_v1(
         )
         if action_attribution is None:
             raise RuntimeError("selection candidate lacks action attribution")
-        return build_d5_selection_row_v1(
-            cohort=SELECTION,
-            endpoint_row=endpoint,
-            action_attribution=action_attribution,
-        )
+        try:
+            return build_d5_selection_row_v1(
+                cohort=SELECTION,
+                endpoint_row=endpoint,
+                action_attribution=action_attribution,
+            )
+        except OfflineWaveD5SelectionV1Error as error:
+            diagnostic = {
+                "candidate_id": candidate_id,
+                "controller_id": controller_id,
+                "simulator_seed": simulator_seed,
+                "teammate_seed": teammate_seed,
+                "replay_status": replay_status,
+                "terminal_technical_status": terminal_endpoint.get(
+                    "technical_status"
+                ),
+                "terminal_failure_reason": terminal_endpoint.get(
+                    "failure_reason"
+                ),
+                "terminal_elapsed_ms": terminal_endpoint.get(
+                    "terminal_elapsed_ms"
+                ),
+            }
+            raise OfflineWaveD5SelectionV1Error(
+                f"{error}; endpoint_diagnostic="
+                f"{json.dumps(diagnostic, sort_keys=True)}"
+            ) from error
 
     from o2o_dps.offline_wave_d5_selection_v1 import (
+        OfflineWaveD5SelectionV1Error,
         build_d5_confirmation_endpoint_row_v1,
     )
 
@@ -445,10 +469,28 @@ def _build_endpoint_row_v1(
         terminal_endpoint=terminal_endpoint,
         domain_fallback_calls=domain_fallback_calls,
     )
-    return build_d5_confirmation_endpoint_row_v1(
-        controller_id=controller_id,
-        endpoint_row=endpoint,
-    )
+    try:
+        return build_d5_confirmation_endpoint_row_v1(
+            controller_id=controller_id,
+            endpoint_row=endpoint,
+        )
+    except OfflineWaveD5SelectionV1Error as error:
+        diagnostic = {
+            "candidate_id": candidate_id,
+            "controller_id": controller_id,
+            "simulator_seed": simulator_seed,
+            "teammate_seed": teammate_seed,
+            "replay_status": replay_status,
+            "terminal_technical_status": terminal_endpoint.get(
+                "technical_status"
+            ),
+            "terminal_failure_reason": terminal_endpoint.get("failure_reason"),
+            "terminal_elapsed_ms": terminal_endpoint.get("terminal_elapsed_ms"),
+        }
+        raise OfflineWaveD5SelectionV1Error(
+            f"{error}; endpoint_diagnostic="
+            f"{json.dumps(diagnostic, sort_keys=True)}"
+        ) from error
 
 
 def _replay_controller_v1(
@@ -770,6 +812,7 @@ def run(args: argparse.Namespace) -> JSONMap:
         ],
         "candidate_panel_size": len(manifests),
         "fixed_horizon_ms": args.fixed_horizon_ms,
+        "max_decisions": args.max_decisions,
         "parallel_lane_workers": workers,
         "endpoint_rows": [row["endpoint_row"] for row in jobs],
         "runtime_summaries": [row["runtime_summary"] for row in jobs],

@@ -2,8 +2,10 @@
 
 Candidate programs are materialized once on the coordinating host.  Every
 remote process evaluates exactly one paired seed.  Selection shards evaluate
-the same 256-program manifest with at most 48 concurrent lanes; confirmation
-shards evaluate only the frozen winner and its six registered comparators.
+the same 256-program manifest with 48 fork workers.  A node runs its two
+selection seeds sequentially because two simultaneous pools caused technical
+endpoint failures.  Confirmation shards evaluate only the frozen winner and
+its six registered comparators.
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ from scripts.development_offline_wave_policy_d900_d3_frozen_heldout_remote_v1 im
 
 JSONMap = dict[str, Any]
 SCHEMA = "development_offline_wave_policy_d900_d5_multinode/v1"
-IMPLEMENTATION_REVISION = "d900-d5-one-seed-shard-v3"
+IMPLEMENTATION_REVISION = "d900-d5-one-seed-shard-v4"
 SEED_OUTPUT_SCHEMA = "development_offline_wave_policy_d900_d5_seed/v1"
 PLAN_SCHEMA = f"{SCHEMA}/plan"
 CANDIDATE_PANEL_SCHEMA = f"{SCHEMA}/candidate_panel"
@@ -50,6 +52,7 @@ EXPECTED_SELECTION_LANES = 256
 EXPECTED_CONFIRMATION_LANES = 7
 MAX_CANDIDATE_WORKERS = 48
 SELECTION_PROCESSES_PER_NODE = 2
+SELECTION_MAX_CONCURRENT_PROCESSES_PER_NODE = 1
 SEED_PARTNER_OFFSET = 100_000
 MAX_DECISIONS = 300
 
@@ -119,7 +122,7 @@ class CampaignPlanV1:
 SELECTION_PLAN = CampaignPlanV1(
     phase="selection",
     campaign_id="d900-d5-all-seed-selection-v1",
-    expansion_id="d900-d5-selection-shards-2026102001-2026102012-v1",
+    expansion_id="d900-d5-selection-shards-2026102001-2026102012-v2",
     first_seed=2_026_102_001,
     seed_count=12,
     lane_count=EXPECTED_SELECTION_LANES,
@@ -128,7 +131,7 @@ SELECTION_PLAN = CampaignPlanV1(
 CONFIRMATION_PLAN = CampaignPlanV1(
     phase="confirmation",
     campaign_id="d900-d5-fresh-confirmation-v1",
-    expansion_id="d900-d5-confirmation-shards-2026102049-2026102096-v1",
+    expansion_id="d900-d5-confirmation-shards-2026102049-2026102096-v2",
     first_seed=2_026_102_049,
     seed_count=48,
     lane_count=EXPECTED_CONFIRMATION_LANES,
@@ -281,6 +284,7 @@ def _expected_shard_identity_v1(
         "selection_receipt_sha256": selection_receipt_sha256,
         "candidate_panel_size": EXPECTED_SELECTION_LANES,
         "fixed_horizon_ms": FIXED_HORIZON_MS,
+        "max_decisions": MAX_DECISIONS,
         "parallel_lane_workers": min(spec.lane_workers, plan.lane_count),
     }
     for field in _ENVIRONMENT_IDENTITY_FIELDS:
@@ -302,7 +306,8 @@ def build_node_batch_command_v1(
         raise ValueError("one node batch requires at least one job on one node")
     if plan.phase == "selection" and len(specs) > SELECTION_PROCESSES_PER_NODE:
         raise ValueError("selection node batch exceeds its two-process cap")
-    launches: list[str] = ["pids=''", "status=0"]
+    parallel = plan.phase != "selection"
+    launches: list[str] = (["pids=''", "status=0"] if parallel else ["status=0"])
     logs: list[str] = []
     for spec in specs:
         output = _seed_result_path(plan, spec)
@@ -319,16 +324,25 @@ def build_node_batch_command_v1(
                 )
             )
         )
-        launches.append(
-            f"if test ! -s {shlex.quote(output)}; then "
+        body = (
             f"({command} > {shlex.quote(temporary)} 2> {shlex.quote(log)}"
-            f" && mv {shlex.quote(temporary)} {shlex.quote(output)}) "
-            f"& pids=\"$pids $!\"; fi"
+            f" && mv {shlex.quote(temporary)} {shlex.quote(output)})"
         )
+        if parallel:
+            launches.append(
+                f"if test ! -s {shlex.quote(output)}; then {body} "
+                f"& pids=\"$pids $!\"; fi"
+            )
+        else:
+            launches.append(
+                f"if test ! -s {shlex.quote(output)}; then {body} "
+                "|| status=1; fi"
+            )
         logs.append(log)
+    if parallel:
+        launches.append("for pid in $pids; do wait $pid || status=1; done")
     launches.extend(
         (
-            "for pid in $pids; do wait $pid || status=1; done",
             "if test $status -ne 0; then "
             + " ".join(
                 f"test ! -s {shlex.quote(log)} || tail -n 30 {shlex.quote(log)};"
@@ -357,11 +371,23 @@ def plan_receipt_v1(phases: Sequence[str]) -> JSONMap:
             "jobs_by_node": {
                 node: sum(spec.node == node for spec in specs) for node in NODES
             },
+            "maximum_concurrent_seed_processes_per_node": (
+                SELECTION_MAX_CONCURRENT_PROCESSES_PER_NODE
+                if plan.phase == "selection"
+                else max(
+                    sum(spec.node == node for spec in specs) for node in NODES
+                )
+            ),
             "maximum_candidate_lanes_per_node": max(
-                sum(
-                    spec.lane_workers
-                    for spec in specs
-                    if spec.node == node
+                (
+                    plan.lane_workers
+                    * SELECTION_MAX_CONCURRENT_PROCESSES_PER_NODE
+                    if plan.phase == "selection"
+                    else sum(
+                        spec.lane_workers
+                        for spec in specs
+                        if spec.node == node
+                    )
                 )
                 for node in NODES
             ),
