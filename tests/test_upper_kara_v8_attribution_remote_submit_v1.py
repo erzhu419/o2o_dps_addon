@@ -128,6 +128,11 @@ def test_plan_has_six_round_robin_tasks_and_cpu_matches_nested_parallelism(
         "loadout_id": contract.loadout_id,
         "bridge_artifact_name": contract.bridge_artifact_name,
         "runtime_binding_id": contract.runtime_binding_id,
+        "simulator_seed_namespace": contract.simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            contract.simulator_seed_derivation_algorithm
+        ),
+        "request_sha256": contract.request_sha256,
     }
 
 
@@ -156,6 +161,9 @@ def test_plan_stages_only_compact_closure_and_leaves_seed_rows_remote(
     assert plan["automatic_result_pull"] is False
     assert len(plan["manual_small_fetch_candidates"]) == 7
     assert "summarize" in plan["post_panel_summary_command"]
+    assert plan["post_panel_summary_command"].startswith(
+        f"cd {plan['project_root']} && "
+    )
     assert "--execution-mode E1_EXTERNAL_PRESS_CLOCK" in plan[
         "post_panel_summary_command"
     ]
@@ -236,6 +244,11 @@ def test_reproduction_plan_is_six_node_e0_and_never_mixes_fresh_outputs(
         "loadout_id": contract.loadout_id,
         "bridge_artifact_name": contract.bridge_artifact_name,
         "runtime_binding_id": contract.runtime_binding_id,
+        "simulator_seed_namespace": contract.simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            contract.simulator_seed_derivation_algorithm
+        ),
+        "request_sha256": contract.request_sha256,
     }
     assert len(plan["copy_specs"]) == 9
     assert any(
@@ -248,6 +261,9 @@ def test_reproduction_plan_is_six_node_e0_and_never_mixes_fresh_outputs(
     assert plan["automatic_result_pull"] is False
     assert len(plan["manual_small_fetch_candidates"]) == 7
     assert "summarize" in plan["post_panel_summary_command"]
+    assert plan["post_panel_summary_command"].startswith(
+        f"cd {plan['project_root']} && "
+    )
 
 
 def test_reproduction_plan_rejects_drifted_published_reference(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import dataclass
 import threading
 from types import SimpleNamespace
 
@@ -15,6 +16,11 @@ from o2o_dps.development_two_wave_cat_residual_sequence_v1 import (
     CatResidualSequenceStepV1,
     CatResidualSequenceWaveV1,
     DevelopmentTwoWaveCatResidualSequenceV1,
+)
+from o2o_dps.development_wave_panel_v1 import PROTOCOL_ID
+from o2o_dps.fury_paired_multiseed_runner_v2 import (
+    SEED_DERIVATION_ALGORITHM,
+    derive_simulator_seed,
 )
 from o2o_dps.fury_paired_multiseed_runner_v4 import CAT_POLICY_ID
 from o2o_dps.policy_observation_causal_projection_v1 import (
@@ -37,6 +43,7 @@ from o2o_dps.wave_action_sequence_search_v1 import (
 
 BLOODTHIRST = ActionRef(spell_id=23_894)
 WHIRLWIND = ActionRef(spell_id=1_680)
+REQUEST_SHA256 = "a" * 64
 
 
 def _policy(*, steps: tuple[CatResidualSequenceStepV1, ...] = ()):
@@ -93,16 +100,38 @@ def _install_fake_native(
     candidate_required_targets_dead: bool = True,
     lane_barrier: threading.Barrier | None = None,
     residual_finished: threading.Event | None = None,
+    outcome_seed_offset: int = 0,
 ) -> None:
     import o2o_dps.upper_kara_cat_residual_paired_eval_v8 as module
 
     seed = 77
-    case = SimpleNamespace(
-        dynamic_load=SimpleNamespace(seed=seed),
+    @dataclass(frozen=True)
+    class FakeCase:
+        dynamic_load: object
+        case_spec: dict
+        request: dict
+
+    class FakeDynamicRolloutLoad:
+        @staticmethod
+        def bind(request, rebound_seed, config):
+            del request
+            return SimpleNamespace(
+                seed=rebound_seed,
+                request_sha256=REQUEST_SHA256,
+                config=config,
+            )
+
+    case = FakeCase(
+        dynamic_load=SimpleNamespace(
+            seed=seed,
+            request_sha256=REQUEST_SHA256,
+            config=object(),
+        ),
         case_spec={
             "build_id": "live_bonereaver",
             "required_target_indices": [0, 1, 2],
         },
+        request={"test": True},
     )
     source_binding = ImportedReactiveProgramBindingV1(
         binding_id=CAT_POLICY_ID,
@@ -146,7 +175,9 @@ def _install_fake_native(
 
         def replay(self, requested_seed, program, *, max_decisions=10_000):
             del max_decisions
-            assert self.case_factory(requested_seed) is case
+            rebound_case = self.case_factory(requested_seed)
+            assert rebound_case.dynamic_load.seed == requested_seed
+            assert rebound_case.dynamic_load.request_sha256 == REQUEST_SHA256
             if lane_barrier is not None:
                 lane_barrier.wait(timeout=2.0)
             with self.bridge_factory():
@@ -191,7 +222,7 @@ def _install_fake_native(
                     callback(decision)
             except Exception as error:
                 return ScheduleReplayOutcomeV1(
-                    seed=requested_seed,
+                    seed=requested_seed + outcome_seed_offset,
                     status=ReplayStatusV1.INVALID,
                     state={"time_ms": 3_000, "damage_done": 0.0},
                     invalid_reason=f"{type(error).__name__}: {error}",
@@ -209,7 +240,7 @@ def _install_fake_native(
                 else:
                     assert residual_finished.wait(timeout=2.0)
             return ScheduleReplayOutcomeV1(
-                seed=requested_seed,
+                seed=requested_seed + outcome_seed_offset,
                 status=ReplayStatusV1.COMPLETE,
                 state={
                     "time_ms": 8_000,
@@ -236,6 +267,7 @@ def _install_fake_native(
         lambda _: (lambda state, actions: (state, actions)),
     )
     monkeypatch.setattr(module, "NativeDynamicV3ActionProgramReplayV1", FakeNativeReplay)
+    monkeypatch.setattr(module, "DynamicRolloutLoadV3", FakeDynamicRolloutLoad)
 
 
 def test_paired_native_lanes_overlap_and_keep_named_outputs(
@@ -298,6 +330,47 @@ def test_paired_evaluator_reports_damage_delta_freshness_and_step_audit(
             "executed": True,
         }
     ]
+
+
+def test_explicit_seed_namespace_reproduces_master_request_derivation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_native(monkeypatch)
+    result = evaluate_upper_kara_cat_residual_sequence_paired_v8(
+        _policy(),
+        seed=77,
+        build_id="live_bonereaver",
+        loadout_id="contra_turtle_burst__mighty_rage",
+        simulator_seed_namespace=PROTOCOL_ID,
+        bridge_factory=_FakeBridge,
+    )
+
+    assert result["seed"] == 77
+    assert result["master_seed"] == 77
+    assert result["request_sha256"] == REQUEST_SHA256
+    assert result["simulator_seed"] == derive_simulator_seed(
+        77, REQUEST_SHA256, namespace=PROTOCOL_ID
+    )
+    assert result["simulator_seed_namespace"] == PROTOCOL_ID
+    assert (
+        result["simulator_seed_derivation_algorithm"]
+        == SEED_DERIVATION_ALGORITHM
+    )
+
+
+def test_paired_evaluator_rejects_wrong_outcome_simulator_seed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_native(monkeypatch, outcome_seed_offset=1)
+    with pytest.raises(RuntimeError, match="different simulator seed"):
+        evaluate_upper_kara_cat_residual_sequence_paired_v8(
+            _policy(),
+            seed=77,
+            build_id="live_bonereaver",
+            loadout_id="contra_turtle_burst__mighty_rage",
+            simulator_seed_namespace=PROTOCOL_ID,
+            bridge_factory=_FakeBridge,
+        )
 
 
 def test_seed_or_future_control_field_invalidates_both_policy_lanes(

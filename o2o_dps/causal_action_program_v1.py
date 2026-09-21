@@ -64,6 +64,7 @@ class ProgramOriginV1(str, Enum):
     SEARCHED = "SEARCHED"
     SEARCHED_REACTIVE = "SEARCHED_REACTIVE"
     IMPORTED_REACTIVE_INCUMBENT = "IMPORTED_REACTIVE_INCUMBENT"
+    SOURCE_DERIVED_OFFLINE = "SOURCE_DERIVED_OFFLINE"
     HAND_AUTHORED_DEVELOPMENT = "HAND_AUTHORED_DEVELOPMENT"
 
 
@@ -1003,10 +1004,12 @@ class CausalActionProgramV1:
             not in (
                 ProgramOriginV1.IMPORTED_REACTIVE_INCUMBENT,
                 ProgramOriginV1.SEARCHED_REACTIVE,
+                ProgramOriginV1.SOURCE_DERIVED_OFFLINE,
             )
         ):
             raise ValueError(
-                "an imported selector requires imported or searched-reactive origin"
+                "an imported selector requires imported, searched-reactive, "
+                "or source-derived offline origin"
             )
 
     def to_dict(self) -> JSONMap:
@@ -1155,10 +1158,24 @@ class _ImportedReactiveProgramSessionV1:
         self._pending_decision = decision
         return decision
 
-    def confirm_pending_execution(self, actual_decision: ProgramDecisionV1) -> None:
+    def confirm_pending_execution(
+        self,
+        actual_decision: ProgramDecisionV1,
+        execution_receipts: Sequence[Mapping[str, Any]] = (),
+    ) -> None:
         """Commit runtime-only resolver state after the bridge accepted a plan."""
 
         if self._pending_decision is None:
+            return
+        receipt_callback = getattr(
+            self.resolver, "record_last_execution_receipt_v1", None
+        )
+        if callable(receipt_callback):
+            receipt_callback(
+                actual_decision,
+                tuple(dict(row) for row in execution_receipts),
+            )
+            self._pending_decision = None
             return
         callback = getattr(self.resolver, "record_last_executed_decision_v1", None)
         if callable(callback):
@@ -1964,6 +1981,14 @@ def _execute_decision(
     receipts: list[JSONMap],
     result_bearing_action_refs: frozenset[ActionRef],
     external_press_clock: bool = False,
+    runtime_target_validator: Callable[
+        [Mapping[str, Any], int], Mapping[str, Any] | None
+    ]
+    | None = None,
+    runtime_action_validator: Callable[
+        [Mapping[str, Any], ActionRef], Mapping[str, Any] | None
+    ]
+    | None = None,
 ) -> JSONMap:
     current = dict(state)
     prefix_index = 0
@@ -1978,6 +2003,13 @@ def _execute_decision(
             simulator_index = observation.simulator_target_index(
                 decision.target_index
             )
+            target_gate = (
+                runtime_target_validator(current, simulator_index)
+                if runtime_target_validator is not None
+                else None
+            )
+            if target_gate is not None and not isinstance(target_gate, Mapping):
+                raise TypeError("runtime target validator must return a mapping or None")
             result = bridge.set_target(simulator_index)
             current = dict(result.state)
             if result.target_index != simulator_index:
@@ -1993,6 +2025,11 @@ def _execute_decision(
                     "simulator_target_index": simulator_index,
                     "changed": bool(result.changed),
                     "state_time_ms": _state_time(current),
+                    **(
+                        {"target_gate": dict(target_gate)}
+                        if target_gate is not None
+                        else {}
+                    ),
                 }
             )
             continue
@@ -2058,6 +2095,13 @@ def _execute_decision(
                 raise CausalActionProgramError(
                     "optional off-GCD prefix is advertised as GCD-triggering"
                 )
+            action_gate = (
+                runtime_action_validator(current, prefix.action)
+                if runtime_action_validator is not None
+                else None
+            )
+            if action_gate is not None and not isinstance(action_gate, Mapping):
+                raise TypeError("runtime action validator must return a mapping or None")
             attempt_id = _attempt_id(
                 prefix.action,
                 row,
@@ -2080,6 +2124,11 @@ def _execute_decision(
                     "action": prefix.action.to_wire(),
                     "attempt_id": attempt_id,
                     "state_time_ms": _state_time(current),
+                    **(
+                        {"action_gate": dict(action_gate)}
+                        if action_gate is not None
+                        else {}
+                    ),
                 }
             )
             continue
@@ -2127,6 +2176,13 @@ def _execute_decision(
                 raise CausalActionProgramError(
                     "queue action is not currently legal"
                 )
+            action_gate = (
+                runtime_action_validator(current, decision.queue_action)
+                if runtime_action_validator is not None
+                else None
+            )
+            if action_gate is not None and not isinstance(action_gate, Mapping):
+                raise TypeError("runtime action validator must return a mapping or None")
             attempt_id = _attempt_id(
                 decision.queue_action,
                 row,
@@ -2157,6 +2213,11 @@ def _execute_decision(
                             "reason": "SWING_QUEUE_STATE_UNAVAILABLE_AFTER_ACCEPTANCE",
                         }
                     ),
+                    **(
+                        {"action_gate": dict(action_gate)}
+                        if action_gate is not None
+                        else {}
+                    ),
                 }
             )
             continue
@@ -2173,6 +2234,13 @@ def _execute_decision(
             raise CausalActionProgramError(
                 "terminal GCD action is advertised as off-GCD"
             )
+        action_gate = (
+            runtime_action_validator(current, decision.gcd_action)
+            if runtime_action_validator is not None
+            else None
+        )
+        if action_gate is not None and not isinstance(action_gate, Mapping):
+            raise TypeError("runtime action validator must return a mapping or None")
         attempt_id = _attempt_id(
             decision.gcd_action,
             row,
@@ -2193,6 +2261,11 @@ def _execute_decision(
                 "action": decision.gcd_action.to_wire(),
                 "attempt_id": attempt_id,
                 "state_time_ms": _state_time(current),
+                **(
+                    {"action_gate": dict(action_gate)}
+                    if action_gate is not None
+                    else {}
+                ),
             }
         )
     elif external_press_clock:
@@ -2379,6 +2452,7 @@ class NativeDynamicV3ActionProgramReplayV1:
                             receipts,
                             decision_index,
                         )
+                        execution_receipt_start = len(receipts)
                         state = _execute_decision(
                             bridge,
                             state,
@@ -2414,7 +2488,10 @@ class NativeDynamicV3ActionProgramReplayV1:
                             )
                         raise
                     for session in imported_sessions.values():
-                        session.confirm_pending_execution(decision)
+                        session.confirm_pending_execution(
+                            decision,
+                            receipts[execution_receipt_start:],
+                        )
                     state = _advance_to_input(bridge, state)
                     last_state = dict(state)
                     decision_index += 1

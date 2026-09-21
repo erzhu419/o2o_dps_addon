@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -32,6 +33,11 @@ from .development_two_wave_cat_residual_sequence_v1 import (
     build_two_wave_cat_residual_sequence_runtime_v1,
 )
 from .development_wave_panel_v1 import DEFAULT_BINDING, WORKSPACE_ROOT
+from .fury_dynamic_target_semantics_v5 import DynamicRolloutLoadV3
+from .fury_paired_multiseed_runner_v2 import (
+    SEED_DERIVATION_ALGORITHM,
+    derive_simulator_seed,
+)
 from .fury_paired_multiseed_runner_v4 import CAT_POLICY_ID
 from .policy_observation_causal_projection_v1 import CausalLiveStateProjectionV1
 from .precombat_timeline_v1 import SimulatorBridgePrecombatV1
@@ -927,6 +933,7 @@ def evaluate_upper_kara_cat_residual_sequence_paired_v8(
     bridge_path: str | Path = DEFAULT_EXACT_BRIDGE,
     bridge_cwd: str | Path = WORKSPACE_ROOT / "wowsims-turtle",
     runtime_binding_path: str | Path = DEFAULT_BINDING,
+    simulator_seed_namespace: str | None = None,
     bridge_factory: Callable[[], Any] | None = None,
     selected_decision_transform: Callable[
         [ProgramDecisionV1, ProgramDecisionV1], ProgramDecisionV1
@@ -952,17 +959,54 @@ def evaluate_upper_kara_cat_residual_sequence_paired_v8(
     if max_decisions < 1:
         raise ValueError("max_decisions must be positive")
 
+    if simulator_seed_namespace is not None and (
+        not isinstance(simulator_seed_namespace, str)
+        or not simulator_seed_namespace.strip()
+    ):
+        raise ValueError("simulator_seed_namespace must be nonempty text or None")
+
+    master_seed = seed
     case = build_upper_kara_heterogeneous_two_wave_burst_case_v7(
-        seed,
+        master_seed,
         build_id=build_id,
         loadout_id=loadout_id,
         pull_time_ms=pull_time_ms,
         first_wave_arrival_ms=first_wave_arrival_ms,
     )
-    if case.dynamic_load.seed != seed:
+    if case.dynamic_load.seed != master_seed:
         raise UpperKaraCatResidualPairedEvalV8Error(
-            "case builder returned a different simulator seed"
+            "case builder returned a different master seed"
         )
+    request_sha256 = getattr(case.dynamic_load, "request_sha256", None)
+    if simulator_seed_namespace is None:
+        # Backward-compatible direct callers retain the historical v8 helper
+        # behavior in which one raw seed names both the case and replay.
+        simulator_seed = master_seed
+    else:
+        if not isinstance(request_sha256, str) or not request_sha256:
+            raise UpperKaraCatResidualPairedEvalV8Error(
+                "derived simulator seed requires dynamic_load.request_sha256"
+            )
+        simulator_seed = derive_simulator_seed(
+            master_seed,
+            request_sha256,
+            namespace=simulator_seed_namespace,
+        )
+        # Match the original train/eval replay factory exactly: the case is
+        # materialized from the master example, then its bridge/source-policy
+        # load is rebound to the derived seed that is actually executed.
+        case = replace(
+            case,
+            dynamic_load=DynamicRolloutLoadV3.bind(
+                case.request,
+                simulator_seed,
+                case.dynamic_load.config,
+            ),
+        )
+        if case.dynamic_load.request_sha256 != request_sha256:
+            raise UpperKaraCatResidualPairedEvalV8Error(
+                "simulator-seed rebind changed request identity"
+            )
     required = case.case_spec.get("required_target_indices")
     residual_targets = tuple(
         target for wave in policy.waves for target in wave.target_indexes
@@ -1061,14 +1105,14 @@ def evaluate_upper_kara_cat_residual_sequence_paired_v8(
         # Projector state is prefix-dependent, so every lane gets a fresh one.
         replay = NativeDynamicV3ActionProgramReplayV1(
             open_lane_bridge,
-            lambda requested_seed: {seed: case}[requested_seed],
+            lambda requested_seed: {simulator_seed: case}[requested_seed],
             build_heterogeneous_two_wave_observation_projector_v1(case),
             imported_bindings=(binding,),
             terminal_telemetry_action_refs=_TELEMETRY_DAMAGE_ACTIONS,
             external_press_period_ms=external_press_period_ms,
             external_press_phase_ms=external_press_phase_ms,
         )
-        return replay.replay(seed, program, max_decisions=max_decisions)
+        return replay.replay(simulator_seed, program, max_decisions=max_decisions)
 
     # The lanes own independent bridge/projector/policy sessions.  Retain
     # named futures so completion order cannot swap exact-Cat and residual
@@ -1091,6 +1135,13 @@ def evaluate_upper_kara_cat_residual_sequence_paired_v8(
         )
         exact_outcome = exact_future.result()
         residual_outcome = residual_future.result()
+    if (
+        exact_outcome.seed != simulator_seed
+        or residual_outcome.seed != simulator_seed
+    ):
+        raise UpperKaraCatResidualPairedEvalV8Error(
+            "paired replay returned a different simulator seed"
+        )
     step_audit = _step_audit(policy, residual_sessions)
     fallback_counts = step_audit.get("fallback_reason_counts")
     exact_terminal = _terminal(case, exact_outcome, policy.waves, None)
@@ -1138,7 +1189,18 @@ def evaluate_upper_kara_cat_residual_sequence_paired_v8(
             else "INVALID_OR_INCOMPLETE_PAIRED_EVALUATION"
         ),
         "scope": "MODEL_DEFINED_DEVELOPMENT_ONLY",
-        "seed": seed,
+        # ``seed`` remains the master/example seed for backward-compatible
+        # consumers.  The explicit triple below removes the old ambiguity.
+        "seed": master_seed,
+        "master_seed": master_seed,
+        "simulator_seed": simulator_seed,
+        "request_sha256": request_sha256,
+        "simulator_seed_namespace": simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            SEED_DERIVATION_ALGORITHM
+            if simulator_seed_namespace is not None
+            else None
+        ),
         "build_id": build_id,
         "loadout_id": loadout_id,
         "first_wave_arrival_ms": first_wave_arrival_ms,

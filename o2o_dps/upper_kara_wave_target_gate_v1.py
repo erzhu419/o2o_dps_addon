@@ -82,6 +82,8 @@ class UpperKaraWaveTargetGateV1:
 
         dynamic_load = getattr(case, "dynamic_load", None)
         config = getattr(dynamic_load, "config", None)
+        if config is None:
+            config = getattr(case, "dynamic_config", None)
         mode = getattr(config, "retarget_mode", None)
         if mode != REQUIRED_RETARGET_MODE_V1:
             raise ValueError(
@@ -294,6 +296,8 @@ class ReactiveBossAddsTargetGateV1:
 
         dynamic_load = getattr(case, "dynamic_load", None)
         config = getattr(dynamic_load, "config", None)
+        if config is None:
+            config = getattr(case, "dynamic_config", None)
         mode = getattr(config, "retarget_mode", None)
         if mode != REQUIRED_RETARGET_MODE_V1:
             raise ValueError(

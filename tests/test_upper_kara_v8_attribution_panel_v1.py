@@ -6,6 +6,11 @@ from o2o_dps.causal_action_program_v1 import (
     ProgramDecisionV1,
     ProgramPrefixOperationKindV1,
 )
+from o2o_dps.development_wave_panel_v1 import PROTOCOL_ID
+from o2o_dps.fury_paired_multiseed_runner_v2 import (
+    SEED_DERIVATION_ALGORITHM,
+    derive_simulator_seed,
+)
 from o2o_dps.sim_bridge import ActionRef
 from o2o_dps.upper_kara_v8_attribution_panel_v1 import (
     A0_EXACT_CAT,
@@ -230,7 +235,7 @@ def test_seed_evaluator_dynamically_composes_three_arms_and_checks_cat_identity(
     seen = []
 
     def fake_pair(policy, *, selected_decision_transform, **kwargs):
-        del policy, kwargs
+        del policy
         cat = ProgramDecisionV1(
             queue_op=QueueLaneOp.SET,
             queue_action=HEROIC_STRIKE,
@@ -248,6 +253,14 @@ def test_seed_evaluator_dynamically_composes_three_arms_and_checks_cat_identity(
             (DEATH_WISH, CLEAVE): 16.0,
         }[(selected.gcd_action, selected.queue_action)]
         return {
+            "seed": kwargs["seed"],
+            "master_seed": kwargs["seed"],
+            "simulator_seed": derive_simulator_seed(
+                kwargs["seed"], "a" * 64, namespace=PROTOCOL_ID
+            ),
+            "request_sha256": "a" * 64,
+            "simulator_seed_namespace": kwargs["simulator_seed_namespace"],
+            "simulator_seed_derivation_algorithm": SEED_DERIVATION_ALGORITHM,
             "exact_cat_terminal": {
                 "status": "COMPLETED",
                 "own_effective_damage": 10.0,
@@ -278,6 +291,7 @@ def test_seed_evaluator_dynamically_composes_three_arms_and_checks_cat_identity(
         loadout_id="rage",
         first_wave_arrival_ms=0,
         arm_workers=1,
+        simulator_seed_namespace=PROTOCOL_ID,
         paired_evaluator=fake_pair,
     )
 
@@ -288,6 +302,11 @@ def test_seed_evaluator_dynamically_composes_three_arms_and_checks_cat_identity(
     assert result["arms"][A3_FROZEN_V8]["own_effective_damage"] == 16.0
     assert result["arms"][A1_DEATH_WISH_ONLY]["intervention_time_ms"] == 123
     assert seen[0].queue_action == HEROIC_STRIKE
+    assert result["master_seed"] == 1
+    assert result["simulator_seed"] == derive_simulator_seed(
+        1, "a" * 64, namespace=PROTOCOL_ID
+    )
+    assert result["request_sha256"] == "a" * 64
 
 
 @pytest.mark.parametrize(

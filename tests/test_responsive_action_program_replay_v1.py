@@ -16,22 +16,37 @@ from o2o_dps.policy_observation_causal_projection_v1 import (
 from o2o_dps.responsive_action_program_replay_v1 import (
     NativeDynamicV4ResponsiveActionProgramReplayV1,
 )
-from o2o_dps.sim_bridge import ActResult, ActionRef, AvailableAction
+from o2o_dps.sim_bridge import (
+    ActResult,
+    ActionRef,
+    AvailableAction,
+    SetTargetResult,
+)
 from o2o_dps.upper_kara_responsive_incantagos_case_v1 import (
     CompiledResponsiveIncantagosCaseV1,
 )
 from o2o_dps.wave_action_sequence_search_v1 import ReplayStatusV1
+from o2o_dps.upper_kara_wave_target_gate_v1 import (
+    REQUIRED_RETARGET_MODE_V1,
+    WaveTargetGateDecisionV1,
+)
 
 
 STRIKE = ActionRef(spell_id=23894)
+WHIRLWIND = ActionRef(spell_id=1680)
 
 
 class _DrivenBridge:
-    def __init__(self) -> None:
+    def __init__(self, action=STRIKE, *, target_rows=()) -> None:
         self.load_calls = []
         self.advance_calls = 0
+        self.set_target_calls = []
+        self.act_calls = []
+        self.action = action
+        self.target_rows = tuple(deepcopy(target_rows))
         self._time = 0
         self._finished = False
+        self._target_index = 0
 
     def __enter__(self):
         return self
@@ -49,6 +64,11 @@ class _DrivenBridge:
         }
         if self._time == 0:
             state["wake_ready"] = {"wake_id": "teammate-first"}
+        if self.target_rows:
+            state["target_index"] = self._target_index
+            state["dynamic_target_semantics"] = {
+                "targets": deepcopy(list(self.target_rows))
+            }
         return state
 
     def load_dynamic_v4(self, request, seed, config):
@@ -61,10 +81,22 @@ class _DrivenBridge:
         return self._state()
 
     def actions(self):
-        return [AvailableAction(0, STRIKE, "Bloodthirst", True, 0, True)]
+        return [AvailableAction(0, self.action, "test action", True, 0, True)]
+
+    def set_target(self, target_index):
+        self.set_target_calls.append(target_index)
+        self._target_index = target_index
+        return SetTargetResult(
+            changed=True,
+            target_index=target_index,
+            finished=False,
+            needs_input=True,
+            state=self._state(),
+        )
 
     def act(self, action, *, attempt_id=None):
-        assert action == STRIKE
+        assert action == self.action
+        self.act_calls.append(action)
         self._finished = True
         return ActResult(True, True, True, False, self._state())
 
@@ -76,7 +108,10 @@ class _DrivenBridge:
 def _case(_seed):
     return CompiledResponsiveIncantagosCaseV1(
         request={"loadout": "one-identical-build"},
-        dynamic_config=SimpleNamespace(content_sha256="same-v4-config"),
+        dynamic_config=SimpleNamespace(
+            content_sha256="same-v4-config",
+            retarget_mode=REQUIRED_RETARGET_MODE_V1,
+        ),
         runtime=None,
         native_target_guids=(),
         target_introduced_at_ms_by_guid={},
@@ -104,6 +139,47 @@ def _program(policy_id):
         selector=ImportedReactiveSelectorV1(policy_id, policy_id, "current-state-v1"),
         origin=ProgramOriginV1.IMPORTED_REACTIVE_INCUMBENT,
     )
+
+
+class _FakeTargetGate:
+    def __init__(self, *, direct=(0,), collateral=(0,)):
+        self.direct = tuple(direct)
+        self.collateral = tuple(collateral)
+        self.validated_cases = []
+        self.previous_stage_ids = []
+
+    def validate_case(self, case):
+        assert case.dynamic_config.retarget_mode == REQUIRED_RETARGET_MODE_V1
+        self.validated_cases.append(case)
+
+    def evaluate_state(self, state, *, previous_stage_id=None):
+        self.previous_stage_ids.append(previous_stage_id)
+        return WaveTargetGateDecisionV1(
+            stage_id="fake-stage",
+            direct_target_indexes=self.direct,
+            collateral_target_indexes=self.collateral,
+        )
+
+
+def _decision_binding(policy_id, decision):
+    return ImportedReactiveProgramBindingV1(
+        policy_id,
+        policy_id,
+        "current-state-v1",
+        lambda: lambda observation, available: decision,
+    )
+
+
+class _ReceiptResolver:
+    def __init__(self, decision):
+        self.decision = decision
+        self.execution_receipts = []
+
+    def __call__(self, observation, available):
+        return self.decision
+
+    def record_last_execution_receipt_v1(self, decision, execution_receipts):
+        self.execution_receipts.append((decision, execution_receipts))
 
 
 def test_two_imported_sessions_use_same_loadout_seed_and_post_wake_state():
@@ -156,6 +232,34 @@ def test_two_imported_sessions_use_same_loadout_seed_and_post_wake_state():
     assert session_opened == ["cat", "contra"]
 
 
+def test_responsive_replay_reports_only_current_decision_execution_receipts():
+    resolver = _ReceiptResolver(ProgramDecisionV1(gcd_action=STRIKE))
+    binding = ImportedReactiveProgramBindingV1(
+        "offline",
+        "offline",
+        "current-state-v1",
+        lambda: resolver,
+    )
+    result = NativeDynamicV4ResponsiveActionProgramReplayV1(
+        bridge_factory=_DrivenBridge,
+        case_factory=_case,
+        observation_projector_factory=_projector,
+        imported_bindings=(binding,),
+    ).replay(78, _program("offline"))
+
+    assert result.status is ReplayStatusV1.COMPLETE
+    assert len(resolver.execution_receipts) == 1
+    decision, execution_receipts = resolver.execution_receipts[0]
+    assert decision.gcd_action == STRIKE
+    assert [row["kind"] for row in execution_receipts] == [
+        "QUEUE_KEEP",
+        "TERMINAL_GCD",
+    ]
+    assert "IMPORTED_REACTIVE_INCUMBENT_SELECTED" not in {
+        row["kind"] for row in execution_receipts
+    }
+
+
 def test_raw_future_field_reaches_no_imported_resolver():
     calls = []
     binding = ImportedReactiveProgramBindingV1(
@@ -199,3 +303,103 @@ def test_bounded_frontier_stops_after_wake_before_policy_input():
         "DEVELOPMENT_RESPONSIVE_V4_BOUNDED_FRONTIER"
     )
     assert calls == []
+
+
+def test_runtime_target_gate_receipt_and_outcome_cover_allowed_set_target():
+    bridges = []
+    gate = _FakeTargetGate(direct=(0,), collateral=(0,))
+
+    def bridge_factory():
+        bridge = _DrivenBridge()
+        bridges.append(bridge)
+        return bridge
+
+    decision = ProgramDecisionV1(target_index=0, gcd_action=STRIKE)
+    replay = NativeDynamicV4ResponsiveActionProgramReplayV1(
+        bridge_factory=bridge_factory,
+        case_factory=_case,
+        observation_projector_factory=_projector,
+        imported_bindings=(_decision_binding("cat", decision),),
+        target_gate=gate,
+    )
+    result = replay.replay(77, _program("cat"))
+
+    assert result.status is ReplayStatusV1.COMPLETE
+    assert result.target_gate == WaveTargetGateDecisionV1(
+        stage_id="fake-stage",
+        direct_target_indexes=(0,),
+        collateral_target_indexes=(0,),
+    )
+    target_receipt = next(
+        row for row in result.receipts if row.get("kind") == "SET_TARGET"
+    )
+    assert target_receipt["simulator_target_index"] == 0
+    assert target_receipt["target_gate"] == result.target_gate.to_dict()
+    assert bridges[0].set_target_calls == [0]
+    assert bridges[0].act_calls == [STRIKE]
+    assert len(gate.validated_cases) == 1
+
+
+def test_runtime_target_gate_rejects_direct_target_before_bridge_mutation():
+    bridges = []
+    gate = _FakeTargetGate(direct=(1,), collateral=(0, 1))
+
+    def bridge_factory():
+        bridge = _DrivenBridge()
+        bridges.append(bridge)
+        return bridge
+
+    decision = ProgramDecisionV1(target_index=0, gcd_action=STRIKE)
+    replay = NativeDynamicV4ResponsiveActionProgramReplayV1(
+        bridge_factory=bridge_factory,
+        case_factory=_case,
+        observation_projector_factory=_projector,
+        imported_bindings=(_decision_binding("cat", decision),),
+        target_gate=gate,
+    )
+    result = replay.replay(77, _program("cat"))
+
+    assert result.status is ReplayStatusV1.INVALID
+    assert "outside the current direct-target allowlist" in result.invalid_reason
+    assert bridges[0].set_target_calls == []
+    assert bridges[0].act_calls == []
+
+
+def test_runtime_target_gate_fails_closed_before_unmasked_whirlwind():
+    bridges = []
+    gate = _FakeTargetGate(direct=(0,), collateral=(0,))
+    targets = (
+        {"target_index": 0, "dead": False, "attackable": True},
+        {"target_index": 1, "dead": False, "attackable": True},
+    )
+
+    def bridge_factory():
+        bridge = _DrivenBridge(WHIRLWIND, target_rows=targets)
+        bridges.append(bridge)
+        return bridge
+
+    decision = ProgramDecisionV1(gcd_action=WHIRLWIND)
+    replay = NativeDynamicV4ResponsiveActionProgramReplayV1(
+        bridge_factory=bridge_factory,
+        case_factory=_case,
+        observation_projector_factory=lambda case: (
+            lambda state, available: CausalLiveStateProjectionV1(
+                {
+                    key: deepcopy(value)
+                    for key, value in state.items()
+                    if key != "remaining_ms"
+                },
+                (0, 1),
+                state["time_ms"],
+            )
+        ),
+        imported_bindings=(_decision_binding("cat", decision),),
+        target_gate=gate,
+    )
+    result = replay.replay(77, _program("cat"))
+
+    assert result.status is ReplayStatusV1.INVALID
+    assert "unmasked collateral action could hit target indexes" in (
+        result.invalid_reason
+    )
+    assert bridges[0].act_calls == []

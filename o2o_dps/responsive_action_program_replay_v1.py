@@ -33,8 +33,11 @@ from .wave_action_sequence_search_v1 import (
     FURY_RESULT_BEARING_ACTION_REFS_V1,
     ReplayStatusV1,
     ScheduleReplayOutcomeV1,
+    _WaveTargetGateTrackerV1,
+    _enforce_unmasked_collateral_action_v1,
 )
 from .sim_bridge import ActionRef
+from .upper_kara_wave_target_gate_v1 import RuntimeTargetGateV1
 
 
 def _advance_to_clean_input(bridge: Any, state: Mapping[str, Any]) -> dict[str, Any]:
@@ -90,6 +93,7 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
         result_bearing_action_refs: Sequence[ActionRef] = tuple(
             FURY_RESULT_BEARING_ACTION_REFS_V1
         ),
+        target_gate: RuntimeTargetGateV1 | None = None,
     ) -> None:
         if not all(callable(value) for value in (
             bridge_factory, case_factory, observation_projector_factory
@@ -105,6 +109,11 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
         self._projector_factory = observation_projector_factory
         self._bindings = tuple(imported_bindings)
         self._result_refs = frozenset(result_bearing_action_refs)
+        if target_gate is not None and not isinstance(
+            target_gate, RuntimeTargetGateV1
+        ):
+            raise TypeError("target_gate must implement RuntimeTargetGateV1")
+        self._target_gate = target_gate
 
     def replay(
         self,
@@ -135,6 +144,13 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
             projector = self._projector_factory(case)
             if not callable(projector):
                 raise TypeError("observation_projector_factory must return a callable")
+            tracker = (
+                _WaveTargetGateTrackerV1(self._target_gate)
+                if self._target_gate is not None
+                else None
+            )
+            if self._target_gate is not None:
+                self._target_gate.validate_case(case)
             required_id = _required_binding_id(program)
             sessions = {
                 row.binding_id: _ImportedReactiveProgramSessionV1(
@@ -159,6 +175,13 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
                 })
                 state = _advance_to_clean_input(bridge, dict(loaded.state))
                 last_state = dict(state)
+                if tracker is not None:
+                    tracker.observe(state)
+                    receipts.append({
+                        "kind": "DEVELOPMENT_RUNTIME_TARGET_GATE_BOUND",
+                        "target_gate": tracker.decision.to_dict(),
+                        "comparison_authorized": False,
+                    })
                 decision_index = 0
                 while not bool(state.get("finished")):
                     if (
@@ -183,6 +206,9 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
                             seed=seed, status=ReplayStatusV1.FRONTIER,
                             state=state, available_actions=available,
                             receipts=tuple(receipts),
+                            target_gate=(
+                                tracker.decision if tracker is not None else None
+                            ),
                         )
                     if decision_index >= max_decisions:
                         raise CausalActionProgramError(
@@ -194,15 +220,42 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
                         continue
                     available, _ = _available_by_action(bridge)
                     observation = _project_observation(projector, state, available)
+
+                    def validate_target(
+                        current: Mapping[str, Any], simulator_index: int
+                    ) -> Mapping[str, Any]:
+                        assert tracker is not None
+                        gate = tracker.observe(current)
+                        if simulator_index not in gate.direct_target_indexes:
+                            raise CausalActionProgramError(
+                                "program target is outside the current "
+                                "direct-target allowlist"
+                            )
+                        return gate.to_dict()
+
+                    def validate_action(
+                        current: Mapping[str, Any], action: ActionRef
+                    ) -> Mapping[str, Any] | None:
+                        assert tracker is not None
+                        return _enforce_unmasked_collateral_action_v1(
+                            action, current, tracker
+                        )
                     try:
                         decision = _select_decision(
                             program, observation, available, sessions, receipts,
                             decision_index,
                         )
+                        execution_receipt_start = len(receipts)
                         state = _execute_decision(
                             bridge, state, decision, decision_index=decision_index,
                             projector=projector, receipts=receipts,
                             result_bearing_action_refs=self._result_refs,
+                            runtime_target_validator=(
+                                validate_target if tracker is not None else None
+                            ),
+                            runtime_action_validator=(
+                                validate_action if tracker is not None else None
+                            ),
                         )
                     except Exception as error:
                         for session in sessions.values():
@@ -211,9 +264,14 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
                             )
                         raise
                     for session in sessions.values():
-                        session.confirm_pending_execution(decision)
+                        session.confirm_pending_execution(
+                            decision,
+                            receipts[execution_receipt_start:],
+                        )
                     state = _advance_to_clean_input(bridge, state)
                     last_state = dict(state)
+                    if tracker is not None and not bool(state.get("finished")):
+                        tracker.observe(state)
                     decision_index += 1
                 receipts.append({
                     "kind": "DEVELOPMENT_RESPONSIVE_V4_DRIVE",
@@ -232,6 +290,7 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
                 return ScheduleReplayOutcomeV1(
                     seed=seed, status=ReplayStatusV1.COMPLETE,
                     state=state, receipts=tuple(receipts),
+                    target_gate=(tracker.decision if tracker is not None else None),
                 )
         except Exception as error:
             if "damage_done" not in last_state and not isinstance(

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from o2o_dps.fury_paired_multiseed_runner_v2 import derive_simulator_seed
 from o2o_dps.upper_kara_v8_e0_reproduction_gate_v1 import (
     EXECUTION_MODE,
     SCHEMA,
@@ -42,6 +43,11 @@ BRIDGE = (
 
 def _row(contract, seed_index: int, cat_damage: float, delta: float):
     seed, arrival = contract.examples()[seed_index]
+    simulator_seed = derive_simulator_seed(
+        seed,
+        contract.request_sha256,
+        namespace=contract.simulator_seed_namespace,
+    )
     return {
         "schema": f"{SCHEMA}/seed",
         "status": "COMPLETED_REPRODUCTION_PAIR",
@@ -55,6 +61,13 @@ def _row(contract, seed_index: int, cat_damage: float, delta: float):
         "experiment_id": contract.experiment_id,
         "seed_index": seed_index,
         "seed": seed,
+        "master_seed": seed,
+        "simulator_seed": simulator_seed,
+        "request_sha256": contract.request_sha256,
+        "simulator_seed_namespace": contract.simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            contract.simulator_seed_derivation_algorithm
+        ),
         "first_wave_arrival_ms": arrival,
         "parent_policy_id": contract.parent_policy_id,
         "build_id": contract.build_id,
@@ -147,6 +160,12 @@ def test_contract_is_exact_published_256_example_reproduction_only() -> None:
     assert contract.examples()[-1] == (1_320_256, 5_000)
     assert contract.parent_policy_id.endswith("proposal-005")
     assert contract.bridge_generation == "v27-precombat-press"
+    assert contract.simulator_seed_namespace == (
+        "upper-kara-61944-model-wave-development-v1"
+    )
+    assert contract.request_sha256 == (
+        "97825ec34e52357097d98f520ccdf4018f2d8ddc35e1b6e8fd29a7c36764cc04"
+    )
     assert contract.deterministic_absolute_tolerance == 1e-9
 
 
@@ -210,6 +229,14 @@ def test_seed_runner_executes_only_exact_cat_and_full_v8_under_e0(tmp_path: Path
 
     def fake_evaluator(received_policy, **kwargs):
         calls.append((received_policy, kwargs))
+        request_sha256 = load_v8_e0_reproduction_contract_v1(
+            CONTRACT
+        ).request_sha256
+        simulator_seed = derive_simulator_seed(
+            kwargs["seed"],
+            request_sha256,
+            namespace=kwargs["simulator_seed_namespace"],
+        )
         return {
             "status": "COMPLETED_PAIRED_EVALUATION",
             "paired_comparison_valid": True,
@@ -222,6 +249,16 @@ def test_seed_runner_executes_only_exact_cat_and_full_v8_under_e0(tmp_path: Path
                 "own_effective_damage": 13.0,
             },
             "paired_residual_minus_cat_own_effective_damage": 3.0,
+            "seed": kwargs["seed"],
+            "master_seed": kwargs["seed"],
+            "simulator_seed": simulator_seed,
+            "request_sha256": request_sha256,
+            "simulator_seed_namespace": kwargs["simulator_seed_namespace"],
+            "simulator_seed_derivation_algorithm": (
+                load_v8_e0_reproduction_contract_v1(
+                    CONTRACT
+                ).simulator_seed_derivation_algorithm
+            ),
             "policy_input_audit": {"clean": True},
             "step_audit": {},
         }
@@ -241,6 +278,9 @@ def test_seed_runner_executes_only_exact_cat_and_full_v8_under_e0(tmp_path: Path
     assert calls[0][0].policy_id.endswith("proposal-005")
     assert calls[0][1]["seed"] == 1_320_001
     assert calls[0][1]["first_wave_arrival_ms"] == 0
+    assert calls[0][1]["simulator_seed_namespace"] == (
+        load_v8_e0_reproduction_contract_v1(CONTRACT).simulator_seed_namespace
+    )
     assert "selected_decision_transform" not in calls[0][1]
     assert "external_press_period_ms" not in calls[0][1]
     assert row["scope"] == SCOPE
@@ -250,6 +290,12 @@ def test_seed_runner_executes_only_exact_cat_and_full_v8_under_e0(tmp_path: Path
     assert row["runtime_binding_id"] == load_v8_e0_reproduction_contract_v1(
         CONTRACT
     ).runtime_binding_id
+    assert row["master_seed"] == 1_320_001
+    assert row["simulator_seed"] == derive_simulator_seed(
+        1_320_001,
+        row["request_sha256"],
+        namespace=row["simulator_seed_namespace"],
+    )
 
 
 def test_frozen_inputs_reject_policy_loadout_runtime_and_bridge_drift(

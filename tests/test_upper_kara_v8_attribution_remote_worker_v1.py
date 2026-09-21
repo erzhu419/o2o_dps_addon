@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from o2o_dps.fury_paired_multiseed_runner_v2 import derive_simulator_seed
 from o2o_dps.upper_kara_v8_attribution_panel_v1 import (
     ARM_IDS,
     SCHEMA as PANEL_SCHEMA,
@@ -55,6 +56,11 @@ def _fake_seed_runner(
 ):
     contract = load_v8_attribution_contract_v1(contract_path)
     seed, arrival = contract.examples()[seed_index]
+    simulator_seed = derive_simulator_seed(
+        seed,
+        contract.request_sha256,
+        namespace=contract.simulator_seed_namespace,
+    )
     arms = {
         arm_id: {
             "status": "COMPLETED",
@@ -74,6 +80,13 @@ def _fake_seed_runner(
         "compact_telemetry_schema": COMPACT_TELEMETRY_SCHEMA,
         "status": "COMPLETED_ATTRIBUTION_BLOCK",
         "seed": seed,
+        "master_seed": seed,
+        "simulator_seed": simulator_seed,
+        "request_sha256": contract.request_sha256,
+        "simulator_seed_namespace": contract.simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            contract.simulator_seed_derivation_algorithm
+        ),
         "build_id": contract.build_id,
         "loadout_id": contract.loadout_id,
         "first_wave_arrival_ms": arrival,
@@ -89,6 +102,10 @@ def _fake_seed_runner(
             "bridge_artifact_name": Path(bridge_path).name,
             "runtime_binding_artifact_name": Path(runtime_binding_path).name,
             "runtime_binding_id": contract.runtime_binding_id,
+            "simulator_seed_namespace": contract.simulator_seed_namespace,
+            "simulator_seed_derivation_algorithm": (
+                contract.simulator_seed_derivation_algorithm
+            ),
         },
     }
     Path(output_path).write_text(json.dumps(value), encoding="utf-8")
@@ -117,6 +134,10 @@ def test_fresh_attribution_inputs_are_bound_to_exact_frozen_closure(
     )
     assert identity["bridge_artifact_name"] == contract.bridge_artifact_name
     assert identity["runtime_binding_id"] == contract.runtime_binding_id
+    assert identity["simulator_seed_namespace"] == (
+        contract.simulator_seed_namespace
+    )
+    assert identity["request_sha256"] == contract.request_sha256
 
     bundle = json.loads(BUNDLE.read_text(encoding="utf-8"))
     proposal = next(

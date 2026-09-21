@@ -10,6 +10,9 @@
   "loadout_id": "contra_turtle_burst__rage",
   "bridge_artifact_name": "o2obridge.seedfix-v27.precombat-press.withdb.goamd64v1.linux-amd64",
   "runtime_binding_id": "951b8faaec9d830a84c9b5ebe5ae3472be112077d173313b88592227b821271f",
+  "simulator_seed_namespace": "upper-kara-61944-model-wave-development-v1",
+  "simulator_seed_derivation_algorithm": "sha256_namespace_master_request_u63_v1",
+  "request_sha256": "97825ec34e52357097d98f520ccdf4018f2d8ddc35e1b6e8fd29a7c36764cc04",
   "parent_policy_wire": {
     "schema": "development_two_wave_cat_residual_sequence/v1",
     "scope": "DEVELOPMENT_TWO_WAVE_CAT_RELATIVE_RESIDUAL_SEQUENCE",

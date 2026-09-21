@@ -31,6 +31,11 @@ from .sim_bridge import ActionRef
 from .development_two_wave_cat_residual_sequence_v1 import (
     DevelopmentTwoWaveCatResidualSequenceV1,
 )
+from .development_wave_panel_v1 import PROTOCOL_ID
+from .fury_paired_multiseed_runner_v2 import (
+    SEED_DERIVATION_ALGORITHM,
+    derive_simulator_seed,
+)
 from .upper_kara_cat_residual_paired_eval_v8 import (
     COMPACT_TELEMETRY_SCHEMA,
     evaluate_upper_kara_cat_residual_sequence_paired_v8,
@@ -106,6 +111,9 @@ class V8AttributionContractV1:
     bridge_artifact_name: str
     runtime_binding_id: str
     parent_policy_wire: JSONMap
+    simulator_seed_namespace: str
+    simulator_seed_derivation_algorithm: str
+    request_sha256: str
     seed_start: int
     seed_count: int
     arrival_schedule_ms: tuple[int, ...]
@@ -122,6 +130,9 @@ class V8AttributionContractV1:
             "loadout_id",
             "bridge_artifact_name",
             "runtime_binding_id",
+            "simulator_seed_namespace",
+            "simulator_seed_derivation_algorithm",
+            "request_sha256",
         ):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
@@ -138,6 +149,15 @@ class V8AttributionContractV1:
             or self.parent_policy_wire.get("exact_build_id") != self.build_id
         ):
             raise ValueError("parent_policy_wire identity differs from contract")
+        if self.simulator_seed_namespace != PROTOCOL_ID:
+            raise ValueError("simulator_seed_namespace must freeze PROTOCOL_ID")
+        if self.simulator_seed_derivation_algorithm != SEED_DERIVATION_ALGORITHM:
+            raise ValueError("simulator seed derivation algorithm differs")
+        if (
+            len(self.request_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.request_sha256)
+        ):
+            raise ValueError("request_sha256 must be one lowercase SHA-256")
         for name in ("seed_start", "seed_count", "press_period_ms", "max_decisions"):
             value = getattr(self, name)
             if type(value) is not int or value < 1:
@@ -176,6 +196,11 @@ class V8AttributionContractV1:
             "bridge_artifact_name": self.bridge_artifact_name,
             "runtime_binding_id": self.runtime_binding_id,
             "parent_policy_wire": deepcopy(self.parent_policy_wire),
+            "simulator_seed_namespace": self.simulator_seed_namespace,
+            "simulator_seed_derivation_algorithm": (
+                self.simulator_seed_derivation_algorithm
+            ),
+            "request_sha256": self.request_sha256,
             "seed_start": self.seed_start,
             "seed_count": self.seed_count,
             "arrival_schedule_ms": list(self.arrival_schedule_ms),
@@ -206,6 +231,9 @@ def v8_attribution_contract_from_dict_v1(
         "bridge_artifact_name",
         "runtime_binding_id",
         "parent_policy_wire",
+        "simulator_seed_namespace",
+        "simulator_seed_derivation_algorithm",
+        "request_sha256",
         "seed_start",
         "seed_count",
         "arrival_schedule_ms",
@@ -241,6 +269,11 @@ def v8_attribution_contract_from_dict_v1(
         bridge_artifact_name=value["bridge_artifact_name"],
         runtime_binding_id=value["runtime_binding_id"],
         parent_policy_wire=deepcopy(value["parent_policy_wire"]),
+        simulator_seed_namespace=value["simulator_seed_namespace"],
+        simulator_seed_derivation_algorithm=value[
+            "simulator_seed_derivation_algorithm"
+        ],
+        request_sha256=value["request_sha256"],
         seed_start=value["seed_start"],
         seed_count=value["seed_count"],
         arrival_schedule_ms=tuple(arrivals),
@@ -355,6 +388,53 @@ def _intervention_time(step_audit: Mapping[str, Any]) -> int | None:
     return values[0] if values else None
 
 
+def _paired_seed_identity_v1(
+    value: Mapping[str, Any],
+    *,
+    master_seed: int,
+    simulator_seed_namespace: str | None,
+) -> JSONMap:
+    """Normalize legacy direct callers and strictly verify derived panels."""
+
+    if simulator_seed_namespace is None:
+        return {
+            "master_seed": value.get("master_seed", master_seed),
+            "simulator_seed": value.get("simulator_seed", master_seed),
+            "request_sha256": value.get("request_sha256"),
+            "simulator_seed_namespace": value.get("simulator_seed_namespace"),
+            "simulator_seed_derivation_algorithm": value.get(
+                "simulator_seed_derivation_algorithm"
+            ),
+        }
+    request_sha256 = value.get("request_sha256")
+    if not isinstance(request_sha256, str):
+        raise ValueError("paired evaluator lacks request_sha256")
+    expected_simulator_seed = derive_simulator_seed(
+        master_seed,
+        request_sha256,
+        namespace=simulator_seed_namespace,
+    )
+    identity = {
+        "master_seed": value.get("master_seed"),
+        "simulator_seed": value.get("simulator_seed"),
+        "request_sha256": request_sha256,
+        "simulator_seed_namespace": value.get("simulator_seed_namespace"),
+        "simulator_seed_derivation_algorithm": value.get(
+            "simulator_seed_derivation_algorithm"
+        ),
+    }
+    if (
+        value.get("seed") != master_seed
+        or identity["master_seed"] != master_seed
+        or identity["simulator_seed"] != expected_simulator_seed
+        or identity["simulator_seed_namespace"] != simulator_seed_namespace
+        or identity["simulator_seed_derivation_algorithm"]
+        != SEED_DERIVATION_ALGORITHM
+    ):
+        raise ValueError("paired evaluator seed derivation identity differs")
+    return identity
+
+
 def evaluate_v8_attribution_seed_v1(
     policy: DevelopmentTwoWaveCatResidualSequenceV1,
     *,
@@ -367,6 +447,7 @@ def evaluate_v8_attribution_seed_v1(
     press_phase_ms: int = 0,
     max_decisions: int = 1_024,
     arm_workers: int = 3,
+    simulator_seed_namespace: str | None = None,
     paired_evaluator: Callable[..., JSONMap] = (
         evaluate_upper_kara_cat_residual_sequence_paired_v8
     ),
@@ -395,6 +476,11 @@ def evaluate_v8_attribution_seed_v1(
         raise ValueError("press_phase_ms must be in [0, press_period_ms)")
     if type(arm_workers) is not int or not 1 <= arm_workers <= 3:
         raise ValueError("arm_workers must be in 1..3")
+    if simulator_seed_namespace is not None and (
+        not isinstance(simulator_seed_namespace, str)
+        or not simulator_seed_namespace.strip()
+    ):
+        raise ValueError("simulator_seed_namespace must be nonempty text or None")
     if not callable(paired_evaluator):
         raise TypeError("paired_evaluator must be callable")
 
@@ -405,6 +491,11 @@ def evaluate_v8_attribution_seed_v1(
             else lambda cat, frozen: compose_v8_attribution_decision_v1(
                 arm_id, cat, frozen
             )
+        )
+        seed_kwargs = (
+            {"simulator_seed_namespace": simulator_seed_namespace}
+            if simulator_seed_namespace is not None
+            else {}
         )
         result = paired_evaluator(
             policy,
@@ -424,6 +515,7 @@ def evaluate_v8_attribution_seed_v1(
                 if execution_mode == "E1_EXTERNAL_PRESS_CLOCK"
                 else 0
             ),
+            **seed_kwargs,
             **paired_kwargs,
         )
         if not isinstance(result, dict):
@@ -437,6 +529,17 @@ def evaluate_v8_attribution_seed_v1(
         with ThreadPoolExecutor(max_workers=arm_workers) as executor:
             evaluated = list(executor.map(run, nonzero_ids))
     by_arm = dict(evaluated)
+    seed_identities = [
+        _paired_seed_identity_v1(
+            by_arm[arm_id],
+            master_seed=seed,
+            simulator_seed_namespace=simulator_seed_namespace,
+        )
+        for arm_id in nonzero_ids
+    ]
+    if any(identity != seed_identities[0] for identity in seed_identities[1:]):
+        raise ValueError("paired attribution arms use different seed identities")
+    seed_identity = seed_identities[0]
     exact_terminals = [by_arm[arm_id].get("exact_cat_terminal") for arm_id in nonzero_ids]
     if any(row != exact_terminals[0] for row in exact_terminals[1:]):
         raise ValueError("repeated exact-Cat lanes differ within one seed block")
@@ -484,6 +587,7 @@ def evaluate_v8_attribution_seed_v1(
         "compact_telemetry_schema": COMPACT_TELEMETRY_SCHEMA,
         "status": "COMPLETED_ATTRIBUTION_BLOCK" if complete else "INVALID_ATTRIBUTION_BLOCK",
         "seed": seed,
+        **seed_identity,
         "build_id": build_id,
         "loadout_id": loadout_id,
         "first_wave_arrival_ms": first_wave_arrival_ms,

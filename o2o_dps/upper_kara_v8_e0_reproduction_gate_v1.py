@@ -21,6 +21,11 @@ from typing import Any, Callable, Mapping
 from .deployed_contra_runtime_binding_v1 import (
     load_deployed_contra_runtime_binding_v1,
 )
+from .development_wave_panel_v1 import PROTOCOL_ID
+from .fury_paired_multiseed_runner_v2 import (
+    SEED_DERIVATION_ALGORITHM,
+    derive_simulator_seed,
+)
 from .upper_kara_cat_action_plan_distiller_v8 import (
     load_upper_kara_cat_action_plan_distillation_v8,
 )
@@ -52,6 +57,9 @@ class V8E0ReproductionContractV1:
     bridge_artifact_name: str
     runtime_binding_id: str
     parent_policy_wire: JSONMap
+    simulator_seed_namespace: str
+    simulator_seed_derivation_algorithm: str
+    request_sha256: str
     seed_start: int
     seed_count: int
     arrival_schedule_ms: tuple[int, ...]
@@ -97,6 +105,9 @@ def reproduction_contract_from_dict_v1(
         "bridge_artifact_name",
         "runtime_binding_id",
         "parent_policy_wire",
+        "simulator_seed_namespace",
+        "simulator_seed_derivation_algorithm",
+        "request_sha256",
         "evaluation_examples",
         "max_decisions",
         "published_heldout_reused",
@@ -135,6 +146,17 @@ def reproduction_contract_from_dict_v1(
         or parent_policy_wire.get("exact_build_id") != value["build_id"]
     ):
         raise ValueError("parent_policy_wire identity differs from contract")
+    if value["simulator_seed_namespace"] != PROTOCOL_ID:
+        raise ValueError("simulator_seed_namespace must freeze PROTOCOL_ID")
+    if value["simulator_seed_derivation_algorithm"] != SEED_DERIVATION_ALGORITHM:
+        raise ValueError("simulator seed derivation algorithm differs")
+    request_sha256 = value["request_sha256"]
+    if (
+        not isinstance(request_sha256, str)
+        or len(request_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in request_sha256)
+    ):
+        raise ValueError("request_sha256 must be one lowercase SHA-256")
     examples = value["evaluation_examples"]
     if not isinstance(examples, Mapping) or set(examples) != {
         "seed_start", "seed_count", "arrival_schedule_ms"
@@ -202,6 +224,11 @@ def reproduction_contract_from_dict_v1(
         bridge_artifact_name=value["bridge_artifact_name"],
         runtime_binding_id=runtime_binding_id,
         parent_policy_wire=deepcopy(parent_policy_wire),
+        simulator_seed_namespace=value["simulator_seed_namespace"],
+        simulator_seed_derivation_algorithm=value[
+            "simulator_seed_derivation_algorithm"
+        ],
+        request_sha256=request_sha256,
         seed_start=examples["seed_start"],
         seed_count=examples["seed_count"],
         arrival_schedule_ms=tuple(examples["arrival_schedule_ms"]),
@@ -357,6 +384,11 @@ def _validated_v8_e0_reproduction_inputs(
         "loadout_id": contract.loadout_id,
         "bridge_artifact_name": bridge_name,
         "runtime_binding_id": binding["binding_sha256"],
+        "simulator_seed_namespace": contract.simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            contract.simulator_seed_derivation_algorithm
+        ),
+        "request_sha256": contract.request_sha256,
     }
 
 
@@ -386,6 +418,19 @@ def _validate_seed_row(
     seed, arrival_ms = contract.examples()[seed_index]
     cat = value.get("exact_cat_terminal")
     v8 = value.get("frozen_v8_terminal")
+    request_sha256 = value.get("request_sha256")
+    try:
+        expected_simulator_seed = (
+            derive_simulator_seed(
+                seed,
+                request_sha256,
+                namespace=contract.simulator_seed_namespace,
+            )
+            if isinstance(request_sha256, str)
+            else None
+        )
+    except (TypeError, ValueError):
+        expected_simulator_seed = None
     if (
         value.get("schema") != f"{SCHEMA}/seed"
         or value.get("status") != "COMPLETED_REPRODUCTION_PAIR"
@@ -399,6 +444,14 @@ def _validate_seed_row(
         or value.get("experiment_id") != contract.experiment_id
         or value.get("seed_index") != seed_index
         or value.get("seed") != seed
+        or value.get("master_seed") != seed
+        or value.get("simulator_seed") != expected_simulator_seed
+        or value.get("simulator_seed_namespace")
+        != contract.simulator_seed_namespace
+        or value.get("simulator_seed_derivation_algorithm")
+        != contract.simulator_seed_derivation_algorithm
+        or request_sha256 != contract.request_sha256
+        or expected_simulator_seed is None
         or value.get("first_wave_arrival_ms") != arrival_ms
         or value.get("parent_policy_id") != contract.parent_policy_id
         or value.get("build_id") != contract.build_id
@@ -463,6 +516,7 @@ def run_v8_e0_reproduction_seed_v1(
         loadout_id=contract.loadout_id,
         first_wave_arrival_ms=arrival_ms,
         max_decisions=contract.max_decisions,
+        simulator_seed_namespace=contract.simulator_seed_namespace,
         bridge_path=bridge_path,
         bridge_cwd=bridge_cwd,
         runtime_binding_path=runtime_binding_path,
@@ -489,6 +543,13 @@ def run_v8_e0_reproduction_seed_v1(
         "experiment_id": contract.experiment_id,
         "seed_index": seed_index,
         "seed": seed,
+        "master_seed": paired.get("master_seed"),
+        "simulator_seed": paired.get("simulator_seed"),
+        "request_sha256": paired.get("request_sha256"),
+        "simulator_seed_namespace": paired.get("simulator_seed_namespace"),
+        "simulator_seed_derivation_algorithm": paired.get(
+            "simulator_seed_derivation_algorithm"
+        ),
         "first_wave_arrival_ms": arrival_ms,
         "parent_policy_id": contract.parent_policy_id,
         "build_id": contract.build_id,
@@ -569,6 +630,11 @@ def run_v8_e0_reproduction_shard_v1(
         "execution_mode": EXECUTION_MODE,
         "bridge_artifact_name": contract.bridge_artifact_name,
         "runtime_binding_id": contract.runtime_binding_id,
+        "simulator_seed_namespace": contract.simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            contract.simulator_seed_derivation_algorithm
+        ),
+        "request_sha256": contract.request_sha256,
         "experiment_id": contract.experiment_id,
         "shard_index": shard_index,
         "shard_count": shard_count,
@@ -679,6 +745,11 @@ def summarize_v8_e0_reproduction_v1(
         "bridge_generation": contract.bridge_generation,
         "bridge_artifact_name": contract.bridge_artifact_name,
         "runtime_binding_id": contract.runtime_binding_id,
+        "simulator_seed_namespace": contract.simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            contract.simulator_seed_derivation_algorithm
+        ),
+        "request_sha256": contract.request_sha256,
         "experiment_id": contract.experiment_id,
         "parent_policy_id": contract.parent_policy_id,
         "published_reference_validation": reference_validation,

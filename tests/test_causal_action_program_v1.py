@@ -386,6 +386,19 @@ class _FeedbackSourceResolver(_SourceResolver):
         self.rejected.append(reason)
 
 
+class _ReceiptFeedbackSourceResolver(_FeedbackSourceResolver):
+    def __init__(self) -> None:
+        super().__init__()
+        self.execution_receipts: list[tuple[dict, ...]] = []
+
+    def record_last_execution_receipt_v1(
+        self,
+        actual_decision: ProgramDecisionV1,
+        execution_receipts: tuple[dict, ...],
+    ) -> None:
+        self.execution_receipts.append(execution_receipts)
+
+
 class _RejectingStrikeBridge(_TwoWaveBridge):
     def act(self, action: ActionRef, *, attempt_id=None):
         if action == STRIKE:
@@ -425,7 +438,7 @@ def _imported_program(binding) -> CausalActionProgramV1:
     )
 
 
-def test_searched_reactive_imported_selector_roundtrips_but_plain_searched_is_rejected():
+def test_reactive_origins_roundtrip_but_plain_searched_is_rejected():
     binding = _source_binding([])
     program = CausalActionProgramV1(
         "searched-reactive-sequence",
@@ -437,9 +450,27 @@ def test_searched_reactive_imported_selector_roundtrips_but_plain_searched_is_re
     rebuilt = causal_action_program_from_dict_v1(program.to_dict())
     assert rebuilt == program
     assert rebuilt.program_key() == program.program_key()
+
+    offline = CausalActionProgramV1(
+        "source-derived-offline-sequence",
+        _imported_selector(binding),
+        ProgramOriginV1.SOURCE_DERIVED_OFFLINE,
+        source_refs=("chronicle-player-wave-mode",),
+    )
+    offline_wire = offline.to_dict()
+    assert offline_wire["origin"] == "SOURCE_DERIVED_OFFLINE"
+    assert causal_action_program_from_dict_v1(offline_wire) == offline
+
+    incumbent_wire = deepcopy(offline_wire)
+    incumbent_wire["origin"] = "IMPORTED_REACTIVE_INCUMBENT"
+    assert (
+        causal_action_program_from_dict_v1(incumbent_wire).origin
+        is ProgramOriginV1.IMPORTED_REACTIVE_INCUMBENT
+    )
+
     with pytest.raises(
         ValueError,
-        match="imported or searched-reactive origin",
+        match="imported, searched-reactive, or source-derived offline origin",
     ):
         CausalActionProgramV1(
             "misclassified-stateful-search",
@@ -818,6 +849,46 @@ class CausalActionProgramV1Tests(unittest.TestCase):
         self.assertEqual(ReplayStatusV1.COMPLETE, result.status)
         self.assertEqual(2, len(sessions[0].confirmed))
         self.assertEqual([], sessions[0].rejected)
+
+    def test_native_replay_prefers_per_operation_execution_receipts(self):
+        sessions: list[_ReceiptFeedbackSourceResolver] = []
+
+        def open_resolver():
+            resolver = _ReceiptFeedbackSourceResolver()
+            sessions.append(resolver)
+            return resolver
+
+        binding = ImportedReactiveProgramBindingV1(
+            "receipt-feedback-source",
+            "receipt-feedback-policy",
+            "causal-live-state/v1",
+            open_resolver,
+        )
+        result = NativeDynamicV3ActionProgramReplayV1(
+            _TwoWaveBridge,
+            _case,
+            _causal_projector,
+            imported_bindings=(binding,),
+            result_bearing_action_refs=(STRIKE,),
+        ).replay(303, _imported_program(binding))
+
+        self.assertEqual(ReplayStatusV1.COMPLETE, result.status)
+        self.assertEqual([], sessions[0].confirmed)
+        self.assertEqual(2, len(sessions[0].execution_receipts))
+        self.assertEqual(
+            [
+                "STOP_CAST",
+                "START_ATTACK",
+                "SET_TARGET",
+                "QUEUE_KEEP",
+                "TERMINAL_GCD",
+            ],
+            [row["kind"] for row in sessions[0].execution_receipts[0]],
+        )
+        self.assertNotIn(
+            "IMPORTED_REACTIVE_INCUMBENT_SELECTED",
+            [row["kind"] for row in sessions[0].execution_receipts[0]],
+        )
 
     def test_native_replay_rejects_imported_proposal_when_bridge_rejects(self):
         sessions: list[_FeedbackSourceResolver] = []

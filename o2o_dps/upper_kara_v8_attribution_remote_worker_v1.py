@@ -11,6 +11,7 @@ from typing import Any, Callable, Mapping
 from .deployed_contra_runtime_binding_v1 import (
     load_deployed_contra_runtime_binding_v1,
 )
+from .fury_paired_multiseed_runner_v2 import derive_simulator_seed
 from .upper_kara_cat_action_plan_distiller_v8 import (
     load_upper_kara_cat_action_plan_distillation_v8,
 )
@@ -106,6 +107,11 @@ def _validated_v8_attribution_inputs(
         "loadout_id": contract.loadout_id,
         "bridge_artifact_name": bridge_name,
         "runtime_binding_id": binding["binding_sha256"],
+        "simulator_seed_namespace": contract.simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            contract.simulator_seed_derivation_algorithm
+        ),
+        "request_sha256": contract.request_sha256,
     }
 
 
@@ -163,6 +169,7 @@ def run_v8_attribution_seed_remote_v1(
         execution_mode=execution_mode,
         press_period_ms=contract.press_period_ms,
         press_phase_ms=contract.press_phase_ms,
+        simulator_seed_namespace=contract.simulator_seed_namespace,
         bridge_path=bridge_path,
         bridge_cwd=bridge_cwd,
         runtime_binding_path=runtime_binding_path,
@@ -183,6 +190,10 @@ def run_v8_attribution_seed_remote_v1(
         "bridge_artifact_name": identity["bridge_artifact_name"],
         "runtime_binding_artifact_name": Path(runtime_binding_path).name,
         "runtime_binding_id": identity["runtime_binding_id"],
+        "simulator_seed_namespace": identity["simulator_seed_namespace"],
+        "simulator_seed_derivation_algorithm": identity[
+            "simulator_seed_derivation_algorithm"
+        ],
     }
     _atomic_create_json(output_path, result)
     return result
@@ -296,6 +307,11 @@ def run_v8_attribution_shard_remote_v1(
         "bridge_artifact_name": Path(bridge_path).name,
         "runtime_binding_artifact_name": Path(runtime_binding_path).name,
         "runtime_binding_id": contract.runtime_binding_id,
+        "simulator_seed_namespace": contract.simulator_seed_namespace,
+        "simulator_seed_derivation_algorithm": (
+            contract.simulator_seed_derivation_algorithm
+        ),
+        "request_sha256": contract.request_sha256,
         "shard_index": shard_index,
         "shard_count": shard_count,
         "assigned_seed_indices": list(assigned),
@@ -325,6 +341,19 @@ def _validate_seed_result(
 ) -> JSONMap:
     seed, arrival_ms = contract.examples()[seed_index]
     task = value.get("remote_task")
+    request_sha256 = value.get("request_sha256")
+    try:
+        expected_simulator_seed = (
+            derive_simulator_seed(
+                seed,
+                request_sha256,
+                namespace=contract.simulator_seed_namespace,
+            )
+            if isinstance(request_sha256, str)
+            else None
+        )
+    except (TypeError, ValueError):
+        expected_simulator_seed = None
     expected_clock = (
         {
             "period_ms": contract.press_period_ms,
@@ -337,6 +366,14 @@ def _validate_seed_result(
         value.get("schema") != f"{ATTRIBUTION_SCHEMA}/seed"
         or value.get("status") != "COMPLETED_ATTRIBUTION_BLOCK"
         or value.get("seed") != seed
+        or value.get("master_seed") != seed
+        or value.get("simulator_seed") != expected_simulator_seed
+        or expected_simulator_seed is None
+        or value.get("simulator_seed_namespace")
+        != contract.simulator_seed_namespace
+        or value.get("simulator_seed_derivation_algorithm")
+        != contract.simulator_seed_derivation_algorithm
+        or request_sha256 != contract.request_sha256
         or value.get("first_wave_arrival_ms") != arrival_ms
         or value.get("parent_policy_id") != contract.parent_policy_id
         or value.get("build_id") != contract.build_id
@@ -352,6 +389,10 @@ def _validate_seed_result(
         or not isinstance(task.get("runtime_binding_artifact_name"), str)
         or not task.get("runtime_binding_artifact_name")
         or task.get("runtime_binding_id") != contract.runtime_binding_id
+        or task.get("simulator_seed_namespace")
+        != contract.simulator_seed_namespace
+        or task.get("simulator_seed_derivation_algorithm")
+        != contract.simulator_seed_derivation_algorithm
         or (
             expected_bridge_artifact_name is not None
             and task.get("bridge_artifact_name")
@@ -421,6 +462,11 @@ def summarize_v8_attribution_remote_v1(
             "bridge_artifact_name": bridge_name,
             "runtime_binding_artifact_name": binding_name,
             "runtime_binding_id": binding_id,
+            "simulator_seed_namespace": contract.simulator_seed_namespace,
+            "simulator_seed_derivation_algorithm": (
+                contract.simulator_seed_derivation_algorithm
+            ),
+            "request_sha256": contract.request_sha256,
             "fresh_seed_start": contract.seed_start,
             "fresh_seed_count": contract.seed_count,
             "arrival_schedule_ms": list(contract.arrival_schedule_ms),

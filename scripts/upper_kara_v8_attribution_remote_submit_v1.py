@@ -345,7 +345,9 @@ def build_v8_attribution_remote_plan_v1(
         "required_remote_paths": required,
         "shards": shards,
         "task_specs": task_specs,
-        "post_panel_summary_command": shlex.join(reducer_argv),
+        "post_panel_summary_command": (
+            f"cd {shlex.quote(str(project))} && {shlex.join(reducer_argv)}"
+        ),
         "automatic_result_pull": False,
         "manual_small_fetch_candidates": [
             *(row["summary"] for row in shards),
@@ -588,7 +590,9 @@ def build_v8_e0_reproduction_remote_plan_v1(
         "required_remote_paths": required,
         "shards": shards,
         "task_specs": task_specs,
-        "post_panel_summary_command": reducer,
+        "post_panel_summary_command": (
+            f"cd {shlex.quote(str(project))} && {reducer}"
+        ),
         "automatic_result_pull": False,
         "manual_small_fetch_candidates": [
             *(row["summary"] for row in shards), str(final_summary)
