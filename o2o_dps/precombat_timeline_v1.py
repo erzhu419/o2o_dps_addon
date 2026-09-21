@@ -26,6 +26,7 @@ from .sim_bridge_dynamic_v3 import (
     DynamicLoadResultV3,
     DynamicTargetSemanticsConfigV3,
     SimulatorBridgeDynamicV3,
+    _validate_atomic_press_clock_load_v1,
 )
 from .wave_action_schedule_v1 import ScheduledActionPlan
 
@@ -228,6 +229,49 @@ class SimulatorBridgePrecombatV1(SimulatorBridgeDynamicV3):
             precombat=precombat.to_wire(),
         )
         precombat_state_from_wire_v1(result.state, config=precombat)
+        self._precombat_binding = precombat
+        return result
+
+    def load_dynamic_v3_precombat_press_clock(
+        self,
+        request: Mapping[str, Any],
+        seed: int,
+        config: DynamicTargetSemanticsConfigV3,
+        precombat: PrecombatActionsConfigV1,
+        period_ms: int,
+        phase_ms: int = 0,
+    ) -> DynamicLoadResultV3:
+        """Atomically bind precombat semantics and the physical key grid."""
+
+        if not isinstance(precombat, PrecombatActionsConfigV1):
+            raise TypeError("precombat must be PrecombatActionsConfigV1")
+        if precombat.pull_time_ms >= config.idle_advance_horizon_ms:
+            raise ValueError("precombat pull must be before the dynamic horizon")
+        if type(period_ms) is not int or not 1 <= period_ms <= 60_000:
+            raise ValueError("period_ms must be an integer in 1..60000")
+        if type(phase_ms) is not int or not 0 <= phase_ms < period_ms:
+            raise ValueError("phase_ms must be an integer in 0..period_ms-1")
+        self._precombat_binding = None
+        result = self._load_dynamic_v3_command(
+            "load_dynamic_v3_precombat_press_clock",
+            request,
+            seed,
+            config,
+            precombat=precombat.to_wire(),
+            press_period_ms=period_ms,
+            press_phase_ms=phase_ms,
+        )
+        try:
+            precombat_state_from_wire_v1(result.state, config=precombat)
+            _validate_atomic_press_clock_load_v1(
+                result,
+                period_ms=period_ms,
+                phase_ms=phase_ms,
+                context="dynamic-v3 precombat",
+            )
+        except Exception:
+            self._dynamic_binding = None
+            raise
         self._precombat_binding = precombat
         return result
 

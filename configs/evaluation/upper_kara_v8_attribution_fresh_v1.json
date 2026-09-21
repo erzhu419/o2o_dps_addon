@@ -1,0 +1,79 @@
+{
+  "schema": "upper_kara_v8_attribution_panel/v1/contract",
+  "status": "FROZEN_NOT_EXECUTED",
+  "experiment_id": "upper-kara-v8-attribution-fresh-256-v1",
+  "parent_policy_id": "v8::upper-kara-cat-action-plan-residual-v8-256x256::contra_turtle_burst__rage::proposal-005",
+  "build_id": "live_bonereaver",
+  "loadout_id": "contra_turtle_burst__rage",
+  "bridge_artifact_name": "o2obridge.seedfix-v27.precombat-press.withdb.goamd64v1.linux-amd64",
+  "runtime_binding_id": "951b8faaec9d830a84c9b5ebe5ae3472be112077d173313b88592227b821271f",
+  "parent_policy_wire": {
+    "schema": "development_two_wave_cat_residual_sequence/v1",
+    "scope": "DEVELOPMENT_TWO_WAVE_CAT_RELATIVE_RESIDUAL_SEQUENCE",
+    "policy_id": "v8::upper-kara-cat-action-plan-residual-v8-256x256::contra_turtle_burst__rage::proposal-005",
+    "exact_build_id": "live_bonereaver",
+    "waves": [
+      {"wave_id": "multi_two", "target_indexes": [0, 1]},
+      {"wave_id": "single_long", "target_indexes": [2]}
+    ],
+    "steps": [
+      {
+        "wave_id": "multi_two",
+        "step_id": "proposal-step-005",
+        "guard": {
+          "schema": "observable_causal_guard/v1",
+          "all_of": {
+            "live_target_count_gte": 2,
+            "live_target_count_lte": 2,
+            "target_attackable_is": {"target_index": 0, "value": true},
+            "action_ready": {"spell_id": 12328}
+          },
+          "check_interval_ms": 100,
+          "timeout_ms": 10000,
+          "false_semantics": "SKIP_PLAN",
+          "timeout_semantics": "INVALID_REPLAY",
+          "terminal_semantics": "STOP_WITHOUT_EXECUTING_PLAN"
+        },
+        "decision": {
+          "schema": "causal_action_program_decision/v1",
+          "target_index": null,
+          "controls": {"start_attack": false, "stop_cast": false},
+          "optional_off_gcd_prefixes": [],
+          "queue": {"op": "SET", "action": {"spell_id": 20569, "tag": 1}},
+          "prefix_order": ["QUEUE_SET"],
+          "terminal": {"gcd_action": {"spell_id": 12328}, "wait_ms": null}
+        },
+        "expected_cat_gcd_action": {"spell_id": 25289}
+      }
+    ],
+    "contract": {
+      "single_exact_build": true,
+      "continuous_two_wave_state": true,
+      "wave_detection": "CURRENT_VISIBLE_TARGET_SEMANTICS_ONLY",
+      "source_decision_condition": "CURRENT_CAT_PROPOSED_GCD_ONLY",
+      "step_latch": "WAVE_LOCAL_ONCE_AFTER_EXECUTION",
+      "cat_session_calls_per_epoch": 1,
+      "guard_false_fallback": "cat.fury.profile1",
+      "unavailable_action_fallback": "cat.fury.profile1",
+      "fallback_waits_for_residual": false,
+      "empty_sequence_is_exact_cat": true,
+      "variable_length_per_wave": true,
+      "arrival_or_future_or_environment_control_fields_used": [],
+      "upper_kara_full_route_claim": false
+    }
+  },
+  "seed_start": 1620001,
+  "seed_count": 256,
+  "arrival_schedule_ms": [0, 1000, 3000, 5000, 7000, 9000],
+  "arms": [
+    {"arm_id": "A0_EXACT_CAT", "death_wish_mutation": false, "cleave_mutation": false},
+    {"arm_id": "A1_DEATH_WISH_ONLY", "death_wish_mutation": true, "cleave_mutation": false},
+    {"arm_id": "A2_CLEAVE_ONLY", "death_wish_mutation": false, "cleave_mutation": true},
+    {"arm_id": "A3_FROZEN_V8", "death_wish_mutation": true, "cleave_mutation": true}
+  ],
+  "execution_modes": ["E0_EVENT_DRIVEN", "E1_EXTERNAL_PRESS_CLOCK"],
+  "external_press_clock": {"period_ms": 100, "phase_ms": 0},
+  "max_decisions": 1024,
+  "selection_or_prior_heldout_seed_reuse": false,
+  "failed_or_incomplete_lanes_imputed_as_zero": false
+}

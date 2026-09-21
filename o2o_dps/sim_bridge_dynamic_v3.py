@@ -536,6 +536,37 @@ def _press_clock_state_v1(state: Mapping[str, Any]) -> PressClockStateV1:
     return clock
 
 
+def _validate_atomic_press_clock_load_v1(
+    result: DynamicLoadResultV3,
+    *,
+    period_ms: int,
+    phase_ms: int,
+    context: str,
+) -> None:
+    """Validate the first key returned by an atomic dynamic load."""
+
+    state = result.state
+    clock = _press_clock_state_v1(state)
+    finished = _v2._strict_bool_field(state, "finished")
+    if (
+        clock.period_ms != period_ms
+        or clock.phase_ms != phase_ms
+        or (
+            not finished
+            and (
+                not clock.ready
+                or clock.press_index != 1
+                or clock.next_time_ms != phase_ms
+                or _v2._nonnegative_int_field(state, "time_ms") != phase_ms
+            )
+        )
+        or (finished and (clock.ready or clock.press_index != 0))
+    ):
+        raise SimBridgeProtocolError(
+            f"atomic {context} press-clock receipt differs from request"
+        )
+
+
 class SimulatorBridgeDynamicV3(SimulatorBridgeDynamicV2):
     """Persistent bridge with central, simulator-owned idle advancement."""
 
@@ -619,30 +650,16 @@ class SimulatorBridgeDynamicV3(SimulatorBridgeDynamicV2):
             "load_dynamic_v3_press_clock", request, seed, config,
             press_period_ms=period_ms, press_phase_ms=phase_ms,
         )
-        state = result.state
-        clock = _press_clock_state_v1(state)
-        finished = _v2._strict_bool_field(state, "finished")
-        if (
-            clock.period_ms != period_ms
-            or clock.phase_ms != phase_ms
-            or (
-                not finished
-                and (
-                    not clock.ready
-                    or clock.press_index != 1
-                    or clock.next_time_ms != phase_ms
-                    or _v2._nonnegative_int_field(state, "time_ms") != phase_ms
-                )
+        try:
+            _validate_atomic_press_clock_load_v1(
+                result,
+                period_ms=period_ms,
+                phase_ms=phase_ms,
+                context="dynamic-v3",
             )
-            or (
-                finished
-                and (clock.ready or clock.press_index != 0)
-            )
-        ):
+        except Exception:
             self._dynamic_binding = None
-            raise SimBridgeProtocolError(
-                "atomic dynamic-v3 press-clock receipt differs from request"
-            )
+            raise
         return result
 
     def _load_dynamic_v3_command(

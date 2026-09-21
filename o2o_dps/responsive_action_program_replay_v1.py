@@ -194,15 +194,24 @@ class NativeDynamicV4ResponsiveActionProgramReplayV1:
                         continue
                     available, _ = _available_by_action(bridge)
                     observation = _project_observation(projector, state, available)
-                    decision = _select_decision(
-                        program, observation, available, sessions, receipts,
-                        decision_index,
-                    )
-                    state = _execute_decision(
-                        bridge, state, decision, decision_index=decision_index,
-                        projector=projector, receipts=receipts,
-                        result_bearing_action_refs=self._result_refs,
-                    )
+                    try:
+                        decision = _select_decision(
+                            program, observation, available, sessions, receipts,
+                            decision_index,
+                        )
+                        state = _execute_decision(
+                            bridge, state, decision, decision_index=decision_index,
+                            projector=projector, receipts=receipts,
+                            result_bearing_action_refs=self._result_refs,
+                        )
+                    except Exception as error:
+                        for session in sessions.values():
+                            session.reject_pending_execution(
+                                f"{type(error).__name__}: {error}"
+                            )
+                        raise
+                    for session in sessions.values():
+                        session.confirm_pending_execution(decision)
                     state = _advance_to_clean_input(bridge, state)
                     last_state = dict(state)
                     decision_index += 1

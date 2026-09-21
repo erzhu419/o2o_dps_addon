@@ -4,6 +4,10 @@
 side of BrainOfCat. Python uses only the standard library. The simulator bridge
 is a pure-Go Windows executable built from the local `wowsims-turtle` tree.
 
+The single current-result entry point is [`CURRENT_STATUS.md`](CURRENT_STATUS.md).
+It separates the rejected V6/V7 stages, the positive but model-local V8 result,
+and the not-yet-run V9 stage. Older status reports are historical snapshots.
+
 ## Public source tree and local inputs
 
 This repository is source-only. It excludes `offline_data/`, compiled binaries,
@@ -38,7 +42,10 @@ Implemented today:
 - fixed-seed prefix reconstruction and bounded queue+GCD beam search;
 - JSON policy validation and legacy-Lua generation for the root addon.
 
-None of the simulator policies are marked calibrated or better than an expert.
+No searched policy is authorized for live Cat2 control. V8 is nevertheless a
+real positive simulator result in its frozen two-wave development model; see
+`CURRENT_STATUS.md` for its exact scope and the remaining attribution and
+execution checks.
 
 ## Build the first Fury Chronicle partial trajectory
 

@@ -371,6 +371,29 @@ class _SourceResolver:
         )
 
 
+class _FeedbackSourceResolver(_SourceResolver):
+    def __init__(self) -> None:
+        super().__init__()
+        self.confirmed: list[ProgramDecisionV1] = []
+        self.rejected: list[str] = []
+
+    def record_last_executed_decision_v1(
+        self, actual_decision: ProgramDecisionV1
+    ) -> None:
+        self.confirmed.append(actual_decision)
+
+    def reject_last_execution_v1(self, reason: str) -> None:
+        self.rejected.append(reason)
+
+
+class _RejectingStrikeBridge(_TwoWaveBridge):
+    def act(self, action: ActionRef, *, attempt_id=None):
+        if action == STRIKE:
+            self.command_order.append("rejected-strike")
+            return ActResult(False, False, False, True, self._state())
+        return super().act(action, attempt_id=attempt_id)
+
+
 def _source_binding(sessions: list[_SourceResolver]):
     def factory():
         resolver = _SourceResolver()
@@ -769,6 +792,59 @@ class CausalActionProgramV1Tests(unittest.TestCase):
         )
         self.assertEqual([2], [row.calls for row in imported_sessions])
         self.assertEqual([2], [row.calls for row in overlay_sessions])
+
+    def test_native_replay_confirms_imported_decision_only_after_acceptance(self):
+        sessions: list[_FeedbackSourceResolver] = []
+
+        def open_resolver():
+            resolver = _FeedbackSourceResolver()
+            sessions.append(resolver)
+            return resolver
+
+        binding = ImportedReactiveProgramBindingV1(
+            "feedback-source",
+            "feedback-policy",
+            "causal-live-state/v1",
+            open_resolver,
+        )
+        result = NativeDynamicV3ActionProgramReplayV1(
+            _TwoWaveBridge,
+            _case,
+            _causal_projector,
+            imported_bindings=(binding,),
+            result_bearing_action_refs=(STRIKE,),
+        ).replay(301, _imported_program(binding))
+
+        self.assertEqual(ReplayStatusV1.COMPLETE, result.status)
+        self.assertEqual(2, len(sessions[0].confirmed))
+        self.assertEqual([], sessions[0].rejected)
+
+    def test_native_replay_rejects_imported_proposal_when_bridge_rejects(self):
+        sessions: list[_FeedbackSourceResolver] = []
+
+        def open_resolver():
+            resolver = _FeedbackSourceResolver()
+            sessions.append(resolver)
+            return resolver
+
+        binding = ImportedReactiveProgramBindingV1(
+            "feedback-source",
+            "feedback-policy",
+            "causal-live-state/v1",
+            open_resolver,
+        )
+        result = NativeDynamicV3ActionProgramReplayV1(
+            _RejectingStrikeBridge,
+            _case,
+            _causal_projector,
+            imported_bindings=(binding,),
+            result_bearing_action_refs=(STRIKE,),
+        ).replay(302, _imported_program(binding))
+
+        self.assertEqual(ReplayStatusV1.INVALID, result.status)
+        self.assertEqual([], sessions[0].confirmed)
+        self.assertEqual(1, len(sessions[0].rejected))
+        self.assertIn("terminal GCD action failed", sessions[0].rejected[0])
 
     def test_overlay_skips_low_hp_target_then_uses_burst_on_later_wave(self):
         sessions = []

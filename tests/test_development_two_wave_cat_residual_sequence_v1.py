@@ -249,15 +249,20 @@ def test_variable_length_steps_are_ordered_and_latched_once_per_wave() -> None:
 
     opener = session(_observation(100, wave=1, health=90), _available())
     assert opener.gcd_action == WHIRLWIND
+    assert session.executed_step_keys == ()
+    session.record_last_executed_decision_v1(opener)
     assert session.executed_step_keys == (("wave-1", "opener"),)
 
     finisher = session(_observation(200, wave=1, health=50), _available())
     assert finisher.gcd_action == EXECUTE
+    session.record_last_executed_decision_v1(finisher)
     exhausted = session(_observation(300, wave=1, health=40), _available())
     assert exhausted is cat.decisions[3]
+    session.record_last_executed_decision_v1(exhausted)
 
     wave_two = session(_observation(1_000, wave=2), _available())
     assert wave_two.gcd_action == SLAM
+    session.record_last_executed_decision_v1(wave_two)
     assert session.executed_step_keys == (
         ("wave-1", "opener"),
         ("wave-1", "finisher"),
@@ -316,6 +321,7 @@ def test_matched_step_advances_cat_once_and_later_epoch_uses_same_session() -> N
     session = DevelopmentTwoWaveCatResidualSequenceSessionV1(policy, cat)
 
     replaced = session(_observation(0, wave=1), _available())
+    session.record_last_executed_decision_v1(replaced)
     after_latch = session(_observation(100, wave=1), _available())
 
     assert replaced.gcd_action == WHIRLWIND
@@ -347,6 +353,8 @@ def test_current_visible_selected_target_resolves_overlapping_wave_only() -> Non
     result = session(overlapping, _available())
 
     assert result.gcd_action == SLAM
+    assert session.executed_step_keys == ()
+    session.record_last_executed_decision_v1(result)
     assert session.executed_step_keys == (("wave-2", "w2"),)
 
 
@@ -440,6 +448,7 @@ def test_replacement_repairs_eager_cat_last_gcd_on_the_next_epoch() -> None:
     # the value Cat saw at the start of this epoch until the real action is
     # submitted at the next decision boundary.
     assert cat.last_gcd_action == "warrior.execute"
+    session.record_last_executed_decision_v1(replaced)
 
     fallback = session(_observation(100, wave=1), _available())
 
@@ -468,6 +477,7 @@ def test_wait_replacement_restores_prior_without_submitting_a_gcd() -> None:
     waiting = session(_observation(0, wave=1), _available())
     assert waiting.wait_ms == 25
     assert cat.last_gcd_action == "warrior.execute"
+    session.record_last_executed_decision_v1(waiting)
 
     session(_observation(100, wave=1), _available())
     assert cat.seen_last_gcd_before_propose == [
@@ -492,6 +502,7 @@ def test_overpower_uses_cat_v5_reverse_mapping_for_continuation() -> None:
     session = DevelopmentTwoWaveCatResidualSequenceSessionV1(policy, cat)
 
     selected = session(_observation(0, wave=1), _available())
+    session.record_last_executed_decision_v1(selected)
     session(_observation(100, wave=1), _available())
 
     assert selected.gcd_action == OVERPOWER
@@ -514,6 +525,7 @@ def test_recklessness_uses_searched_burst_mapping_for_continuation() -> None:
     session = DevelopmentTwoWaveCatResidualSequenceSessionV1(policy, cat)
 
     selected = session(_observation(0, wave=1), _available())
+    session.record_last_executed_decision_v1(selected)
     session(_observation(100, wave=1), _available())
 
     assert selected.gcd_action == RECKLESSNESS
@@ -621,7 +633,14 @@ def test_public_trace_and_execution_feedback_preserve_actual_cat_continuation() 
     assert first_trace.cat_decision.gcd_action == BLOODTHIRST
     assert first_trace.parent_decision.gcd_action == WHIRLWIND
     assert first_trace.executed_step_keys_before == ()
-    assert first_trace.executed_step_keys_after == (("wave-1", "parent-ww"),)
+    assert first_trace.executed_step_keys_after == ()
+
+    session.record_last_executed_decision_v1(parent)
+    confirmed_trace = session.last_decision_trace
+    assert confirmed_trace is not None
+    assert confirmed_trace.executed_step_keys_after == (
+        ("wave-1", "parent-ww"),
+    )
 
     fallback = session(_observation(100, wave=1), _available())
     second_trace = session.last_decision_trace
@@ -667,3 +686,45 @@ def test_execution_feedback_is_immediate_and_single_use() -> None:
         session.record_last_executed_decision_v1(
             ProgramDecisionV1(gcd_action=EXECUTE)
         )
+
+
+def test_residual_proposal_retries_until_execution_is_confirmed() -> None:
+    policy = _policy(
+        (
+            _step(
+                "ww",
+                "wave-1",
+                _hp_guard(0, gte=1),
+                WHIRLWIND,
+                target_index=0,
+            ),
+        )
+    )
+    session = DevelopmentTwoWaveCatResidualSequenceSessionV1(
+        policy, _StatefulCatResolver()
+    )
+
+    unconfirmed = session(_observation(0, wave=1), _available())
+    assert unconfirmed.gcd_action == WHIRLWIND
+    assert session.executed_step_keys == ()
+
+    # Beginning another epoch without execution feedback rejects the prior
+    # proposal and offers the same still-uncommitted step again.
+    retried = session(_observation(10, wave=1), _available())
+    assert retried.gcd_action == WHIRLWIND
+    assert session.executed_step_keys == ()
+    assert any(
+        row["kind"] == "CAT_RELATIVE_RESIDUAL_EXECUTION_REJECTED"
+        and row["reason"] == "NEXT_DECISION_WITHOUT_EXECUTION_CONFIRMATION"
+        for row in session.audit_events
+    )
+
+    session.reject_last_execution_v1("BRIDGE_REJECTED_TEST_PLAN")
+    assert session.executed_step_keys == ()
+    accepted = session(_observation(20, wave=1), _available())
+    session.record_last_executed_decision_v1(accepted)
+
+    assert session.executed_step_keys == (("wave-1", "ww"),)
+    assert session.audit_events[-1]["kind"] == (
+        "CAT_RELATIVE_RESIDUAL_EXECUTION_CONFIRMED"
+    )

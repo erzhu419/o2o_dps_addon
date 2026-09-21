@@ -14,7 +14,7 @@ rows visible in the current causal observation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping, Sequence
 
 from .causal_action_program_v1 import (
@@ -443,6 +443,11 @@ class DevelopmentTwoWaveCatResidualSequenceSessionV1:
             [CausalLiveStateProjectionV1, tuple[AvailableAction, ...]],
             ProgramDecisionV1,
         ],
+        *,
+        selected_decision_transform: Callable[
+            [ProgramDecisionV1, ProgramDecisionV1], ProgramDecisionV1
+        ]
+        | None = None,
     ) -> None:
         if not isinstance(policy, DevelopmentTwoWaveCatResidualSequenceV1):
             raise TypeError(
@@ -450,8 +455,13 @@ class DevelopmentTwoWaveCatResidualSequenceSessionV1:
             )
         if not callable(cat_resolver):
             raise TypeError("cat_resolver must be callable")
+        if selected_decision_transform is not None and not callable(
+            selected_decision_transform
+        ):
+            raise TypeError("selected_decision_transform must be callable or None")
         self.policy = policy
         self._cat_resolver = cat_resolver
+        self._selected_decision_transform = selected_decision_transform
         self._executed: set[tuple[str, str]] = set()
         self._execution_order: list[tuple[str, str]] = []
         self._audit: list[JSONMap] = []
@@ -461,6 +471,7 @@ class DevelopmentTwoWaveCatResidualSequenceSessionV1:
         self._last_prior_gcd_key: str | None = None
         self._last_tracks_gcd = False
         self._last_execution_feedback_open = False
+        self._pending_residual_step_key: tuple[str, str] | None = None
 
     @property
     def executed_step_keys(self) -> tuple[tuple[str, str], ...]:
@@ -480,14 +491,13 @@ class DevelopmentTwoWaveCatResidualSequenceSessionV1:
         self,
         actual_decision: ProgramDecisionV1,
     ) -> None:
-        """Correct Cat continuation when an outer teacher replaced the parent.
+        """Confirm the plan accepted by the executor and update continuation.
 
-        Normal residual execution never calls this hook.  A development-only
-        append teacher may call it exactly once, immediately after the most
-        recent decision, so the next epoch observes the GCD that was actually
-        returned to the simulator rather than the unexecuted parent proposal.
-        It does not alter the frozen policy, residual latches, or current
-        return value.
+        Selection is only a proposal.  A residual latch is committed here,
+        after the bridge has accepted the complete returned action plan.  The
+        same hook also preserves the older append-teacher behavior: when an
+        outer resolver replaces the parent proposal, Cat continues from the
+        GCD that actually executed.
         """
 
         if not isinstance(actual_decision, ProgramDecisionV1):
@@ -496,23 +506,85 @@ class DevelopmentTwoWaveCatResidualSequenceSessionV1:
             raise DevelopmentTwoWaveCatResidualSequenceV1Error(
                 "execution feedback must immediately follow one unresolved decision"
             )
+        trace = self._last_decision_trace
         self._last_execution_feedback_open = False
-        if actual_decision == self._last_decision_trace.parent_decision:
+        pending_key = self._pending_residual_step_key
+        parent_executed = actual_decision == trace.parent_decision
+        if pending_key is not None and parent_executed:
+            if pending_key in self._executed:
+                raise DevelopmentTwoWaveCatResidualSequenceV1Error(
+                    "pending residual step was already committed"
+                )
+            self._executed.add(pending_key)
+            self._execution_order.append(pending_key)
+            self._record(
+                "CAT_RELATIVE_RESIDUAL_EXECUTION_CONFIRMED",
+                trace.observation,
+                wave_id=pending_key[0],
+                step_id=pending_key[1],
+            )
+        elif pending_key is not None:
+            self._record(
+                "CAT_RELATIVE_RESIDUAL_REPLACED_BEFORE_EXECUTION",
+                trace.observation,
+                wave_id=pending_key[0],
+                step_id=pending_key[1],
+            )
+        self._pending_residual_step_key = None
+
+        # A selected residual restored Cat's eager proposal-side update.  Once
+        # that residual is confirmed, submit its actual GCD at the next epoch.
+        # If an outer resolver replaced any parent decision, restore Cat's
+        # pre-proposal value and submit the outer decision instead.
+        needs_continuation_override = pending_key is not None or not parent_executed
+        if self._last_tracks_gcd and needs_continuation_override:
+            setattr(
+                self._cat_resolver,
+                "last_gcd_action",
+                self._last_prior_gcd_key or "",
+            )
+            if actual_decision.gcd_action is None:
+                self._pending_actual_gcd_key = None
+            else:
+                try:
+                    self._pending_actual_gcd_key = _CAT_ACTION_KEY_BY_REF[
+                        actual_decision.gcd_action
+                    ]
+                except KeyError as error:
+                    raise DevelopmentTwoWaveCatResidualSequenceV1Error(
+                        "actual replacement GCD lacks a canonical Cat continuation key"
+                    ) from error
+        self._last_decision_trace = replace(
+            trace,
+            executed_step_keys_after=self.executed_step_keys,
+        )
+
+    def reject_last_execution_v1(self, reason: str) -> None:
+        """Discard the current proposal because the executor did not accept it."""
+
+        if not isinstance(reason, str) or not reason:
+            raise ValueError("execution rejection reason must be non-empty text")
+        if self._last_decision_trace is None or not self._last_execution_feedback_open:
             return
-        if not self._last_tracks_gcd:
-            return
-        setattr(self._cat_resolver, "last_gcd_action", self._last_prior_gcd_key or "")
-        if actual_decision.gcd_action is None:
-            self._pending_actual_gcd_key = None
-            return
-        try:
-            self._pending_actual_gcd_key = _CAT_ACTION_KEY_BY_REF[
-                actual_decision.gcd_action
-            ]
-        except KeyError as error:
-            raise DevelopmentTwoWaveCatResidualSequenceV1Error(
-                "actual replacement GCD lacks a canonical Cat continuation key"
-            ) from error
+        trace = self._last_decision_trace
+        pending_key = self._pending_residual_step_key
+        if self._last_tracks_gcd:
+            setattr(
+                self._cat_resolver,
+                "last_gcd_action",
+                self._last_prior_gcd_key or "",
+            )
+        self._pending_actual_gcd_key = None
+        self._pending_residual_step_key = None
+        self._last_execution_feedback_open = False
+        if pending_key is not None:
+            self._record(
+                "CAT_RELATIVE_RESIDUAL_EXECUTION_REJECTED",
+                trace.observation,
+                wave_id=pending_key[0],
+                step_id=pending_key[1],
+                reason=reason,
+            )
 
     def _finish_decision(
         self,
@@ -650,9 +722,13 @@ class DevelopmentTwoWaveCatResidualSequenceSessionV1:
                 "native action surface contains duplicate identities"
             )
 
-        # Once the next epoch begins, the preceding decision can no longer be
-        # corrected by an outer execution-feedback hook.
-        self._last_execution_feedback_open = False
+        # A caller that asks for another decision without reporting executor
+        # acceptance did not execute the preceding proposal.  Release it so
+        # the same residual step remains eligible for retry.
+        if self._last_execution_feedback_open:
+            self.reject_last_execution_v1(
+                "NEXT_DECISION_WITHOUT_EXECUTION_CONFIRMATION"
+            )
         executed_before = self.executed_step_keys
 
         # Submit the preceding epoch's actual replacement immediately before
@@ -779,7 +855,16 @@ class DevelopmentTwoWaveCatResidualSequenceSessionV1:
                 tracks_last_gcd=tracks_last_gcd,
             )
 
-        for action in _decision_actions(step.decision):
+        selected_decision = (
+            step.decision
+            if self._selected_decision_transform is None
+            else self._selected_decision_transform(cat_decision, step.decision)
+        )
+        if not isinstance(selected_decision, ProgramDecisionV1):
+            raise TypeError(
+                "selected_decision_transform must return ProgramDecisionV1"
+            )
+        for action in _decision_actions(selected_decision):
             row = by_action.get(action)
             if row is None:
                 decision = self._fallback(
@@ -835,18 +920,12 @@ class DevelopmentTwoWaveCatResidualSequenceSessionV1:
                 )
 
         key = (step.wave_id, step.step_id)
-        self._executed.add(key)
-        self._execution_order.append(key)
+        self._pending_residual_step_key = key
         if tracks_last_gcd:
             # Cat has already written the GCD it proposed.  Undo only that
-            # eager continuation update.  At the next epoch, submit the GCD
-            # that actually executed.  A WAIT/no-GCD replacement preserves
-            # the prior value and has nothing to submit.
+            # eager continuation update.  Execution confirmation will submit
+            # the GCD that actually ran; rejection leaves the prior value.
             setattr(self._cat_resolver, "last_gcd_action", prior_last_gcd)
-            if step.decision.gcd_action is not None:
-                self._pending_actual_gcd_key = _CAT_ACTION_KEY_BY_REF[
-                    step.decision.gcd_action
-                ]
         self._record(
             "CAT_RELATIVE_RESIDUAL_SELECTED",
             observation,
@@ -857,7 +936,7 @@ class DevelopmentTwoWaveCatResidualSequenceSessionV1:
             observation=observation,
             available=available,
             cat_decision=cat_decision,
-            parent_decision=step.decision,
+            parent_decision=selected_decision,
             executed_before=executed_before,
             prior_last_gcd=prior_last_gcd,
             tracks_last_gcd=tracks_last_gcd,
@@ -868,6 +947,10 @@ def build_two_wave_cat_residual_sequence_runtime_v1(
     policy: DevelopmentTwoWaveCatResidualSequenceV1,
     *,
     cat_resolver_factory: ReactiveResolverFactoryV1,
+    selected_decision_transform: Callable[
+        [ProgramDecisionV1, ProgramDecisionV1], ProgramDecisionV1
+    ]
+    | None = None,
 ) -> tuple[CausalActionProgramV1, ImportedReactiveProgramBindingV1]:
     """Bind the frozen residual sequence to one fresh Cat session per replay."""
 
@@ -877,6 +960,10 @@ def build_two_wave_cat_residual_sequence_runtime_v1(
         )
     if not callable(cat_resolver_factory):
         raise TypeError("cat_resolver_factory must be callable")
+    if selected_decision_transform is not None and not callable(
+        selected_decision_transform
+    ):
+        raise TypeError("selected_decision_transform must be callable or None")
     binding_id = (
         "development-two-wave-cat-residual-sequence::"
         f"{policy.policy_id}::{policy.exact_build_id}"
@@ -884,7 +971,9 @@ def build_two_wave_cat_residual_sequence_runtime_v1(
 
     def open_session() -> DevelopmentTwoWaveCatResidualSequenceSessionV1:
         return DevelopmentTwoWaveCatResidualSequenceSessionV1(
-            policy, cat_resolver_factory()
+            policy,
+            cat_resolver_factory(),
+            selected_decision_transform=selected_decision_transform,
         )
 
     binding = ImportedReactiveProgramBindingV1(

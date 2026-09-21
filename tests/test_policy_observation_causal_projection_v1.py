@@ -551,10 +551,24 @@ class PolicyObservationCausalProjectionV1Tests(unittest.TestCase):
                 "encounter_health_target": 2000.0,
                 "dynamic_team_response": {"suffix_model": "right"},
                 "wake_ready": {"future_wake": 999_999},
+                "press_clock": {
+                    "enabled": True,
+                    "period_ms": 100,
+                    "phase_ms": 0,
+                    "ready": True,
+                    "press_index": 7,
+                },
             }
         )
         left_state["dynamic_team_response"] = {"suffix_model": "left"}
         left_state["wake_ready"] = {"future_wake": 123_456}
+        left_state["press_clock"] = {
+            "enabled": True,
+            "period_ms": 100,
+            "phase_ms": 0,
+            "ready": True,
+            "press_index": 3,
+        }
         left_state["dynamic_team_background"][
             "responsive_damage_applications_processed"
         ] = 3
@@ -598,6 +612,7 @@ class PolicyObservationCausalProjectionV1Tests(unittest.TestCase):
         )
         self.assertNotIn("dynamic_team_response", projected)
         self.assertNotIn("wake_ready", projected)
+        self.assertNotIn("press_clock", projected)
         self.assertNotIn("target_armor", projected)
         self.assertNotIn("effective_target_armor", projected)
         self.assertNotIn(

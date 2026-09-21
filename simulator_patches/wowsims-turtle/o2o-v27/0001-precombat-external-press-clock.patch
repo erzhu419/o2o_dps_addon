@@ -1,0 +1,129 @@
+diff --git a/cmd/o2obridge/main.go b/cmd/o2obridge/main.go
+--- a/cmd/o2obridge/main.go
++++ b/cmd/o2obridge/main.go
+@@ -166,7 +166,7 @@ func runBridge(input io.Reader, output io.Writer, errorOutput io.Writer) {
+ 			out.DynamicLoad = &receipt
+ 			state := env.State()
+ 			out.State = &state
+-		case "load_dynamic_v3", "load_dynamic_v3_press_clock", "load_dynamic_v3_precombat":
++		case "load_dynamic_v3", "load_dynamic_v3_press_clock", "load_dynamic_v3_precombat", "load_dynamic_v3_precombat_press_clock":
+ 			if len(cmd.Dynamic) == 0 {
+ 				out.OK, out.Error = false, "dynamic config is required"
+ 				break
+@@ -194,10 +194,10 @@ func runBridge(input io.Reader, output io.Writer, errorOutput io.Writer) {
+ 			var receipt o2o.DynamicLoadReceiptV1
+ 			var err error
+ 			env, receipt, err = o2o.NewDynamicV3(request, cmd.Seed, dynamic, nextGeneration)
+-			if err == nil && cmd.Command == "load_dynamic_v3_press_clock" {
++			if err == nil && (cmd.Command == "load_dynamic_v3_press_clock" || cmd.Command == "load_dynamic_v3_precombat_press_clock") {
+ 				err = env.ConfigurePressClock(cmd.PressPeriodMS, cmd.PressPhaseMS)
+ 			}
+-			if err == nil && cmd.Command == "load_dynamic_v3_precombat" {
++			if err == nil && (cmd.Command == "load_dynamic_v3_precombat" || cmd.Command == "load_dynamic_v3_precombat_press_clock") {
+ 				if len(cmd.Precombat) == 0 {
+ 					err = fmt.Errorf("precombat config is required")
+ 				} else {
+diff --git a/cmd/o2obridge/precombat_test.go b/cmd/o2obridge/precombat_test.go
+--- a/cmd/o2obridge/precombat_test.go
++++ b/cmd/o2obridge/precombat_test.go
+@@ -109,4 +109,100 @@ func TestRunBridgeLoadsPrecombatAtomicallyAndAcceptsPotion(t *testing.T) {
+ 		responses[4].State.NumTargets != 1 || responses[4].State.Precombat == nil || responses[4].State.Precombat.Active {
+ 		t.Fatalf("bridge did not reach the pull boundary: %+v", responses[4])
+ 	}
+ }
++
++func TestRunBridgeLoadsPrecombatAndFirstPhysicalPressAtomically(t *testing.T) {
++	const health = 1_000_000.0
++	request := &proto.RaidSimRequest{}
++	if err := protojson.Unmarshal(bridgeDynamicTestRequest(t, health), request); err != nil {
++		t.Fatal(err)
++	}
++	request.Encounter.Duration = 5
++	requestPayload, err := protojson.Marshal(request)
++	if err != nil {
++		t.Fatal(err)
++	}
++	dynamic := o2o.DynamicTargetSemanticsConfigV3{
++		Schema:                 o2o.DynamicTargetSemanticsSchemaV3,
++		TargetHealth:           []o2o.DynamicTargetHealthV1{{TargetIndex: 0, Health: health}},
++		BackgroundDamageEvents: []o2o.BackgroundDamageEventV1{},
++		AttackabilityEvents: []o2o.DynamicAttackabilityEventV2{
++			{ScheduleIndex: 0, TimeMS: 0, TargetIndex: 0, Attackable: false},
++			{ScheduleIndex: 1, TimeMS: 1000, TargetIndex: 0, Attackable: true},
++		},
++		EffectiveArmorEvents: []o2o.DynamicEffectiveArmorEventV2{},
++		IdleAdvanceMode:      o2o.DynamicIdleAdvanceModeV3,
++		IdleAdvanceHorizonMS: 5000,
++		SameTimestampOrder:   o2o.DynamicSameTimestampOrderV3,
++		RetargetMode:         o2o.DynamicRetargetNextAliveCyclic,
++	}
++	dynamic.ContentSHA256, err = o2o.DynamicTargetSemanticsDigestV3(dynamic)
++	if err != nil {
++		t.Fatal(err)
++	}
++	dynamicPayload, err := json.Marshal(dynamic)
++	if err != nil {
++		t.Fatal(err)
++	}
++	precombatPayload, err := json.Marshal(o2o.PrecombatActionsConfigV1{
++		Schema:      o2o.PrecombatActionsSchemaV1,
++		PullTimeMS:  1000,
++		SelfActions: []o2o.ActionRef{{SpellID: 25289}},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	commands := []command{
++		{
++			Command: "load_dynamic_v3_precombat_press_clock", Request: requestPayload,
++			Seed: 92, Dynamic: dynamicPayload, Precombat: precombatPayload,
++			PressPeriodMS: 100, PressPhaseMS: 0,
++		},
++		{Command: "finish_press"},
++		{Command: "advance"},
++		{Command: "close"},
++	}
++	var input bytes.Buffer
++	encoder := json.NewEncoder(&input)
++	for _, cmd := range commands {
++		if err := encoder.Encode(cmd); err != nil {
++			t.Fatal(err)
++		}
++	}
++	var output bytes.Buffer
++	var stderr bytes.Buffer
++	runBridge(&input, &output, &stderr)
++	if stderr.Len() != 0 {
++		t.Fatalf("bridge stderr: %s", stderr.String())
++	}
++	decoder := json.NewDecoder(&output)
++	responses := make([]response, 0, len(commands))
++	for decoder.More() {
++		var got response
++		if err := decoder.Decode(&got); err != nil {
++			t.Fatal(err)
++		}
++		responses = append(responses, got)
++	}
++	if len(responses) != len(commands) {
++		t.Fatalf("got %d responses, want %d: %s", len(responses), len(commands), output.String())
++	}
++	loaded := responses[0]
++	if !loaded.OK || loaded.State == nil || loaded.State.Precombat == nil ||
++		!loaded.State.Precombat.Active || loaded.State.PressClock == nil ||
++		!loaded.State.PressClock.Ready || loaded.State.PressClock.PressIndex != 1 ||
++		loaded.State.TimeMS != 0 || !loaded.State.NeedsInput {
++		t.Fatalf("combined atomic load is wrong: %+v", loaded)
++	}
++	closed := responses[1]
++	if !closed.OK || closed.State == nil || closed.State.PressClock == nil ||
++		closed.State.PressClock.Ready || closed.State.NeedsInput {
++		t.Fatalf("finish_press did not close first physical key: %+v", closed)
++	}
++	next := responses[2]
++	if !next.OK || next.State == nil || next.State.TimeMS != 100 ||
++		next.State.PressClock == nil || !next.State.PressClock.Ready ||
++		next.State.PressClock.PressIndex != 2 || !next.State.NeedsInput {
++		t.Fatalf("next physical key did not preserve the grid: %+v", next)
++	}
++}

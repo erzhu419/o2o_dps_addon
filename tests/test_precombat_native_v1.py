@@ -23,6 +23,7 @@ from o2o_dps.contra_turtle_burst_loadout_v1 import RAPID_GROWTH_ACTION
 from o2o_dps.causal_guard_v1 import ObservableCausalGuardV1, SKIP_PLAN
 from o2o_dps.precombat_timeline_v1 import SimulatorBridgePrecombatV1
 from o2o_dps.sim_bridge import ActionRef
+from o2o_dps.sim_bridge_dynamic_v3 import _press_clock_state_v1
 from o2o_dps.wave_action_schedule_v1 import ScheduledActionPlan
 from o2o_dps.wave_action_sequence_search_v1 import (
     NativeDynamicV3ScheduleReplayV1,
@@ -50,6 +51,33 @@ class PrecombatNativeV1Tests(unittest.TestCase):
             ),
             case_factory=case_factory,
         )
+
+    def test_python_bridge_atomically_loads_precombat_and_physical_key(self) -> None:
+        assert BRIDGE is not None
+        case = build_development_burst_precombat_case_v1(23, pull_time_ms=3_000)
+        with SimulatorBridgePrecombatV1(
+            BRIDGE, cwd=WORKSPACE_ROOT / "wowsims-turtle"
+        ) as bridge:
+            loaded = bridge.load_dynamic_v3_precombat_press_clock(
+                case.request,
+                23,
+                case.dynamic_load.config,
+                case.precombat,
+                period_ms=100,
+                phase_ms=0,
+            )
+            first = _press_clock_state_v1(loaded.state)
+            self.assertTrue(first.ready)
+            self.assertEqual(1, first.press_index)
+            self.assertEqual(0, loaded.state["time_ms"])
+            self.assertTrue(loaded.state["precombat"]["active"])
+
+            closed = bridge.finish_press()
+            self.assertFalse(_press_clock_state_v1(closed).ready)
+            next_press = bridge.advance()
+            self.assertEqual(100, next_press["time_ms"])
+            self.assertTrue(_press_clock_state_v1(next_press).ready)
+            self.assertEqual(2, _press_clock_state_v1(next_press).press_index)
 
     def test_mighty_rage_case_runs_through_native_schedule_replay(self) -> None:
         replay = self._replay(

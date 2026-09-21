@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import Mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,7 @@ from o2o_dps.precombat_contract_v1 import (
 from o2o_dps.precombat_timeline_v1 import (
     PullRelativeScheduledActionV1,
     PullRelativeTimelineV1,
+    SimulatorBridgePrecombatV1,
     shift_dynamic_config_for_precombat_v1,
     shift_raid_request_for_precombat_v1,
 )
@@ -29,7 +31,10 @@ from o2o_dps.sim_bridge_dynamic_v2 import (
     DynamicAttackabilityEventV2,
     DynamicEffectiveArmorEventV2,
 )
-from o2o_dps.sim_bridge_dynamic_v3 import DynamicTargetSemanticsConfigV3
+from o2o_dps.sim_bridge_dynamic_v3 import (
+    DynamicLoadResultV3,
+    DynamicTargetSemanticsConfigV3,
+)
 from o2o_dps.wave_action_schedule_v1 import ScheduledActionPlan
 
 
@@ -121,6 +126,58 @@ class PrecombatTimelineV1Tests(unittest.TestCase):
         self.assertEqual(parsed.relative_time_ms, -2500)
         with self.assertRaisesRegex(ValueError, "unique"):
             PrecombatActionsConfigV1(3000, (POTION, POTION))
+
+    def test_precombat_and_press_clock_are_loaded_by_one_atomic_command(self) -> None:
+        dynamic = DynamicTargetSemanticsConfigV3(
+            target_health=(DynamicTargetHealthV1(0, 1000.0),),
+            idle_advance_horizon_ms=5000,
+        )
+        precombat = PrecombatActionsConfigV1(3000, (POTION,))
+        state = {
+            "time_ms": 0,
+            "finished": False,
+            "press_clock": {
+                "period_ms": 100,
+                "phase_ms": 0,
+                "press_index": 1,
+                "ready": True,
+                "next_time_ms": 0,
+            },
+            "precombat": {
+                "schema": "o2o_precombat_actions/v1",
+                "pull_time_ms": 3000,
+                "relative_time_ms": -3000,
+                "active": True,
+                "self_action_count": 1,
+            },
+        }
+        bridge = object.__new__(SimulatorBridgePrecombatV1)
+        bridge._precombat_binding = None
+        bridge._dynamic_binding = None
+        bridge._load_dynamic_v3_command = Mock(
+            return_value=DynamicLoadResultV3(Mock(), state)
+        )
+
+        result = bridge.load_dynamic_v3_precombat_press_clock(
+            {"request": "fake"},
+            17,
+            dynamic,
+            precombat,
+            period_ms=100,
+            phase_ms=0,
+        )
+
+        self.assertEqual(state, result.state)
+        self.assertEqual(precombat, bridge._precombat_binding)
+        bridge._load_dynamic_v3_command.assert_called_once_with(
+            "load_dynamic_v3_precombat_press_clock",
+            {"request": "fake"},
+            17,
+            dynamic,
+            precombat=precombat.to_wire(),
+            press_period_ms=100,
+            press_phase_ms=0,
+        )
 
 
 if __name__ == "__main__":

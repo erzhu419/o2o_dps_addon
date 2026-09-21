@@ -329,6 +329,19 @@ class ParentAppendBranchSessionV9:
         self.points: list[ParentAppendDecisionPointV9] = []
         self.interventions: list[JSONMap] = []
 
+    def record_last_executed_decision_v1(
+        self,
+        actual_decision: ProgramDecisionV1,
+    ) -> None:
+        """Forward executor acceptance to the stateful parent session."""
+
+        self.parent_session.record_last_executed_decision_v1(actual_decision)
+
+    def reject_last_execution_v1(self, reason: str) -> None:
+        """Forward executor rejection without consuming a parent residual."""
+
+        self.parent_session.reject_last_execution_v1(reason)
+
     def __call__(
         self,
         observation: CausalLiveStateProjectionV1,
@@ -364,7 +377,6 @@ class ParentAppendBranchSessionV9:
             raise UpperKaraCatActionPlanAppendTeacherV9Error(
                 "append branch is not legal and ready at its causal parent state"
             )
-        self.parent_session.record_last_executed_decision_v1(self.branch.decision)
         self.interventions.append(
             {
                 "decision_index": point.decision_index,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -90,6 +91,8 @@ def _install_fake_native(
     *,
     expose_seed: bool = False,
     candidate_required_targets_dead: bool = True,
+    lane_barrier: threading.Barrier | None = None,
+    residual_finished: threading.Event | None = None,
 ) -> None:
     import o2o_dps.upper_kara_cat_residual_paired_eval_v8 as module
 
@@ -144,6 +147,8 @@ def _install_fake_native(
         def replay(self, requested_seed, program, *, max_decisions=10_000):
             del max_decisions
             assert self.case_factory(requested_seed) is case
+            if lane_barrier is not None:
+                lane_barrier.wait(timeout=2.0)
             with self.bridge_factory():
                 pass
             session = self.binding.open_session()
@@ -178,7 +183,12 @@ def _install_fake_native(
                 visibility_cutoff_ms=3_000,
             )
             try:
-                session(observation, available)
+                decision = session(observation, available)
+                callback = getattr(
+                    session, "record_last_executed_decision_v1", None
+                )
+                if callable(callback):
+                    callback(decision)
             except Exception as error:
                 return ScheduleReplayOutcomeV1(
                     seed=requested_seed,
@@ -193,6 +203,11 @@ def _install_fake_native(
             ]
             if candidate and not candidate_required_targets_dead:
                 target_rows[2]["dead"] = False
+            if residual_finished is not None:
+                if candidate:
+                    residual_finished.set()
+                else:
+                    assert residual_finished.wait(timeout=2.0)
             return ScheduleReplayOutcomeV1(
                 seed=requested_seed,
                 status=ReplayStatusV1.COMPLETE,
@@ -221,6 +236,36 @@ def _install_fake_native(
         lambda _: (lambda state, actions: (state, actions)),
     )
     monkeypatch.setattr(module, "NativeDynamicV3ActionProgramReplayV1", FakeNativeReplay)
+
+
+def test_paired_native_lanes_overlap_and_keep_named_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_barrier = threading.Barrier(2)
+    residual_finished = threading.Event()
+    _install_fake_native(
+        monkeypatch,
+        lane_barrier=lane_barrier,
+        residual_finished=residual_finished,
+    )
+
+    result = evaluate_upper_kara_cat_residual_sequence_paired_v8(
+        _policy(steps=(_one_whirlwind_step(),)),
+        seed=77,
+        build_id="live_bonereaver",
+        loadout_id="contra_turtle_burst__mighty_rage",
+        bridge_factory=_FakeBridge,
+    )
+
+    assert lane_barrier.broken is False
+    assert residual_finished.is_set()
+    # Residual is forced to finish before exact Cat.  Named futures must still
+    # assign each outcome to its declared lane, not completion order.
+    assert result["exact_cat_terminal"]["own_effective_damage"] == 100.0
+    assert result["residual_terminal"]["own_effective_damage"] == 110.0
+    assert result["paired_residual_minus_cat_own_effective_damage"] == 10.0
+    assert result["fresh_native_bridge_instances_verified"] is True
+    assert result["fresh_cat_sessions_verified"] is True
 
 
 def test_paired_evaluator_reports_damage_delta_freshness_and_step_audit(

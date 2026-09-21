@@ -308,6 +308,7 @@ _DROPPED_ROOT_FIELDS = frozenset(
         "encounter_health_target",
         "environment_generation",
         "effective_target_armor",
+        "press_clock",
         "remaining_ms",
         "target_armor",
         "wake_ready",

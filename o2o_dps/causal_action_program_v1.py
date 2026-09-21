@@ -40,6 +40,7 @@ from .policy_observation_causal_projection_v1 import (
     CausalLiveStateProjectionV1,
 )
 from .sim_bridge import ActionRef, AvailableAction
+from .sim_bridge_dynamic_v3 import _press_clock_state_v1
 from .wave_action_schedule_v1 import QueueLaneOp
 from .wave_action_sequence_search_v1 import (
     FURY_RESULT_BEARING_ACTION_REFS_V1,
@@ -1131,22 +1132,48 @@ class ImportedReactiveProgramBindingV1:
         return resolver
 
 
-@dataclass(frozen=True)
+@dataclass
 class _ImportedReactiveProgramSessionV1:
     binding_id: str
     source_policy_id: str
     observation_contract_id: str
     resolver: ReactiveResolverV1
+    _pending_decision: ProgramDecisionV1 | None = None
 
     def decide(
         self,
         observation: CausalLiveStateProjectionV1,
         available_actions: tuple[AvailableAction, ...],
     ) -> ProgramDecisionV1:
+        if self._pending_decision is not None:
+            raise CausalActionProgramError(
+                "imported resolver received a new decision before execution feedback"
+            )
         decision = self.resolver(observation, available_actions)
         if not isinstance(decision, ProgramDecisionV1):
             raise TypeError("imported resolver must return ProgramDecisionV1")
+        self._pending_decision = decision
         return decision
+
+    def confirm_pending_execution(self, actual_decision: ProgramDecisionV1) -> None:
+        """Commit runtime-only resolver state after the bridge accepted a plan."""
+
+        if self._pending_decision is None:
+            return
+        callback = getattr(self.resolver, "record_last_executed_decision_v1", None)
+        if callable(callback):
+            callback(actual_decision)
+        self._pending_decision = None
+
+    def reject_pending_execution(self, reason: str) -> None:
+        """Release a proposal which never became an accepted bridge action plan."""
+
+        if self._pending_decision is None:
+            return
+        callback = getattr(self.resolver, "reject_last_execution_v1", None)
+        if callable(callback):
+            callback(reason)
+        self._pending_decision = None
 
 
 def _state_time(state: Mapping[str, Any]) -> int:
@@ -1807,6 +1834,113 @@ def _available_by_action(
     return available, by_action
 
 
+def _terminal_telemetry_receipt_v1(
+    bridge: Any,
+    state: Mapping[str, Any],
+    retained_damage_actions: frozenset[ActionRef],
+) -> tuple[JSONMap, tuple[AvailableAction, ...]]:
+    """Read one compact terminal snapshot without changing replay execution.
+
+    The evaluator supplies the small action set it can actually attribute.  In
+    particular, this does not retain a state snapshot for every physical press.
+    Missing bridge surfaces are evidence gaps, not replay failures.
+    """
+
+    terminal_actions: tuple[AvailableAction, ...] = ()
+    try:
+        terminal_actions, _ = _available_by_action(bridge)
+        action_surface: JSONMap = {
+            "status": "OBSERVED",
+            "actions": [
+                {
+                    "index": row.index,
+                    "action": row.action.to_wire(),
+                    "label": row.label,
+                    "legal": row.legal,
+                    "ready_in_ms": row.ready_in_ms,
+                    "triggers_gcd": row.triggers_gcd,
+                    "result_bearing": row.result_bearing,
+                    "cooldown_duration_ms": row.cooldown_duration_ms,
+                }
+                for row in terminal_actions
+            ],
+        }
+    except Exception as error:
+        action_surface = {
+            "status": "NOT_OBSERVED",
+            "reason": "TERMINAL_ACTION_SURFACE_READ_FAILED",
+            "error_type": type(error).__name__,
+        }
+
+    endpoint = getattr(bridge, "dynamic_candidate_damage_receipts", None)
+    if not callable(endpoint):
+        damage_surface: JSONMap = {
+            "status": "NOT_OBSERVED",
+            "reason": "CANDIDATE_DAMAGE_RECEIPT_ENDPOINT_UNAVAILABLE",
+        }
+    else:
+        try:
+            batch = endpoint(cursor=0)
+            raw_rows = getattr(batch, "receipts", None)
+            if not isinstance(raw_rows, tuple):
+                raise TypeError("candidate damage receipt batch lacks tuple receipts")
+            retained: list[JSONMap] = []
+            for row in raw_rows:
+                action = getattr(row, "action", None)
+                if action not in retained_damage_actions:
+                    continue
+                if not isinstance(action, ActionRef):
+                    raise TypeError("candidate damage receipt lacks ActionRef")
+                retained.append(
+                    {
+                        "damage_ordinal": row.damage_ordinal,
+                        "time_ms": row.time_ms,
+                        "target_index": row.target_index,
+                        "requested_damage": row.requested_damage,
+                        "applied_damage": row.applied_damage,
+                        "overkill_damage": row.overkill_damage,
+                        "killed": row.killed,
+                        "status": row.status,
+                        "action": action.to_wire(),
+                        "outcome": row.outcome,
+                        "execution_id": row.execution_id,
+                        "execution_index": row.execution_index,
+                        "landed_execution_index": row.landed_execution_index,
+                        "resolution_phase": row.resolution_phase,
+                        "outcome_computed": row.outcome_computed,
+                        "random_stream_rewound": row.random_stream_rewound,
+                        "attempt_id": row.attempt_id,
+                        "retargeted_to": row.retargeted_to,
+                    }
+                )
+            damage_surface = {
+                "status": "OBSERVED",
+                "source_receipt_count": len(raw_rows),
+                "retained_receipt_count": len(retained),
+                "retained_actions": [
+                    action.to_wire()
+                    for action in sorted(retained_damage_actions)
+                ],
+                "receipts": retained,
+            }
+        except Exception as error:
+            damage_surface = {
+                "status": "NOT_OBSERVED",
+                "reason": "CANDIDATE_DAMAGE_RECEIPT_READ_FAILED",
+                "error_type": type(error).__name__,
+            }
+
+    return (
+        {
+            "kind": "NATIVE_TERMINAL_TELEMETRY_V1",
+            "state_time_ms": _state_time(state),
+            "terminal_action_surface": action_surface,
+            "candidate_damage_surface": damage_surface,
+        },
+        terminal_actions,
+    )
+
+
 def _attempt_id(
     action: ActionRef,
     row: AvailableAction,
@@ -1829,6 +1963,7 @@ def _execute_decision(
     projector: CausalObservationProjectorV1,
     receipts: list[JSONMap],
     result_bearing_action_refs: frozenset[ActionRef],
+    external_press_clock: bool = False,
 ) -> JSONMap:
     current = dict(state)
     prefix_index = 0
@@ -1881,6 +2016,7 @@ def _execute_decision(
                     f"{method_name} was rejected or consumed the decision"
                 )
             current = dict(result.state)
+            resulting_queue = current.get("swing_queue")
             receipts.append(
                 {
                     "decision_index": decision_index,
@@ -2004,6 +2140,7 @@ def _execute_decision(
                     "queue action failed or consumed the decision"
                 )
             current = dict(result.state)
+            resulting_queue = current.get("swing_queue")
             receipts.append(
                 {
                     "decision_index": decision_index,
@@ -2012,6 +2149,14 @@ def _execute_decision(
                     "action": decision.queue_action.to_wire(),
                     "attempt_id": attempt_id,
                     "state_time_ms": _state_time(current),
+                    "queue_state_after_acceptance": (
+                        dict(resulting_queue)
+                        if isinstance(resulting_queue, Mapping)
+                        else {
+                            "status": "NOT_OBSERVED",
+                            "reason": "SWING_QUEUE_STATE_UNAVAILABLE_AFTER_ACCEPTANCE",
+                        }
+                    ),
                 }
             )
             continue
@@ -2050,6 +2195,15 @@ def _execute_decision(
                 "state_time_ms": _state_time(current),
             }
         )
+    elif external_press_clock:
+        receipts.append(
+            {
+                "decision_index": decision_index,
+                "kind": "TERMINAL_WAIT_EXTERNAL_PRESS_ABSTAIN",
+                "configured_wait_ms": decision.wait_ms,
+                "state_time_ms": _state_time(current),
+            }
+        )
     else:
         current = dict(bridge.wait(decision.wait_ms))
         receipts.append(
@@ -2076,6 +2230,9 @@ class NativeDynamicV3ActionProgramReplayV1:
         result_bearing_action_refs: Sequence[ActionRef] = tuple(
             FURY_RESULT_BEARING_ACTION_REFS_V1
         ),
+        terminal_telemetry_action_refs: Sequence[ActionRef] = (),
+        external_press_period_ms: int | None = None,
+        external_press_phase_ms: int = 0,
     ) -> None:
         if not callable(bridge_factory) or not callable(case_factory):
             raise TypeError("bridge_factory and case_factory must be callable")
@@ -2096,11 +2253,42 @@ class NativeDynamicV3ActionProgramReplayV1:
             _action(action, f"result_bearing_action_refs[{index}]")
         if len(set(refs)) != len(refs):
             raise ValueError("result_bearing_action_refs must be unique")
+        telemetry_refs = tuple(terminal_telemetry_action_refs)
+        for index, action in enumerate(telemetry_refs):
+            _action(action, f"terminal_telemetry_action_refs[{index}]")
+        if len(set(telemetry_refs)) != len(telemetry_refs):
+            raise ValueError("terminal_telemetry_action_refs must be unique")
+        if type(external_press_phase_ms) is not int:
+            raise ValueError("external_press_phase_ms must be an integer")
+        if external_press_period_ms is None:
+            if external_press_phase_ms != 0:
+                raise ValueError(
+                    "external_press_phase_ms requires external_press_period_ms"
+                )
+        else:
+            if (
+                type(external_press_period_ms) is not int
+                or not 1 <= external_press_period_ms <= 60_000
+            ):
+                raise ValueError(
+                    "external_press_period_ms must be an integer in 1..60000"
+                )
+            if (
+                type(external_press_phase_ms) is not int
+                or not 0 <= external_press_phase_ms < external_press_period_ms
+            ):
+                raise ValueError(
+                    "external_press_phase_ms must be an integer in "
+                    "0..external_press_period_ms-1"
+                )
         self._bridge_factory = bridge_factory
         self._case_factory = case_factory
         self._observation_projector = observation_projector
         self._imported_bindings = {row.binding_id: row for row in imported_bindings}
         self._result_bearing_action_refs = frozenset(refs)
+        self._terminal_telemetry_action_refs = frozenset(telemetry_refs)
+        self._external_press_period_ms = external_press_period_ms
+        self._external_press_phase_ms = external_press_phase_ms
 
     def replay(
         self,
@@ -2129,16 +2317,34 @@ class NativeDynamicV3ActionProgramReplayV1:
             }
             with self._bridge_factory() as bridge:
                 precombat = getattr(case, "precombat", None)
-                if precombat is None:
+                external_press = self._external_press_period_ms is not None
+                if precombat is None and not external_press:
                     loaded = bridge.load_dynamic_v3(
                         case.request, seed, case.dynamic_load.config
                     )
-                else:
+                elif precombat is None:
+                    loaded = bridge.load_dynamic_v3_press_clock(
+                        case.request,
+                        seed,
+                        case.dynamic_load.config,
+                        self._external_press_period_ms,
+                        self._external_press_phase_ms,
+                    )
+                elif not external_press:
                     loaded = bridge.load_dynamic_v3_precombat(
                         case.request,
                         seed,
                         case.dynamic_load.config,
                         precombat,
+                    )
+                else:
+                    loaded = bridge.load_dynamic_v3_precombat_press_clock(
+                        case.request,
+                        seed,
+                        case.dynamic_load.config,
+                        precombat,
+                        self._external_press_period_ms,
+                        self._external_press_phase_ms,
                     )
                 state = _advance_to_input(bridge, dict(loaded.state))
                 last_state = dict(state)
@@ -2152,36 +2358,79 @@ class NativeDynamicV3ActionProgramReplayV1:
                         state = _advance_to_input(bridge, state)
                         last_state = dict(state)
                         continue
+                    press_index: int | None = None
+                    if external_press:
+                        clock = _press_clock_state_v1(state)
+                        if not clock.ready:
+                            raise CausalActionProgramError(
+                                "policy input was not a ready physical press"
+                            )
+                        press_index = clock.press_index
                     available, _ = _available_by_action(bridge)
                     observation = _project_observation(
                         self._observation_projector, state, available
                     )
-                    decision = _select_decision(
-                        program,
-                        observation,
-                        available,
-                        imported_sessions,
-                        receipts,
-                        decision_index,
-                    )
-                    state = _execute_decision(
-                        bridge,
-                        state,
-                        decision,
-                        decision_index=decision_index,
-                        projector=self._observation_projector,
-                        receipts=receipts,
-                        result_bearing_action_refs=(
-                            self._result_bearing_action_refs
-                        ),
-                    )
+                    try:
+                        decision = _select_decision(
+                            program,
+                            observation,
+                            available,
+                            imported_sessions,
+                            receipts,
+                            decision_index,
+                        )
+                        state = _execute_decision(
+                            bridge,
+                            state,
+                            decision,
+                            decision_index=decision_index,
+                            projector=self._observation_projector,
+                            receipts=receipts,
+                            result_bearing_action_refs=(
+                                self._result_bearing_action_refs
+                            ),
+                            external_press_clock=external_press,
+                        )
+                        if external_press and not bool(state.get("finished")):
+                            closed = dict(bridge.finish_press())
+                            closed_clock = _press_clock_state_v1(closed)
+                            if closed_clock.ready:
+                                raise CausalActionProgramError(
+                                    "finish_press left the physical opportunity open"
+                                )
+                            state = closed
+                            receipts.append(
+                                {
+                                    "decision_index": decision_index,
+                                    "kind": "EXTERNAL_PRESS_FINISHED",
+                                    "press_index": press_index,
+                                    "state_time_ms": _state_time(state),
+                                }
+                            )
+                    except Exception as error:
+                        for session in imported_sessions.values():
+                            session.reject_pending_execution(
+                                f"{type(error).__name__}: {error}"
+                            )
+                        raise
+                    for session in imported_sessions.values():
+                        session.confirm_pending_execution(decision)
                     state = _advance_to_input(bridge, state)
                     last_state = dict(state)
                     decision_index += 1
+                terminal_actions: tuple[AvailableAction, ...] = ()
+                if self._terminal_telemetry_action_refs:
+                    telemetry, terminal_actions = _terminal_telemetry_receipt_v1(
+                        bridge,
+                        state,
+                        self._terminal_telemetry_action_refs,
+                    )
+                    receipts.append(telemetry)
                 return ScheduleReplayOutcomeV1(
                     seed=seed,
                     status=ReplayStatusV1.COMPLETE,
                     state=state,
+                    available_actions=terminal_actions,
                     receipts=tuple(receipts),
                 )
         except Exception as error:

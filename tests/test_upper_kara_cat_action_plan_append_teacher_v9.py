@@ -132,6 +132,12 @@ def _slam_alternative(point):
     )
 
 
+def _execute(session, observation):
+    decision = session(observation, _available())
+    session.record_last_executed_decision_v1(decision)
+    return decision
+
+
 def test_append_point_exists_only_after_parent_step_executed_in_prior_epoch() -> None:
     policy = _policy()
     session = ParentAppendBranchSessionV9(
@@ -139,8 +145,8 @@ def test_append_point_exists_only_after_parent_step_executed_in_prior_epoch() ->
         DevelopmentTwoWaveCatResidualSequenceSessionV1(policy, _EagerCat()),
     )
 
-    first = session(_observation(0), _available())
-    second = session(_observation(100), _available())
+    first = _execute(session, _observation(0))
+    second = _execute(session, _observation(100))
 
     assert first.gcd_action == WHIRLWIND
     assert second.gcd_action == BLOODTHIRST
@@ -164,8 +170,8 @@ def test_single_append_replacement_continues_same_parent_and_cat_session() -> No
         policy,
         DevelopmentTwoWaveCatResidualSequenceSessionV1(policy, _EagerCat()),
     )
-    probe(_observation(0), _available())
-    probe(_observation(100), _available())
+    _execute(probe, _observation(0))
+    _execute(probe, _observation(100))
     replacement = _slam_alternative(probe.points[1])
 
     cat = _EagerCat()
@@ -175,14 +181,14 @@ def test_single_append_replacement_continues_same_parent_and_cat_session() -> No
         parent,
         AppendActionPlanBranchV9(1, replacement),
     )
-    assert branch(_observation(0), _available()).gcd_action == WHIRLWIND
-    assert branch(_observation(100), _available()).gcd_action == TURTLE_SLAM
+    assert _execute(branch, _observation(0)).gcd_action == WHIRLWIND
+    assert _execute(branch, _observation(100)).gcd_action == TURTLE_SLAM
     assert len(branch.interventions) == 1
     assert branch.interventions[0]["required_parent_wave_step_keys"] == [
         ["wave-1", "existing-ww"]
     ]
 
-    branch(_observation(200), _available())
+    _execute(branch, _observation(200))
     assert cat.seen == [
         "warrior.execute",
         "warrior.whirlwind",
@@ -197,8 +203,8 @@ def test_branch_at_parent_execution_epoch_is_rejected_as_not_append_only() -> No
         policy,
         DevelopmentTwoWaveCatResidualSequenceSessionV1(policy, _EagerCat()),
     )
-    probe(_observation(0), _available())
-    probe(_observation(100), _available())
+    _execute(probe, _observation(0))
+    _execute(probe, _observation(100))
     replacement = _slam_alternative(probe.points[1])
     branch = ParentAppendBranchSessionV9(
         policy,
@@ -220,7 +226,7 @@ def test_selection_uses_only_append_ready_states_and_not_rewards() -> None:
         DevelopmentTwoWaveCatResidualSequenceSessionV1(policy, _EagerCat()),
     )
     for time_ms in (0, 100, 200):
-        session(_observation(time_ms), _available())
+        _execute(session, _observation(time_ms))
 
     selected = select_parent_append_points_v9(session.points, max_states=2)
 
@@ -234,8 +240,8 @@ def test_prefix_row_rejects_future_control_fields() -> None:
         policy,
         DevelopmentTwoWaveCatResidualSequenceSessionV1(policy, _EagerCat()),
     )
-    session(_observation(0), _available())
-    session(_observation(100, future_field=True), _available())
+    _execute(session, _observation(0))
+    _execute(session, _observation(100, future_field=True))
 
     with pytest.raises(
         RuntimeError,
