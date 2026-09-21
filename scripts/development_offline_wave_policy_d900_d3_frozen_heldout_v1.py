@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 import sys
 from time import perf_counter
-from typing import Any
+from typing import Any, Callable, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -138,7 +138,11 @@ def _require_equal(label: str, current: object, frozen: object) -> None:
         )
 
 
-def run(args: argparse.Namespace) -> dict[str, Any]:
+def run(
+    args: argparse.Namespace,
+    *,
+    runtime_row_enricher: Callable[..., Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
     source = json.loads(args.frozen_d3_result.read_text(encoding="utf-8"))
     expansion_pairs = _seed_pairs(args.heldout_seed, args.heldout_seed_count)
     contract = build_frozen_heldout_expansion_contract_v1(
@@ -384,7 +388,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             domain_fallback_calls=fallback_calls,
             failure_reason=failure_reason,
         )
-        return {
+        runtime_row = {
             **contract_row,
             "source_policy_id": controller.binding.source_policy_id,
             "terminal_resource": raw["terminal_resource"],
@@ -397,6 +401,25 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "runtime_audit": _compact_audit(session),
             "searched_action_attribution": searched_action_attribution,
         }
+        if runtime_row_enricher is not None:
+            enrichment = runtime_row_enricher(
+                outcome=outcome,
+                raw_summary=raw,
+                controller_id=controller.controller_id,
+                simulator_seed=simulator_seed,
+                teammate_seed=teammate_seed,
+                domain_fallback_calls=fallback_calls,
+            )
+            if not isinstance(enrichment, Mapping):
+                raise TypeError("runtime_row_enricher must return a mapping")
+            overlap = sorted(set(runtime_row) & set(enrichment))
+            if overlap:
+                raise RuntimeError(
+                    "runtime row enrichment overlaps existing fields: "
+                    + ", ".join(overlap)
+                )
+            runtime_row.update(dict(enrichment))
+        return runtime_row
 
     jobs = [
         (controller, simulator_seed, teammate_seed)
@@ -461,8 +484,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def build_argument_parser_v1(
+    *, description: str | None = None
+) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=description or __doc__)
     for name in (
         "metadata",
         "stage5",
@@ -495,6 +520,11 @@ def main() -> int:
         choices=ATTACKABILITY_MODES,
         default=OBSERVED_ONSET_UNTIL_SIM_DEATH,
     )
+    return parser
+
+
+def main() -> int:
+    parser = build_argument_parser_v1()
     args = parser.parse_args()
     if not 1 <= args.heldout_seed_count <= 64:
         parser.error("heldout-seed-count must be in 1..64")
