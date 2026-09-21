@@ -114,7 +114,7 @@ def test_selection_argv_loads_frozen_panel_but_not_confirmation_receipt():
     assert argv[argv.index("--frozen-d3-result") + 1] == FROZEN_REMOTE
     assert argv[argv.index("--heldout-seed") + 1] == str(spec.first_seed)
     assert argv[argv.index("--heldout-seed-count") + 1] == "1"
-    assert argv[argv.index("--lane-workers") + 1] == "64"
+    assert argv[argv.index("--lane-workers") + 1] == "48"
     assert argv[argv.index("--implementation-revision") + 1] == (
         IMPLEMENTATION_REVISION
     )
@@ -194,6 +194,18 @@ def test_plan_receipt_freezes_panel_workers_and_cohort_boundary():
     assert receipt["phase_plans"]["confirmation"]["jobs_by_node"] == {
         node: 8 for node in NODES
     }
+    assert receipt["phase_plans"]["selection"][
+        "lane_workers_per_process"
+    ] == 48
+    assert receipt["phase_plans"]["selection"][
+        "maximum_candidate_lanes_per_node"
+    ] == 96
+    assert receipt["phase_plans"]["confirmation"][
+        "lane_workers_per_process"
+    ] == 7
+    assert receipt["phase_plans"]["confirmation"][
+        "maximum_candidate_lanes_per_node"
+    ] == 56
 
 
 def _shard(plan, spec):
@@ -272,6 +284,20 @@ def test_merge_surface_rejects_stale_candidate_panel_digest():
         )
 
 
+def test_merge_surface_rejects_stale_parallel_lane_worker_count():
+    specs = build_seed_job_specs_v1(SELECTION_PLAN)
+    results = {spec.job_id: _shard(SELECTION_PLAN, spec) for spec in specs}
+    target = specs[0]
+    results[target.job_id]["parallel_lane_workers"] = 64
+    with pytest.raises(ValueError, match="stale shard identity"):
+        _validated_rows_v1(
+            SELECTION_PLAN,
+            specs,
+            results,
+            expected_identities=_expected_identities(SELECTION_PLAN, specs),
+        )
+
+
 def test_merge_surface_rejects_duplicate_bulky_runtime_trace():
     specs = build_seed_job_specs_v1(SELECTION_PLAN)
     results = {spec.job_id: _shard(SELECTION_PLAN, spec) for spec in specs}
@@ -326,7 +352,7 @@ def test_resume_preflight_accepts_only_matching_compact_identity():
     _resume_preflight_v1(scheduler, SELECTION_PLAN, (spec,), expected)
 
     stale = deepcopy(expected[spec.job_id])
-    stale["candidate_panel_sha256"] = "stale"
+    stale["parallel_lane_workers"] = 64
     scheduler = _FakeScheduler(
         (0, json.dumps({"path": path, "identity": stale}) + "\n", "")
     )

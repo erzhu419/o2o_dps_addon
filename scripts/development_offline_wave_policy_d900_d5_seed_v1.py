@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import closing
 from dataclasses import dataclass, replace
 import json
+import multiprocessing
 from pathlib import Path
 import sys
 from time import perf_counter
@@ -126,7 +127,7 @@ from scripts.development_responsive_upper_kara_trash_smoke_v1 import (
 
 JSONMap = dict[str, Any]
 OUTPUT_SCHEMA = "development_offline_wave_policy_d900_d5_seed/v1"
-IMPLEMENTATION_REVISION = "d900-d5-one-seed-shard-v2"
+IMPLEMENTATION_REVISION = "d900-d5-one-seed-shard-v3"
 @dataclass(frozen=True)
 class _ControllerV1:
     controller_id: str
@@ -147,6 +148,18 @@ class _EnvironmentV1:
     evaluation_build_ref: str
     target_rule_id: str
     baseline_controllers: Mapping[str, _ControllerV1]
+
+
+@dataclass(frozen=True)
+class _ForkReplayContextV1:
+    args: argparse.Namespace
+    environment: _EnvironmentV1
+    controllers: tuple[_ControllerV1, ...]
+    simulator_seed: int
+    teammate_seed: int
+
+
+_FORK_REPLAY_CONTEXT_V1: _ForkReplayContextV1 | None = None
 
 
 def _seed_pairs(start: int, count: int) -> tuple[tuple[int, int], ...]:
@@ -590,6 +603,54 @@ def _replay_controller_v1(
     }
 
 
+def _replay_controller_index_v1(index: int) -> JSONMap:
+    context = _FORK_REPLAY_CONTEXT_V1
+    if context is None:
+        raise RuntimeError("fork replay context is not initialized")
+    controller = context.controllers[index]
+    return _replay_controller_v1(
+        args=context.args,
+        environment=context.environment,
+        controller=controller,
+        simulator_seed=context.simulator_seed,
+        teammate_seed=context.teammate_seed,
+    )
+
+
+def _run_replays_in_fork_pool_v1(
+    *,
+    args: argparse.Namespace,
+    environment: _EnvironmentV1,
+    controllers: tuple[_ControllerV1, ...],
+    simulator_seed: int,
+    teammate_seed: int,
+    workers: int,
+) -> list[JSONMap]:
+    global _FORK_REPLAY_CONTEXT_V1
+    if _FORK_REPLAY_CONTEXT_V1 is not None:
+        raise RuntimeError("fork replay context is already initialized")
+    _FORK_REPLAY_CONTEXT_V1 = _ForkReplayContextV1(
+        args=args,
+        environment=environment,
+        controllers=controllers,
+        simulator_seed=simulator_seed,
+        teammate_seed=teammate_seed,
+    )
+    try:
+        fork_context = multiprocessing.get_context("fork")
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=fork_context,
+        ) as pool:
+            futures = [
+                pool.submit(_replay_controller_index_v1, index)
+                for index in range(len(controllers))
+            ]
+            return [future.result() for future in as_completed(futures)]
+    finally:
+        _FORK_REPLAY_CONTEXT_V1 = None
+
+
 def run(args: argparse.Namespace) -> JSONMap:
     if args.heldout_seed_count != 1:
         raise ValueError("D5 shards require exactly one paired seed")
@@ -679,21 +740,14 @@ def run(args: argparse.Namespace) -> JSONMap:
             raise RuntimeError("D5 confirmation controller panel drifted")
 
     workers = min(args.lane_workers, len(controllers))
-    jobs: list[JSONMap] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [
-            pool.submit(
-                _replay_controller_v1,
-                args=args,
-                environment=environment,
-                controller=controller,
-                simulator_seed=executed_pair[0],
-                teammate_seed=executed_pair[1],
-            )
-            for controller in controllers
-        ]
-        for future in as_completed(futures):
-            jobs.append(future.result())
+    jobs = _run_replays_in_fork_pool_v1(
+        args=args,
+        environment=environment,
+        controllers=controllers,
+        simulator_seed=executed_pair[0],
+        teammate_seed=executed_pair[1],
+        workers=workers,
+    )
     jobs.sort(
         key=lambda row: (
             str(row["runtime_summary"]["controller_id"]),

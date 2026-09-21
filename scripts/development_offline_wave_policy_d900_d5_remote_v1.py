@@ -2,7 +2,7 @@
 
 Candidate programs are materialized once on the coordinating host.  Every
 remote process evaluates exactly one paired seed.  Selection shards evaluate
-the same 256-program manifest with at most 64 concurrent lanes; confirmation
+the same 256-program manifest with at most 48 concurrent lanes; confirmation
 shards evaluate only the frozen winner and its six registered comparators.
 """
 
@@ -39,7 +39,7 @@ from scripts.development_offline_wave_policy_d900_d3_frozen_heldout_remote_v1 im
 
 JSONMap = dict[str, Any]
 SCHEMA = "development_offline_wave_policy_d900_d5_multinode/v1"
-IMPLEMENTATION_REVISION = "d900-d5-one-seed-shard-v2"
+IMPLEMENTATION_REVISION = "d900-d5-one-seed-shard-v3"
 SEED_OUTPUT_SCHEMA = "development_offline_wave_policy_d900_d5_seed/v1"
 PLAN_SCHEMA = f"{SCHEMA}/plan"
 CANDIDATE_PANEL_SCHEMA = f"{SCHEMA}/candidate_panel"
@@ -48,7 +48,7 @@ FIXED_HORIZON_MS = 15_531
 SEARCHED_CANDIDATE_BUDGET = 254
 EXPECTED_SELECTION_LANES = 256
 EXPECTED_CONFIRMATION_LANES = 7
-MAX_CANDIDATE_WORKERS = 64
+MAX_CANDIDATE_WORKERS = 48
 SELECTION_PROCESSES_PER_NODE = 2
 SEED_PARTNER_OFFSET = 100_000
 MAX_DECISIONS = 300
@@ -281,6 +281,7 @@ def _expected_shard_identity_v1(
         "selection_receipt_sha256": selection_receipt_sha256,
         "candidate_panel_size": EXPECTED_SELECTION_LANES,
         "fixed_horizon_ms": FIXED_HORIZON_MS,
+        "parallel_lane_workers": min(spec.lane_workers, plan.lane_count),
     }
     for field in _ENVIRONMENT_IDENTITY_FIELDS:
         value = d4_source.get(field)
