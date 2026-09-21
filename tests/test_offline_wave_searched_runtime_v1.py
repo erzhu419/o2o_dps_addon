@@ -20,6 +20,7 @@ from o2o_dps.offline_wave_searched_program_v1 import (
 )
 from o2o_dps.offline_wave_searched_runtime_v1 import (
     SearchedWaveProgramSessionV1,
+    SearchedWaveRuntimeV1Error,
     build_searched_wave_program_runtime_v1,
 )
 from o2o_dps.policy_observation_causal_projection_v1 import (
@@ -244,6 +245,50 @@ def test_step_commits_only_after_exact_accepted_action() -> None:
     retry = session(_observation(1), _available(BLOODTHIRST))
     session.record_last_execution_receipt_v1(retry, _gcd_receipt(BLOODTHIRST))
     assert session.committed_step_ids == ("bt",)
+
+
+def test_runtime_audit_joins_proposal_ordinal_to_bridge_decision_index() -> None:
+    searched = _program(
+        _action_step("bt", BLOODTHIRST, "warrior.bloodthirst", at_ms=0)
+    )
+    session = SearchedWaveProgramSessionV1(searched, _binding())
+    decision = session(_observation(0), _available(BLOODTHIRST))
+    session.record_last_execution_receipt_v1(
+        decision,
+        (
+            {
+                **_gcd_receipt(BLOODTHIRST)[0],
+                "decision_index": 0,
+            },
+        ),
+    )
+
+    selected, confirmed = session.audit_events
+    assert selected["proposal_index"] == 0
+    assert confirmed["proposal_index"] == 0
+    assert confirmed["execution_decision_index"] == 0
+
+
+def test_runtime_rejects_bridge_decision_index_different_from_proposal_ordinal() -> None:
+    searched = _program(
+        _action_step("bt", BLOODTHIRST, "warrior.bloodthirst", at_ms=0)
+    )
+    session = SearchedWaveProgramSessionV1(searched, _binding())
+    decision = session(_observation(0), _available(BLOODTHIRST))
+
+    with pytest.raises(
+        SearchedWaveRuntimeV1Error,
+        match="differs from bridge decision_index",
+    ):
+        session.record_last_execution_receipt_v1(
+            decision,
+            (
+                {
+                    **_gcd_receipt(BLOODTHIRST)[0],
+                    "decision_index": 9,
+                },
+            ),
+        )
 
 
 def test_dead_explicit_target_is_skipped_without_silent_retarget() -> None:

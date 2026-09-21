@@ -59,6 +59,7 @@ class SearchedWaveRuntimeV1Error(RuntimeError):
 @dataclass(frozen=True)
 class _PendingExecutionV1:
     decision: ProgramDecisionV1
+    proposal_index: int
     step_id: str | None
     expected_action: ActionRef | None
     expected_lane: str | None
@@ -134,6 +135,7 @@ class SearchedWaveProgramSessionV1:
         self._pending: _PendingExecutionV1 | None = None
         self._audit: list[JSONMap] = []
         self._domain_fallback_calls = 0
+        self._proposal_count = 0
 
     @property
     def committed_step_ids(self) -> tuple[str, ...]:
@@ -173,6 +175,11 @@ class SearchedWaveProgramSessionV1:
             }
         )
 
+    def _next_proposal_index(self) -> int:
+        proposal_index = self._proposal_count
+        self._proposal_count += 1
+        return proposal_index
+
     def record_last_executed_decision_v1(
         self, actual_decision: ProgramDecisionV1
     ) -> None:
@@ -195,10 +202,35 @@ class SearchedWaveProgramSessionV1:
                 "execution feedback has no pending searched-wave proposal"
             )
         self._pending = None
+        execution_decision_indexes = {
+            row.get("decision_index")
+            for row in execution_receipts
+            if isinstance(row, Mapping)
+            and isinstance(row.get("decision_index"), int)
+            and not isinstance(row.get("decision_index"), bool)
+        }
+        if len(execution_decision_indexes) > 1:
+            raise SearchedWaveRuntimeV1Error(
+                "one searched proposal received receipts from multiple decisions"
+            )
+        execution_decision_index = (
+            next(iter(execution_decision_indexes))
+            if execution_decision_indexes
+            else None
+        )
+        if (
+            execution_decision_index is not None
+            and execution_decision_index != pending.proposal_index
+        ):
+            raise SearchedWaveRuntimeV1Error(
+                "searched proposal ordinal differs from bridge decision_index"
+            )
         if actual_decision != pending.decision:
             self._audit.append(
                 {
                     "kind": "SEARCHED_PROPOSAL_REPLACED_BEFORE_EXECUTION",
+                    "proposal_index": pending.proposal_index,
+                    "execution_decision_index": execution_decision_index,
                     "step_id": pending.step_id,
                     "proposal_kind": pending.kind,
                 }
@@ -263,6 +295,8 @@ class SearchedWaveProgramSessionV1:
             self._audit.append(
                 {
                     "kind": "SEARCHED_PROPOSAL_ACTION_NOT_EXECUTED",
+                    "proposal_index": pending.proposal_index,
+                    "execution_decision_index": execution_decision_index,
                     "step_id": pending.step_id,
                     "proposal_kind": pending.kind,
                     "expected_action": (
@@ -283,6 +317,8 @@ class SearchedWaveProgramSessionV1:
         self._audit.append(
             {
                 "kind": "SEARCHED_PROPOSAL_EXECUTION_CONFIRMED",
+                "proposal_index": pending.proposal_index,
+                "execution_decision_index": execution_decision_index,
                 "step_id": pending.step_id,
                 "proposal_kind": pending.kind,
                 "resource_ids": executed_resources,
@@ -301,6 +337,7 @@ class SearchedWaveProgramSessionV1:
         self._audit.append(
             {
                 "kind": "SEARCHED_PROPOSAL_EXECUTION_REJECTED",
+                "proposal_index": pending.proposal_index,
                 "step_id": pending.step_id,
                 "proposal_kind": pending.kind,
                 "reason": reason.strip(),
@@ -410,8 +447,10 @@ class SearchedWaveProgramSessionV1:
             start_attack=True,
             wait_ms=delay,
         )
+        proposal_index = self._next_proposal_index()
         self._pending = _PendingExecutionV1(
             decision=decision,
+            proposal_index=proposal_index,
             step_id=step_id,
             expected_action=None,
             expected_lane=None,
@@ -424,6 +463,7 @@ class SearchedWaveProgramSessionV1:
             reason=reason,
             wait_ms=delay,
             step_id=step_id,
+            proposal_index=proposal_index,
         )
         return decision
 
@@ -583,8 +623,10 @@ class SearchedWaveProgramSessionV1:
             if queue_ref is not None
             else None
         )
+        proposal_index = self._next_proposal_index()
         self._pending = _PendingExecutionV1(
             decision=decision,
+            proposal_index=proposal_index,
             step_id=None,
             expected_action=expected_action,
             expected_lane=expected_lane,
@@ -599,6 +641,7 @@ class SearchedWaveProgramSessionV1:
             queue_action=queue_key if queue_ref is not None else None,
             off_gcd_action=off_key if off_ref is not None else None,
             target_index=target,
+            proposal_index=proposal_index,
         )
         return decision
 
@@ -797,8 +840,10 @@ class SearchedWaveProgramSessionV1:
                 target_index=target,
             )
             resource = _resource_id(step.action_key, step.action_ref)
+            proposal_index = self._next_proposal_index()
             self._pending = _PendingExecutionV1(
                 decision=decision,
+                proposal_index=proposal_index,
                 step_id=step.step_id,
                 expected_action=step.action_ref,
                 expected_lane=step.lane,
@@ -816,6 +861,7 @@ class SearchedWaveProgramSessionV1:
                 window_start_ms=step.at_or_after_ms,
                 window_deadline_ms=deadline,
                 target_index=target,
+                proposal_index=proposal_index,
             )
             return decision
 
