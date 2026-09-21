@@ -1,0 +1,87 @@
+diff --git a/sim/o2o/armor_phase5_test.go b/sim/o2o/armor_phase5_test.go
+--- a/sim/o2o/armor_phase5_test.go
++++ b/sim/o2o/armor_phase5_test.go
+@@ -60,3 +60,64 @@ func TestTurtleSunderMatchesPhase5ArmorStrata(t *testing.T) {
+ 		t.Fatalf("Sunder Armor duration = %s, want 30s", aura.Duration)
+ 	}
+ }
++
++func TestDynamicSemanticsReportsCombatEffectiveArmorFloorForSunder(t *testing.T) {
++	request := turtleSlamRequest()
++	request.Encounter.Targets[0].Stats[stats.Armor] = 1721
++	request.Encounter.Targets[0].Stats[stats.Health] = 1_000_000
++	request.Encounter.UseHealth = true
++	request.Encounter.Duration = 30
++	config := boundDynamicV3Config(
++		t,
++		DynamicRetargetNextAliveCyclic,
++		30_000,
++		[]float64{request.Encounter.Targets[0].Stats[stats.Health]},
++		nil,
++		nil,
++		nil,
++	)
++	env, _, err := NewDynamicV3(request, 9191, config, 1)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(env.Cleanup)
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++
++	spell, action := requireSpellAction(t, env, 0, 11597)
++	character := env.player().GetCharacter()
++	target := character.CurrentTarget
++	attackTable := character.AttackTables[target.UnitIndex][spell.CastType]
++	character.PseudoStats.InFrontOfTarget = false
++	attackTable.BaseMissChance = 0
++	attackTable.BaseDodgeChance = 0
++	attackTable.BaseParryChance = 0
++
++	for stacks := 1; stacks <= 5; stacks++ {
++		result, err := env.Apply(action)
++		if err != nil || !result.Casted {
++			t.Fatalf("Sunder Armor stack %d failed: result=%+v error=%v", stacks, result, err)
++		}
++		state := env.State()
++		want := math.Max(1721-450*float64(stacks), 0)
++		if state.TargetArmor != want || state.DynamicTargetSemantics == nil ||
++			state.DynamicTargetSemantics.Targets[0].EffectiveArmor != want {
++			t.Fatalf(
++				"Sunder stack %d effective armor mismatch: target=%.0f dynamic=%+v want=%.0f",
++				stacks,
++				state.TargetArmor,
++				state.DynamicTargetSemantics,
++				want,
++			)
++		}
++		if stacks == 4 && target.GetStat(stats.Armor) >= 0 {
++			t.Fatalf("four stacks did not exercise the negative raw-stat path")
++		}
++		if stacks < 5 {
++			if _, err := env.AdvanceUntilDecision(); err != nil {
++				t.Fatal(err)
++			}
++		}
++	}
++}
+diff --git a/sim/o2o/dynamic_target_semantics_v2.go b/sim/o2o/dynamic_target_semantics_v2.go
+--- a/sim/o2o/dynamic_target_semantics_v2.go
++++ b/sim/o2o/dynamic_target_semantics_v2.go
+@@ -650,8 +650,12 @@ func (env *Environment) dynamicTargetSemanticsStateV2() *DynamicTargetSemanticsS
+ 		}
+ 		targets[index] = DynamicTargetSemanticsTargetStateV2{
+-			TargetIndex:    snapshot.TargetIndex,
+-			Attackable:     env.sim.Encounter.DynamicTargetUnitIsAttackable(target),
+-			EffectiveArmor: target.GetStat(stats.Armor),
++			TargetIndex: snapshot.TargetIndex,
++			Attackable:  env.sim.Encounter.DynamicTargetUnitIsAttackable(target),
++			// Unit.Armor is the combat-effective value and applies the same
++			// zero floor used by physical damage. Raw armor stats may go below
++			// zero when a capped armor debuff exceeds a low-armor target, but
++			// that implementation detail is not effective armor.
++			EffectiveArmor: target.Armor(),
+ 			MaximumHealth:  maximumHealth,
+ 			CurrentHealth:  snapshot.CurrentHealth,
+ 			Dead:           snapshot.Dead,

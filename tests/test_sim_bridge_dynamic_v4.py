@@ -297,6 +297,31 @@ class SimulatorBridgeDynamicV4Tests(unittest.TestCase):
                 wrong_time, generation=1, config=config
             )
 
+    def test_ready_teammate_wake_may_pause_active_idle_advance(self) -> None:
+        config = config_v4()
+        state = bound_state_v4(config, wake_ready=True)
+        state["num_targets"] = 0
+        state["dynamic_target_semantics"]["targets"][0]["attackable"] = False
+        state["dynamic_idle_advance"].update({
+            "active": True,
+            "active_start_time_ms": 90,
+            "planned_wake_time_ms": config.idle_advance_horizon_ms,
+            "planned_wake_source": "SCENARIO_HORIZON",
+        })
+        parsed = _validate_dynamic_state_binding_v4(
+            state, generation=1, config=config
+        )
+        self.assertTrue(parsed.idle_advance.active)
+        self.assertIsNotNone(parsed.wake_ready)
+
+        del state["wake_ready"]
+        with self.assertRaisesRegex(
+            SimBridgeProtocolError, "active_wake.*wake_ready=False"
+        ):
+            _validate_dynamic_state_binding_v4(
+                state, generation=1, config=config
+            )
+
     def test_terminal_background_noop_has_no_damage_ordinal(self) -> None:
         config = DynamicTargetSemanticsConfigV4(
             target_health=(DynamicTargetHealthV4(0, 100.0, 20.0),),

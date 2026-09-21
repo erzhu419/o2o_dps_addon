@@ -62,10 +62,10 @@ STAGE5_SHA = hashlib.sha256(b"stage5-source").hexdigest()
 COMPONENT = "held-out-component"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SIMULATOR_ROOT = PROJECT_ROOT.parent / "wowsims-turtle"
-V13D_BRIDGE = (
+V26_BRIDGE = (
     PROJECT_ROOT
     / "bin"
-    / "o2obridge.seedfix-v14.dynamicv4responsive.withdb.goamd64v1.windows-amd64.exe"
+    / "o2obridge.seedfix-v26.observed-damage-v2.withdb.goamd64v1.windows-amd64.exe"
 )
 
 
@@ -179,7 +179,10 @@ class _DynamicV4ContractBridge:
             event = payload["responsive"]
             if self.armed is None or event["wake_id"] != self.armed["wake_id"]:
                 raise AssertionError("event is not bound to the armed wake")
+            observed = float(event["observed_damage"])
             requested = float(event["requested_damage"])
+            if observed != requested:
+                raise AssertionError("targeted test event must preserve observed damage")
             applied = min(requested, self.health)
             self.health -= applied
             self.damage_ordinal += 1
@@ -192,6 +195,7 @@ class _DynamicV4ContractBridge:
                 "actor_guid": event["actor_guid"],
                 "event_type": event["event_type"],
                 "target_index": event["target_index"],
+                "observed_damage": observed,
                 "requested_damage": requested,
                 "applied_damage": applied,
                 "overkill_damage": requested - applied,
@@ -239,12 +243,14 @@ def _selected_model(
         ["DMG", 23881, "DIRECT_FRIENDLY_PLAYER"], separators=(",", ":")
     )
     context = ("GLOBAL",)
-    model.delay_counts[context][1] = 1
-    model.mark_counts[context][token] = 1
-    model.target_counts[(context, token)]["STAY_ALIVE"] = 1
-    model.damage_counts[(context, token)][4] = 1
+    model.delay_counts[("GLOBAL", "WAVE_START")][1] = 1
+    model.delay_counts[("GLOBAL", "PREVIOUS_ACTOR_EVENT")][1] = 1
+    model.mark_counts[context][token] = 2
+    model.target_counts[(context, token)]["STAY_ALIVE"] = 2
+    model.damage_counts[(context, token)][4] = 2
+    model.target_damage_joint_counts[(context, token)][("STAY_ALIVE", 4)] = 2
     model.spell_name_counts[token]["Bloodthirst"] = 1
-    model.row_count = 1
+    model.row_count = 2
     serialized = hpc_v1.serialize_model_v1(model)
     model_sha = hpc_v1._canonical_sha256(serialized)
     model.model_content_sha256 = model_sha
@@ -282,10 +288,12 @@ def _runtime() -> response_v1.DynamicTeamRuntimeV1:
     return runtime
 
 
-def _config(*, current_health: float = 5.0) -> DynamicTargetSemanticsConfigV4:
+def _config(
+    *, current_health: float = 5.0, horizon_ms: int = 1_000
+) -> DynamicTargetSemanticsConfigV4:
     return DynamicTargetSemanticsConfigV4(
         target_health=(DynamicTargetHealthV4(0, 20.0, current_health),),
-        idle_advance_horizon_ms=1_000,
+        idle_advance_horizon_ms=horizon_ms,
     )
 
 
@@ -339,7 +347,7 @@ def _real_request(maximum_health: float) -> dict:
     request["encounter"]["durationVariation"] = 0
     request["encounter"]["useHealth"] = True
     target = deepcopy(request["encounter"]["targets"][0])
-    target["name"] = "Responsive worker v14 smoke target"
+    target["name"] = "Responsive worker v26 smoke target"
     target["swingSpeed"] = 0
     target["minBaseDamage"] = 0
     target["damageSpread"] = 0
@@ -355,12 +363,16 @@ def _real_request(maximum_health: float) -> dict:
 
 class ResponsiveTeamSourceBoundRolloutWorkerV1Tests(unittest.TestCase):
     def _worker_kwargs(
-        self, directory: str, *, variant: str = response_v1.ABLATION_D
+        self,
+        directory: str,
+        *,
+        variant: str = response_v1.ABLATION_D,
+        horizon_ms: int = 1_000,
     ):
         selected = _selected_model(variant)
         store_path = Path(directory) / "selected.sqlite3"
         build_responsive_team_runtime_store_v1(store_path, selected)
-        config = _config()
+        config = _config(horizon_ms=horizon_ms)
         introductions, health = _registries()
         runtime = _runtime()
         return {
@@ -425,6 +437,23 @@ class ResponsiveTeamSourceBoundRolloutWorkerV1Tests(unittest.TestCase):
             self.assertEqual({"APPLIED": 1}, drive["responsive_status_counts"])
             self.assertFalse(result["comparison_authorized"])
             self.assertFalse(result["training_authorized"])
+
+    def test_worker_passes_exclusive_horizon_and_accepts_no_initial_wake(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            values = self._worker_kwargs(temporary, horizon_ms=1)
+            config = values.pop("config")
+            worker = ResponsiveTeamSourceBoundRolloutWorkerV1(**values)
+            with worker as driven:
+                loaded = driven.load_dynamic_v4({}, 7, config)
+                self.assertIsNone(loaded.state["wake_ready"])
+                self.assertIsNone(driven.initial_wake)
+                self.assertIsNone(driven._bridge.armed)
+                evidence = driven.evidence()
+                self.assertEqual(1, evidence["wake_horizon_exclusive_ms"])
+                discarded = evidence["discarded_deadlines_at_or_after_horizon"]
+                self.assertEqual(1, len(discarded))
+                self.assertGreaterEqual(discarded[0]["time_ms"], 1)
+                self.assertFalse(discarded[0]["go_arm_dynamic_team_wake_called"])
 
     def test_context_closes_sqlite_when_rollout_raises(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -646,10 +675,10 @@ class ResponsiveTeamSourceBoundRolloutWorkerV1Tests(unittest.TestCase):
                 )
 
     @unittest.skipUnless(
-        os.name == "nt" and V13D_BRIDGE.is_file(),
-        "responsive Windows v14 bridge is unavailable",
+        os.name == "nt" and V26_BRIDGE.is_file(),
+        "responsive Windows v26 bridge is unavailable",
     )
-    def test_real_v14_store_adapter_worker_emits_one_responsive_event(self) -> None:
+    def test_real_v26_store_adapter_worker_emits_one_responsive_event(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             selected = _selected_model()
             store_path = Path(temporary) / "selected.sqlite3"
@@ -676,7 +705,7 @@ class ResponsiveTeamSourceBoundRolloutWorkerV1Tests(unittest.TestCase):
                 target_health_by_guid={TARGET: current},
             )
             runtime.actors[TEAMMATE].current_target_guid = TARGET
-            bridge = SimulatorBridgeDynamicV4(V13D_BRIDGE, cwd=SIMULATOR_ROOT)
+            bridge = SimulatorBridgeDynamicV4(V26_BRIDGE, cwd=SIMULATOR_ROOT)
             try:
                 worker = ResponsiveTeamSourceBoundRolloutWorkerV1(
                     bridge=bridge,
@@ -707,7 +736,7 @@ class ResponsiveTeamSourceBoundRolloutWorkerV1Tests(unittest.TestCase):
                         )
                     ),
                     branch_plan=ResponsiveTeamBranchPlanV1(
-                        pair_id="real-v14-worker-smoke",
+                        pair_id="real-v26-worker-smoke",
                         branch_id="branch-a",
                         candidate_suffix_id="wait-for-first-team-event",
                         prefix_content_sha256=(

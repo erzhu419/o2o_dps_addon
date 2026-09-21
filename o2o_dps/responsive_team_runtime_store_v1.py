@@ -27,6 +27,7 @@ from typing import Any, Mapping
 
 from . import chronicle_external_teammate_response_hpc_v1 as hpc_v1
 from . import chronicle_external_teammate_response_model_v1 as response_v1
+from .development_white6603_runtime_head_v8 import DevelopmentWhite6603CountHeadV8
 from .responsive_team_bridge_adapter_v1 import TeammateModelProvenanceV1
 from .responsive_team_hpc_result_loader_v1 import (
     CurrentSourceDeclarationV1,
@@ -35,14 +36,35 @@ from .responsive_team_hpc_result_loader_v1 import (
 )
 
 
-STORE_SCHEMA = "o2o_responsive_team_runtime_store/v1"
-STORE_REVISION = "sqlite_indexed_selected_model_v1"
+STORE_SCHEMA = "o2o_responsive_team_runtime_store/v2"
+STORE_REVISION = "sqlite_indexed_direct_white6603_target_choice_model_v5"
 _STORE_FORMAT = "SQLITE_NORMALIZED_DISTRIBUTIONS_READ_ONLY"
 _HEADS = tuple(hpc_v1.TABLE_FIELDS)
+_ACTIONABLE_TARGET_MODES = frozenset(
+    {"NO_TARGET", "NON_HOSTILE_OR_UNKNOWN", "STAY_ALIVE", "SWITCH_ALIVE"}
+)
+_DIAGNOSTIC_TARGET_MODES = frozenset(
+    {"DEAD_TARGET_OBSERVED_DIAGNOSTIC", "UNSEEN_HOSTILE_CURRENT_LABEL"}
+)
+_DIRECT_WHITE6603_TOKEN = json.dumps(
+    ["DMG", 6603, "DIRECT_FRIENDLY_PLAYER"], separators=(",", ":")
+)
 
 
 class ResponsiveTeamRuntimeStoreV1Error(RuntimeError):
     """The selected model cannot be stored or sampled under this contract."""
+
+
+@dataclass(frozen=True)
+class _ActionableProjection:
+    mark_support: int
+    actionable_support: int
+    excluded_diagnostic_support: int
+    choices: tuple[tuple[tuple[str, str, int, int], int], ...]
+    white_mark_support: int
+    white_actionable_support: int
+    white_choices: tuple[tuple[tuple[str, str, int, int], int], ...]
+    nonwhite_choices: tuple[tuple[tuple[str, str, int, int], int], ...]
 
 
 def _canonical_text(value: Any) -> str:
@@ -271,6 +293,18 @@ def build_responsive_team_runtime_store_v1(
                 raise ResponsiveTeamRuntimeStoreV1Error(
                     "selected model global mark support differs from row_count"
                 )
+            global_delay_support = sum(
+                sum(counts.values())
+                for context, counts in getattr(model, "delay_counts").items()
+                if context in {
+                    ("GLOBAL", "WAVE_START"),
+                    ("GLOBAL", "PREVIOUS_ACTOR_EVENT"),
+                }
+            )
+            if global_delay_support != row_count:
+                raise ResponsiveTeamRuntimeStoreV1Error(
+                    "selected model lacks delay-origin-specific global support"
+                )
             minimums = dict(
                 _require_mapping(getattr(model, "minimums", None), "model minimums")
             )
@@ -390,6 +424,17 @@ class SqliteResponsiveTeammateModelV1:
             )
         for level, value in self.minimums.items():
             _require_integer(value, f"{level} minimum", minimum=1)
+        self._actionable_projection_cache: dict[
+            tuple[str, ...], _ActionableProjection | None
+        ] = {}
+        self._development_white6603_head_v8: DevelopmentWhite6603CountHeadV8 | None = None
+
+    def use_development_white6603_head_v8(
+        self, head: DevelopmentWhite6603CountHeadV8
+    ) -> None:
+        """Opt in only for a separately identified development rollout."""
+
+        self._development_white6603_head_v8 = head
 
     def close(self) -> None:
         self._connection.close()
@@ -442,7 +487,12 @@ class SqliteResponsiveTeammateModelV1:
         actor: Mapping[str, Any],
         state: Mapping[str, Any],
     ) -> tuple[tuple[str, ...], tuple[int, tuple[tuple[Any, int], ...]]]:
-        for context in response_v1._context_keys(actor, state, self.variant_id):
+        contexts = (
+            response_v1._delay_context_keys(actor, state, self.variant_id)
+            if head == "delay_counts"
+            else response_v1._context_keys(actor, state, self.variant_id)
+        )
+        for context in contexts:
             distribution = self._distribution(head, context)
             if (
                 distribution is not None
@@ -450,7 +500,7 @@ class SqliteResponsiveTeammateModelV1:
             ):
                 return context, distribution
         raise ResponsiveTeamRuntimeStoreV1Error(
-            "runtime store model has no global empirical support"
+            f"runtime store model has no {head} global empirical support"
         )
 
     def _required_distribution(
@@ -482,6 +532,71 @@ class SqliteResponsiveTeammateModelV1:
             "support": distribution[0],
         }
 
+    def sample_target_choice(
+        self,
+        *,
+        actor: Mapping[str, Any],
+        emission_state: Mapping[str, Any],
+        target_mode: str,
+        intent_kind: str,
+        eligible_target_guids: tuple[str, ...] | list[str],
+        current_target_guid: str | None,
+        rng: random.Random,
+    ) -> Mapping[str, Any] | None:
+        if (
+            target_mode not in {"STAY_ALIVE", "SWITCH_ALIVE"}
+            or intent_kind not in {"START", "WHITE6603"}
+        ):
+            return None
+        eligible = set(eligible_target_guids)
+        if target_mode == "SWITCH_ALIVE":
+            eligible.discard(current_target_guid)
+        if len(eligible) < 2:
+            return None
+        target_state = _require_mapping(
+            emission_state.get("target_state"), "target state"
+        )
+        candidates = [
+            _require_mapping(item, "target-choice candidate")
+            for item in target_state.get("target_choice_candidates", ())
+            if item.get("target_guid") in eligible
+        ]
+        if len(candidates) < 2:
+            return None
+        last_intended = emission_state.get("actor_last_target_guid")
+        phase = f"{intent_kind}_{'FIRST_ACQUISITION' if not last_intended else 'RETARGET'}"
+        features = response_v1._target_choice_features(candidates)
+        for context in response_v1._context_keys(
+            actor, emission_state, self.variant_id
+        ):
+            by_guid: dict[str, tuple[int, int]] = {}
+            support = 0
+            seen_features: set[tuple[str, str, str]] = set()
+            for guid, feature in features.items():
+                distribution = self._distribution(
+                    "target_choice_counts", (context, phase, feature)
+                )
+                if distribution is None:
+                    continue
+                counts = {bool(value): count for value, count in distribution[1]}
+                positive, negative = counts.get(True, 0), counts.get(False, 0)
+                by_guid[guid] = positive, negative
+                if feature not in seen_features:
+                    support += positive + negative
+                    seen_features.add(feature)
+            if support >= self.minimums[context[0]] and by_guid:
+                for guid in features:
+                    by_guid.setdefault(guid, (0, 0))
+                return {
+                    "target_guid": response_v1._sample_target_choice_from_counts(
+                        counts=by_guid, rng=rng
+                    ),
+                    "context_level": context[0],
+                    "phase": phase,
+                    "support": support,
+                }
+        return None
+
     def sample_emission(
         self,
         *,
@@ -494,12 +609,22 @@ class SqliteResponsiveTeammateModelV1:
         )
         token = self._weighted_choice(mark_distribution, rng)
         event_type, spell_id, attribution_kind = json.loads(token)
-        target_mode = self._weighted_choice(
-            self._required_distribution("target_counts", (context, token)), rng
+        joint_distribution = self._required_distribution(
+            "target_damage_joint_counts", (context, token)
         )
-        damage_bucket = self._weighted_choice(
-            self._required_distribution("damage_counts", (context, token)), rng
-        )
+        joint_choice = self._weighted_choice(joint_distribution, rng)
+        if (
+            not isinstance(joint_choice, list)
+            or len(joint_choice) != 2
+            or not isinstance(joint_choice[0], str)
+            or isinstance(joint_choice[1], bool)
+            or not isinstance(joint_choice[1], int)
+            or joint_choice[1] < 0
+        ):
+            raise ResponsiveTeamRuntimeStoreV1Error(
+                "runtime store target/damage joint choice is malformed"
+            )
+        target_mode, damage_bucket = joint_choice
         damage = (
             response_v1._sample_damage_bucket(damage_bucket, rng)
             if event_type == "DMG"
@@ -526,10 +651,198 @@ class SqliteResponsiveTeammateModelV1:
             "target_mode": target_mode,
             "sampled_damage": damage,
             "damage_bucket": damage_bucket,
+            "target_damage_joint_support": joint_distribution[0],
             "context_level": context[0],
             "context": list(context),
             "support": mark_distribution[0],
         }
+
+    def _actionable_projection(
+        self, context: tuple[str, ...]
+    ) -> _ActionableProjection | None:
+        if context in self._actionable_projection_cache:
+            return self._actionable_projection_cache[context]
+        mark_distribution = self._distribution("mark_counts", context)
+        if mark_distribution is None:
+            self._actionable_projection_cache[context] = None
+            return None
+        mark_support, marks = mark_distribution
+        choices: list[tuple[tuple[str, str, int, int], int]] = []
+        white_choices: list[tuple[tuple[str, str, int, int], int]] = []
+        nonwhite_choices: list[tuple[tuple[str, str, int, int], int]] = []
+        white_mark_support = 0
+        white_actionable_support = 0
+        actionable_support = 0
+        excluded_support = 0
+        for token, mark_count in marks:
+            is_white = token == _DIRECT_WHITE6603_TOKEN
+            if is_white:
+                white_mark_support += mark_count
+            joint_support, joint_choices = self._required_distribution(
+                "target_damage_joint_counts", (context, token)
+            )
+            if joint_support != mark_count:
+                raise ResponsiveTeamRuntimeStoreV1Error(
+                    "runtime store joint target/damage support differs from mark count"
+                )
+            for joint_choice, count in joint_choices:
+                if (
+                    not isinstance(joint_choice, list)
+                    or len(joint_choice) != 2
+                    or not isinstance(joint_choice[0], str)
+                    or isinstance(joint_choice[1], bool)
+                    or not isinstance(joint_choice[1], int)
+                    or joint_choice[1] < 0
+                ):
+                    raise ResponsiveTeamRuntimeStoreV1Error(
+                        "runtime store target/damage joint choice is malformed"
+                    )
+                target_mode, damage_bucket = joint_choice
+                if target_mode in _ACTIONABLE_TARGET_MODES:
+                    choice = ((token, target_mode, damage_bucket, joint_support), count)
+                    choices.append(choice)
+                    (white_choices if is_white else nonwhite_choices).append(choice)
+                    actionable_support += count
+                    if is_white:
+                        white_actionable_support += count
+                elif target_mode in _DIAGNOSTIC_TARGET_MODES:
+                    excluded_support += count
+                else:
+                    raise ResponsiveTeamRuntimeStoreV1Error(
+                        f"runtime store target mode is unsupported: {target_mode}"
+                    )
+        projection = _ActionableProjection(
+            mark_support=mark_support,
+            actionable_support=actionable_support,
+            excluded_diagnostic_support=excluded_support,
+            choices=tuple(choices),
+            white_mark_support=white_mark_support,
+            white_actionable_support=white_actionable_support,
+            white_choices=tuple(white_choices),
+            nonwhite_choices=tuple(nonwhite_choices),
+        )
+        self._actionable_projection_cache[context] = projection
+        return projection
+
+    def sample_actionable_emission(
+        self,
+        *,
+        actor: Mapping[str, Any],
+        emission_state: Mapping[str, Any],
+        rng: random.Random,
+    ) -> Mapping[str, Any]:
+        """Condition empirical mark/target/damage counts on executable modes.
+
+        A narrower context with no executable support backs off to the next
+        learned context. The read-only model store and ordinary sampling remain
+        unchanged; this is a runtime-only conditional view.
+        """
+
+        selected: tuple[str, ...] | None = None
+        projection: _ActionableProjection | None = None
+        for context in response_v1._context_keys(actor, emission_state, self.variant_id):
+            candidate = self._actionable_projection(context)
+            if (
+                candidate is not None
+                and candidate.mark_support >= self.minimums[context[0]]
+                and candidate.actionable_support > 0
+            ):
+                selected = context
+                projection = candidate
+                break
+        if selected is None or projection is None:
+            raise ResponsiveTeamRuntimeStoreV1Error(
+                "runtime store model has no actionable empirical support"
+            )
+        development_head = self._development_white6603_head_v8
+        development_audit: dict[str, Any] | None = None
+        branch_distribution = (projection.actionable_support, projection.choices)
+        if development_head is not None:
+            prediction = development_head.predict(
+                actor=actor, emission_state=emission_state
+            )
+            if prediction is None:
+                development_audit = {"status": "NO_PREFIX_SUPPORT_V7_BACKOFF"}
+            else:
+                nonwhite_mark_support = projection.mark_support - projection.white_mark_support
+                nonwhite_actionable_support = (
+                    projection.actionable_support - projection.white_actionable_support
+                )
+                white_weight = (
+                    prediction["probability"]
+                    * projection.white_actionable_support
+                    / projection.white_mark_support
+                    if projection.white_mark_support else 0.0
+                )
+                nonwhite_weight = (
+                    (1.0 - prediction["probability"])
+                    * nonwhite_actionable_support
+                    / nonwhite_mark_support
+                    if nonwhite_mark_support else 0.0
+                )
+                actionable_white_probability = white_weight / (white_weight + nonwhite_weight)
+                white_branch = rng.random() < actionable_white_probability
+                branch_support = (
+                    projection.white_actionable_support
+                    if white_branch else nonwhite_actionable_support
+                )
+                branch_choices = (
+                    projection.white_choices if white_branch else projection.nonwhite_choices
+                )
+                branch_distribution = (branch_support, branch_choices)
+                development_audit = {
+                    "status": "PREFIX_HEAD_CONDITIONED_ON_ACTIONABLE",
+                    "head_context": prediction["context"],
+                    "head_support": prediction["support"],
+                    "head_alpha": prediction["alpha"],
+                    "raw_white_probability": prediction["probability"],
+                    "actionable_white_probability": actionable_white_probability,
+                    "sampled_white_branch": white_branch,
+                    "white_actionable_support": projection.white_actionable_support,
+                    "nonwhite_actionable_support": nonwhite_actionable_support,
+                }
+        token, target_mode, damage_bucket, joint_support = self._weighted_choice(
+            branch_distribution, rng
+        )
+        event_type, spell_id, attribution_kind = json.loads(token)
+        damage = (
+            response_v1._sample_damage_bucket(damage_bucket, rng)
+            if event_type == "DMG"
+            else 0
+        )
+        actor_guid = _require_text(actor.get("player_guid"), "actor guid")
+        source_guid = None
+        if "GUID" in self.variant["context_levels"]:
+            source_distribution = self._distribution(
+                "source_guid_counts", (actor_guid, token)
+            )
+            if source_distribution is not None:
+                source_guid = self._weighted_choice(source_distribution, rng)
+        spell_name = self._weighted_choice(
+            self._required_distribution("spell_name_counts", token), rng
+        )
+        result = {
+            "event_type": event_type,
+            "spell_id": spell_id,
+            "spell_name": spell_name,
+            "attribution_kind": attribution_kind,
+            "attributed_player_guid": actor_guid,
+            "exact_source_guid": source_guid,
+            "target_mode": target_mode,
+            "sampled_damage": damage,
+            "damage_bucket": damage_bucket,
+            "target_damage_joint_support": joint_support,
+            "context_level": selected[0],
+            "context": list(selected),
+            "support": projection.mark_support,
+            "runtime_actionability_projection": {
+                "excluded_diagnostic_support": projection.excluded_diagnostic_support,
+                "actionable_support": projection.actionable_support,
+            },
+        }
+        if development_audit is not None:
+            result["development_white6603_head_v8"] = development_audit
+        return result
 
 
 def open_responsive_team_runtime_store_v1(

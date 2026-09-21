@@ -42,6 +42,7 @@ TARGET_HEALTH_REGISTRY_SOURCE_SEMANTICS_V1 = (
 )
 CAUSAL_TEAM_VIEW_SCHEMA_V1 = "o2o_policy_dynamic_team_prefix_view/v1"
 CAUSAL_TARGET_VIEW_SCHEMA_V1 = "o2o_policy_dynamic_target_prefix_view/v1"
+CAUSAL_DAMAGE_RATE_SCHEMA_V1 = "o2o_policy_prefix_damage_rate/v1"
 
 
 class PolicyObservationCausalProjectionV1Error(RuntimeError):
@@ -258,6 +259,7 @@ _PASSTHROUGH_ROOT_FIELDS = frozenset(
     {
         "armor_penetration",
         "auras",
+        "autoattack_active",
         "current_cast",
         "damage_done",
         "equipment_slots",
@@ -272,8 +274,11 @@ _PASSTHROUGH_ROOT_FIELDS = frozenset(
         "needs_input",
         "oh_swing_remaining_ms",
         "power",
+        "precombat",
         "queued_swing",
+        "stance",
         "strength",
+        "swing_queue",
         "target_auras",
         "time_ms",
     }
@@ -389,8 +394,11 @@ _CAT2_POLICY_INPUT_FIELDS = frozenset(
     }
 )
 
-_AVAILABLE_ACTION_FIELDS = frozenset(
+_AVAILABLE_ACTION_REQUIRED_FIELDS = frozenset(
     {"index", "action", "label", "legal", "ready_in_ms", "triggers_gcd"}
+)
+_AVAILABLE_ACTION_FIELDS = _AVAILABLE_ACTION_REQUIRED_FIELDS | frozenset(
+    {"cooldown_duration_ms", "result_bearing"}
 )
 _ACTION_REF_FIELDS = frozenset({"spell_id", "item_id", "other_id", "tag"})
 
@@ -483,8 +491,10 @@ def _project_available_actions(value: Any) -> list[JSONMap]:
         _require_known_fields(
             row, _AVAILABLE_ACTION_FIELDS, f"Cat2 available action {ordinal}"
         )
-        if set(row) != _AVAILABLE_ACTION_FIELDS:
-            missing = ", ".join(sorted(_AVAILABLE_ACTION_FIELDS - set(row)))
+        if not _AVAILABLE_ACTION_REQUIRED_FIELDS.issubset(row):
+            missing = ", ".join(
+                sorted(_AVAILABLE_ACTION_REQUIRED_FIELDS - set(row))
+            )
             raise PolicyObservationCausalProjectionV1Error(
                 f"Cat2 available action {ordinal} lacks fields: {missing}"
             )
@@ -517,7 +527,12 @@ def _project_available_actions(value: Any) -> list[JSONMap]:
             )
         legal = row["legal"]
         triggers_gcd = row["triggers_gcd"]
-        if not isinstance(legal, bool) or not isinstance(triggers_gcd, bool):
+        result_bearing = row.get("result_bearing", False)
+        if (
+            not isinstance(legal, bool)
+            or not isinstance(triggers_gcd, bool)
+            or not isinstance(result_bearing, bool)
+        ):
             raise PolicyObservationCausalProjectionV1Error(
                 f"Cat2 available action {ordinal} flags must be boolean"
             )
@@ -531,7 +546,15 @@ def _project_available_actions(value: Any) -> list[JSONMap]:
                     row["ready_in_ms"],
                     f"Cat2 available action {ordinal} ready_in_ms",
                 ),
+                "cooldown_duration_ms": _integer(
+                    row.get("cooldown_duration_ms", 0),
+                    (
+                        f"Cat2 available action {ordinal} "
+                        "cooldown_duration_ms"
+                    ),
+                ),
                 "triggers_gcd": triggers_gcd,
+                "result_bearing": result_bearing,
             }
         )
     return projected
@@ -808,7 +831,11 @@ def _project_lifecycle_target(
         raise PolicyObservationCausalProjectionV1Error(
             "runtime prefix damage exceeds the observed target health"
         )
-    current_health = max(0.0, current_health)
+    # The bridge may accumulate decimal background damage in a different
+    # floating-point order than this prefix reconstruction.  Treat the same
+    # tolerance already accepted above as exact zero so a killed target cannot
+    # reappear as a live ~1e-11 HP row.
+    current_health = 0.0 if current_health <= tolerance else current_health
     dead = current_health <= 0.0
     result: JSONMap = {
         "target_index": policy_index,
@@ -931,6 +958,31 @@ def project_live_state_for_policy_v1(
         for policy_index, simulator_index in enumerate(visible_simulator_indexes)
     ]
 
+    # Estimate only from damage already observed after the earliest visible
+    # prefix baseline.  In particular, do not copy the simulator's responsive
+    # team model, future event count, configured DPS, or eventual death time.
+    # The estimate is intentionally unavailable at a zero-length prefix; a
+    # time-gated policy can then defer and reconsider at the next observation.
+    earliest_health_observation_ms = min(
+        health_by_simulator_index[index].observed_at_ms
+        for index in visible_simulator_indexes
+    )
+    prefix_elapsed_ms = now_ms - earliest_health_observation_ms
+    prefix_simulated_damage = sum(
+        float(row["simulated_damage_applied"]) for row in projected_life
+    )
+    prefix_background_damage = sum(
+        float(row["background_damage_applied"]) for row in projected_life
+    )
+    prefix_combined_damage = (
+        prefix_simulated_damage + prefix_background_damage
+    )
+    prefix_combined_dps = (
+        prefix_combined_damage * 1000.0 / prefix_elapsed_ms
+        if prefix_elapsed_ms > 0 and prefix_combined_damage > 0
+        else None
+    )
+
     projected: JSONMap = {
         key: deepcopy(state[key])
         for key in _PASSTHROUGH_ROOT_FIELDS
@@ -976,6 +1028,19 @@ def project_live_state_for_policy_v1(
                     + float(row["background_damage_applied"])
                     for row in projected_life
                 ),
+                "prefix_damage_rate": {
+                    "schema": CAUSAL_DAMAGE_RATE_SCHEMA_V1,
+                    "observation_start_ms": earliest_health_observation_ms,
+                    "observation_end_ms": now_ms,
+                    "elapsed_ms": prefix_elapsed_ms,
+                    "simulated_damage": prefix_simulated_damage,
+                    "background_damage": prefix_background_damage,
+                    "combined_damage": prefix_combined_damage,
+                    "combined_damage_per_second": prefix_combined_dps,
+                    "source_semantics": (
+                        "CURRENT_PREFIX_DAMAGE_DELTAS_ONLY"
+                    ),
+                },
                 "targets": projected_life,
             },
             "dynamic_target_semantics": {

@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from o2o_dps.sim_bridge import (
     ActionRef,
+    AvailableAction,
     BackgroundDamageEventV1,
     CancelQueueResult,
     DynamicCandidateDamageReceiptBatchV1,
@@ -160,6 +161,55 @@ def _dynamic_state(
 
 
 class SimulatorBridgeTests(unittest.TestCase):
+    def test_available_action_preserves_native_result_bearing_metadata(self) -> None:
+        wire = {
+            "index": 4,
+            "action": {"spell_id": 23894},
+            "label": "SpellID:23894",
+            "legal": True,
+            "ready_in_ms": 0,
+            "cooldown_duration_ms": 90_000,
+            "triggers_gcd": True,
+            "result_bearing": True,
+        }
+        parsed = AvailableAction.from_wire(wire)
+        self.assertTrue(parsed.result_bearing)
+        self.assertEqual(parsed.cooldown_duration_ms, 90_000)
+        legacy = dict(wire)
+        legacy.pop("result_bearing")
+        legacy.pop("cooldown_duration_ms")
+        self.assertFalse(AvailableAction.from_wire(legacy).result_bearing)
+        self.assertEqual(AvailableAction.from_wire(legacy).cooldown_duration_ms, 0)
+        with self.assertRaisesRegex(SimBridgeProtocolError, "result_bearing"):
+            AvailableAction.from_wire({**wire, "result_bearing": "yes"})
+        with self.assertRaisesRegex(SimBridgeProtocolError, "cooldown_duration_ms"):
+            AvailableAction.from_wire({**wire, "cooldown_duration_ms": -1})
+
+    def test_state_preserves_warrior_control_fields(self) -> None:
+        warrior_state = _state(
+            autoattack_active=True,
+            stance="BERSERKER",
+            swing_queue={"kind": "HEROIC_STRIKE", "status": "PENDING"},
+        )
+        process = _FakeProcess(
+            lambda request: {
+                "ok": True,
+                "command": request["command"],
+                "state": warrior_state,
+            }
+        )
+        with patch("o2o_dps.sim_bridge.subprocess.Popen", return_value=process):
+            with SimulatorBridge("o2obridge.exe") as bridge:
+                exported = bridge.state()
+
+        self.assertEqual(exported, warrior_state)
+        self.assertTrue(exported["autoattack_active"])
+        self.assertEqual(exported["stance"], "BERSERKER")
+        self.assertEqual(
+            exported["swing_queue"],
+            {"kind": "HEROIC_STRIKE", "status": "PENDING"},
+        )
+
     def test_close_releases_both_process_output_pipes(self) -> None:
         process = _FakeProcess(
             lambda request: {"ok": True, "command": request["command"]}

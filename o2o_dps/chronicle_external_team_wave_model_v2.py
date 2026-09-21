@@ -15,8 +15,8 @@ or later classification is allowed into ``state_before``.
 from __future__ import annotations
 
 import argparse
-from collections import Counter, defaultdict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from collections import Counter, defaultdict, deque
+from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from copy import deepcopy
 from dataclasses import dataclass, field
 import gzip
@@ -1770,7 +1770,7 @@ def _roster_evidence_sha(wave: Mapping[str, Any]) -> str:
 
 
 def _build_partition(
-    context: InputInstance, *, output_directory: Path
+    context: InputInstance, *, output_directory: Path, wave_workers: int = 1
 ) -> PartitionBuild:
     partition = _mapping(context.entry.get("partition"), label="timeline partition")
     expected_compressed_size = _nonnegative_integer(
@@ -1813,7 +1813,10 @@ def _build_partition(
     component_nodes: dict[str, str] = {}
     component_edges: set[tuple[str, str]] = set()
     summary: Counter[str] = Counter()
+    wave_executor: ProcessPoolExecutor | None = None
     try:
+        if wave_workers > 1:
+            wave_executor = ProcessPoolExecutor(max_workers=wave_workers)
         try:
             input_handle = gzip.open(context.partition_path, "rb")
         except OSError as error:
@@ -1829,6 +1832,48 @@ def _build_partition(
                     compresslevel=9,
                     mtime=0,
                 ) as compressed_output:
+                    pending: deque[tuple[Mapping[str, Any], Future[WaveOutput]]] = deque()
+
+                    def commit(wave: Mapping[str, Any], built: WaveOutput) -> None:
+                        nonlocal output_count, output_logical_size
+                        payload = _canonical_bytes(built.record) + b"\n"
+                        compressed_output.write(payload)
+                        output_logical.update(payload)
+                        output_logical_size += len(payload)
+                        output_count += 1
+                        encounter_ids.add(
+                            _text(wave.get("encounter_id"), label="wave encounter_id")
+                        )
+                        for node, kind in built.component_nodes.items():
+                            previous = component_nodes.setdefault(node, kind)
+                            if previous != kind:
+                                raise ChronicleExternalTeamWaveModelV2Error(
+                                    "component node kind conflict within partition"
+                                )
+                        component_edges.update(built.component_edges)
+                        summary["player_wave_episode_count"] += built.player_episode_count
+                        summary["fury_episode_count"] += built.fury_episode_count
+                        summary["arms_episode_count"] += built.arms_episode_count
+                        summary[
+                            "unknown_warrior_episode_count"
+                        ] += built.unknown_warrior_episode_count
+                        summary["prefix_transition_count"] += built.transition_count
+                        summary["exact_trace_count"] += built.exact_trace_count
+                        summary["exact_event_count"] += built.exact_event_count
+                        summary[
+                            "classification_context_count"
+                        ] += built.classification_count
+                        summary["death_marker_count"] += built.death_marker_count
+                        summary[
+                            "negative_damage_diagnostic_count"
+                        ] += built.negative_damage_diagnostic_count
+                        summary[
+                            "negative_damage_signed_amount_excluded"
+                        ] += built.negative_damage_signed_amount_excluded
+                        summary[
+                            "negative_damage_absolute_amount_excluded"
+                        ] += built.negative_damage_absolute_amount_excluded
+
                     for line_number, raw_line in enumerate(input_handle, 1):
                         input_logical.update(raw_line)
                         if not raw_line.strip():
@@ -1868,45 +1913,19 @@ def _build_partition(
                             raise ChronicleExternalTeamWaveModelV2Error(
                                 "exact player metadata/spec roster changed across instance waves"
                             )
-                        built = _build_wave(wave, context=context)
-                        payload = _canonical_bytes(built.record) + b"\n"
-                        compressed_output.write(payload)
-                        output_logical.update(payload)
-                        output_logical_size += len(payload)
                         input_count += 1
-                        output_count += 1
-                        encounter_ids.add(
-                            _text(wave.get("encounter_id"), label="wave encounter_id")
-                        )
-                        for node, kind in built.component_nodes.items():
-                            previous = component_nodes.setdefault(node, kind)
-                            if previous != kind:
-                                raise ChronicleExternalTeamWaveModelV2Error(
-                                    "component node kind conflict within partition"
-                                )
-                        component_edges.update(built.component_edges)
-                        summary["player_wave_episode_count"] += built.player_episode_count
-                        summary["fury_episode_count"] += built.fury_episode_count
-                        summary["arms_episode_count"] += built.arms_episode_count
-                        summary[
-                            "unknown_warrior_episode_count"
-                        ] += built.unknown_warrior_episode_count
-                        summary["prefix_transition_count"] += built.transition_count
-                        summary["exact_trace_count"] += built.exact_trace_count
-                        summary["exact_event_count"] += built.exact_event_count
-                        summary[
-                            "classification_context_count"
-                        ] += built.classification_count
-                        summary["death_marker_count"] += built.death_marker_count
-                        summary[
-                            "negative_damage_diagnostic_count"
-                        ] += built.negative_damage_diagnostic_count
-                        summary[
-                            "negative_damage_signed_amount_excluded"
-                        ] += built.negative_damage_signed_amount_excluded
-                        summary[
-                            "negative_damage_absolute_amount_excluded"
-                        ] += built.negative_damage_absolute_amount_excluded
+                        if wave_executor is None:
+                            commit(wave, _build_wave(wave, context=context))
+                        else:
+                            if len(pending) >= wave_workers:
+                                ready_wave, ready = pending.popleft()
+                                commit(ready_wave, ready.result())
+                            pending.append(
+                                (wave, wave_executor.submit(_build_wave, wave, context=context))
+                            )
+                    while pending:
+                        ready_wave, ready = pending.popleft()
+                        commit(ready_wave, ready.result())
                 raw_output.flush()
                 os.fsync(raw_output.fileno())
         if input_count != expected_record_count:
@@ -2006,6 +2025,9 @@ def _build_partition(
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
+    finally:
+        if wave_executor is not None:
+            wave_executor.shutdown(wait=True, cancel_futures=True)
 
 
 class _DisjointSet:
@@ -2168,10 +2190,18 @@ def _parallel_builds(
 ) -> list[PartitionBuild]:
     results: list[PartitionBuild | None] = [None] * len(contexts)
     failure: BaseException | None = None
-    with ProcessPoolExecutor(max_workers=min(workers, len(contexts))) as executor:
+    instance_workers = min(workers, len(contexts))
+    wave_workers = [
+        workers // instance_workers + (index < workers % instance_workers)
+        for index in range(len(contexts))
+    ]
+    with ProcessPoolExecutor(max_workers=instance_workers) as executor:
         futures = {
             executor.submit(
-                _build_partition, context, output_directory=output_directory
+                _build_partition,
+                context,
+                output_directory=output_directory,
+                wave_workers=wave_workers[index],
             ): index
             for index, context in enumerate(contexts)
         }
@@ -2226,7 +2256,11 @@ def build_external_team_wave_model(
     try:
         if workers == 1 or len(closure.instances) == 1:
             for context in closure.instances:
-                builds.append(_build_partition(context, output_directory=output))
+                builds.append(
+                    _build_partition(
+                        context, output_directory=output, wave_workers=workers
+                    )
+                )
         else:
             builds = _parallel_builds(
                 closure.instances, output_directory=output, workers=workers
@@ -2437,7 +2471,16 @@ def build_external_team_wave_model(
             "partitions": [str(build.final_path) for build in builds],
             "summary": manifest["summary"],
             "workers_requested": workers,
-            "workers_used": min(workers, len(builds)),
+            "workers_used": min(
+                workers,
+                sum(
+                    _nonnegative_integer(
+                        build.manifest_entry["summary"]["wave_count"],
+                        label="model wave_count",
+                    )
+                    for build in builds
+                ),
+            ),
             "comparison_authorized": False,
             "network_request_count": 0,
         }
@@ -3234,7 +3277,7 @@ def _parser() -> argparse.ArgumentParser:
         "--workers",
         type=int,
         default=1,
-        help=f"parallel instance partitions (1-{MAX_WORKERS}; default: 1)",
+        help=f"parallel instance partitions and waves within a single instance (1-{MAX_WORKERS}; default: 1)",
     )
     return parser
 

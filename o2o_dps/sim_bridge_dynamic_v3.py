@@ -36,6 +36,7 @@ from .sim_bridge_dynamic_v2 import (
     DynamicTargetSemanticsConfigV2,
     SimulatorBridgeDynamicV2,
 )
+from .precombat_contract_v1 import precombat_input_ready_v1
 
 
 JSONMap = dict[str, Any]
@@ -1136,6 +1137,12 @@ def _parse_idle_state_v3(
     no_target_press_ready = False
     if needs_input and num_targets == 0 and not finished and "press_clock" in state:
         no_target_press_ready = _press_clock_state_v1(state).ready
+    no_target_precombat_ready = (
+        needs_input
+        and num_targets == 0
+        and not finished
+        and precombat_input_ready_v1(state)
+    )
     if (
         result.schema != DYNAMIC_IDLE_ADVANCE_RECEIPT_SCHEMA_V3
         or result.config_digest != config.content_sha256
@@ -1164,6 +1171,7 @@ def _parse_idle_state_v3(
         and num_targets == 0
         and not finished
         and not no_target_press_ready
+        and not no_target_precombat_ready
     ):
         raise SimBridgeProtocolError(
             "dynamic idle state violates its lifecycle/horizon binding"

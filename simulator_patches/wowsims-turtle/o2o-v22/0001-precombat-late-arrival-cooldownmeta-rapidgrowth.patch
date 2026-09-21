@@ -1,0 +1,1304 @@
+diff --git a/cmd/o2obridge/main.go b/cmd/o2obridge/main.go
+index d23822057..98b71f533 100644
+--- a/cmd/o2obridge/main.go
++++ b/cmd/o2obridge/main.go
+@@ -15,20 +15,21 @@ import (
+ )
+ 
+ type command struct {
+-	Command     string          `json:"command"`
+-	Request     json.RawMessage `json:"request,omitempty"`
+-	Seed        int64           `json:"seed,omitempty"`
+-	Dynamic     json.RawMessage `json:"dynamic,omitempty"`
+-	Responsive  json.RawMessage `json:"responsive,omitempty"`
+-	PlayerState json.RawMessage `json:"player_state,omitempty"`
+-	Action      o2o.ActionRef   `json:"action,omitempty"`
+-	WaitMS      int64           `json:"wait_ms,omitempty"`
++	Command       string          `json:"command"`
++	Request       json.RawMessage `json:"request,omitempty"`
++	Seed          int64           `json:"seed,omitempty"`
++	Dynamic       json.RawMessage `json:"dynamic,omitempty"`
++	Precombat     json.RawMessage `json:"precombat,omitempty"`
++	Responsive    json.RawMessage `json:"responsive,omitempty"`
++	PlayerState   json.RawMessage `json:"player_state,omitempty"`
++	Action        o2o.ActionRef   `json:"action,omitempty"`
++	WaitMS        int64           `json:"wait_ms,omitempty"`
+ 	PressPeriodMS int64           `json:"press_period_ms,omitempty"`
+ 	PressPhaseMS  int64           `json:"press_phase_ms,omitempty"`
+-	TargetIndex int32           `json:"target_index,omitempty"`
+-	AttemptID   string          `json:"attempt_id,omitempty"`
+-	AttemptIDs  []string        `json:"attempt_ids,omitempty"`
+-	Cursor      int             `json:"cursor,omitempty"`
++	TargetIndex   int32           `json:"target_index,omitempty"`
++	AttemptID     string          `json:"attempt_id,omitempty"`
++	AttemptIDs    []string        `json:"attempt_ids,omitempty"`
++	Cursor        int             `json:"cursor,omitempty"`
+ }
+ 
+ type response struct {
+@@ -165,7 +166,7 @@ func runBridge(input io.Reader, output io.Writer, errorOutput io.Writer) {
+ 			out.DynamicLoad = &receipt
+ 			state := env.State()
+ 			out.State = &state
+-		case "load_dynamic_v3", "load_dynamic_v3_press_clock":
++		case "load_dynamic_v3", "load_dynamic_v3_press_clock", "load_dynamic_v3_precombat":
+ 			if len(cmd.Dynamic) == 0 {
+ 				out.OK, out.Error = false, "dynamic config is required"
+ 				break
+@@ -196,6 +197,22 @@ func runBridge(input io.Reader, output io.Writer, errorOutput io.Writer) {
+ 			if err == nil && cmd.Command == "load_dynamic_v3_press_clock" {
+ 				err = env.ConfigurePressClock(cmd.PressPeriodMS, cmd.PressPhaseMS)
+ 			}
++			if err == nil && cmd.Command == "load_dynamic_v3_precombat" {
++				if len(cmd.Precombat) == 0 {
++					err = fmt.Errorf("precombat config is required")
++				} else {
++					var precombat o2o.PrecombatActionsConfigV1
++					decoder := json.NewDecoder(bytes.NewReader(cmd.Precombat))
++					decoder.DisallowUnknownFields()
++					if decodeErr := decoder.Decode(&precombat); decodeErr != nil {
++						err = decodeErr
++					} else if decodeErr := decoder.Decode(&struct{}{}); decodeErr != io.EOF {
++						err = fmt.Errorf("precombat config must contain exactly one JSON object")
++					} else {
++						err = env.ConfigurePrecombatActionsV1(precombat)
++					}
++				}
++			}
+ 			if err == nil {
+ 				_, err = env.AdvanceUntilDecision()
+ 			}
+diff --git a/cmd/o2obridge/precombat_test.go b/cmd/o2obridge/precombat_test.go
+new file mode 100644
+index 000000000..c7fa6fdd6
+--- /dev/null
++++ b/cmd/o2obridge/precombat_test.go
+@@ -0,0 +1,113 @@
++package main
++
++import (
++	"bytes"
++	"encoding/json"
++	"testing"
++
++	"github.com/isfir/wowsims-turtle/sim/core/proto"
++	"github.com/isfir/wowsims-turtle/sim/o2o"
++	"google.golang.org/protobuf/encoding/protojson"
++)
++
++func TestRunBridgeLoadsPrecombatAtomicallyAndAcceptsPotion(t *testing.T) {
++	const health = 1_000_000.0
++	request := &proto.RaidSimRequest{}
++	if err := protojson.Unmarshal(bridgeDynamicTestRequest(t, health), request); err != nil {
++		t.Fatal(err)
++	}
++	request.Encounter.Duration = 5
++	request.Raid.Parties[0].Players[0].Consumes = &proto.Consumes{
++		DefaultPotion: proto.Potions_MightyRagePotion,
++	}
++	requestPayload, err := protojson.Marshal(request)
++	if err != nil {
++		t.Fatal(err)
++	}
++	dynamic := o2o.DynamicTargetSemanticsConfigV3{
++		Schema:                 o2o.DynamicTargetSemanticsSchemaV3,
++		TargetHealth:           []o2o.DynamicTargetHealthV1{{TargetIndex: 0, Health: health}},
++		BackgroundDamageEvents: []o2o.BackgroundDamageEventV1{},
++		AttackabilityEvents: []o2o.DynamicAttackabilityEventV2{
++			{ScheduleIndex: 0, TimeMS: 0, TargetIndex: 0, Attackable: false},
++			{ScheduleIndex: 1, TimeMS: 1000, TargetIndex: 0, Attackable: true},
++		},
++		EffectiveArmorEvents: []o2o.DynamicEffectiveArmorEventV2{},
++		IdleAdvanceMode:      o2o.DynamicIdleAdvanceModeV3,
++		IdleAdvanceHorizonMS: 5000,
++		SameTimestampOrder:   o2o.DynamicSameTimestampOrderV3,
++		RetargetMode:         o2o.DynamicRetargetNextAliveCyclic,
++	}
++	dynamic.ContentSHA256, err = o2o.DynamicTargetSemanticsDigestV3(dynamic)
++	if err != nil {
++		t.Fatal(err)
++	}
++	dynamicPayload, err := json.Marshal(dynamic)
++	if err != nil {
++		t.Fatal(err)
++	}
++	potion := o2o.ActionRef{ItemID: 13442}
++	precombatPayload, err := json.Marshal(o2o.PrecombatActionsConfigV1{
++		Schema:      o2o.PrecombatActionsSchemaV1,
++		PullTimeMS:  1000,
++		SelfActions: []o2o.ActionRef{potion},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	commands := []command{
++		{Command: "load_dynamic_v3_precombat", Request: requestPayload, Seed: 91, Dynamic: dynamicPayload, Precombat: precombatPayload},
++		{Command: "actions"},
++		{Command: "act", Action: potion},
++		{Command: "wait", WaitMS: 1000},
++		{Command: "advance"},
++		{Command: "close"},
++	}
++	var input bytes.Buffer
++	encoder := json.NewEncoder(&input)
++	for _, cmd := range commands {
++		if err := encoder.Encode(cmd); err != nil {
++			t.Fatal(err)
++		}
++	}
++	var output bytes.Buffer
++	var stderr bytes.Buffer
++	runBridge(&input, &output, &stderr)
++	if stderr.Len() != 0 {
++		t.Fatalf("bridge stderr: %s", stderr.String())
++	}
++	decoder := json.NewDecoder(&output)
++	responses := make([]response, 0, len(commands))
++	for decoder.More() {
++		var got response
++		if err := decoder.Decode(&got); err != nil {
++			t.Fatal(err)
++		}
++		responses = append(responses, got)
++	}
++	if len(responses) != len(commands) {
++		t.Fatalf("got %d responses, want %d: %s", len(responses), len(commands), output.String())
++	}
++	loaded := responses[0]
++	if !loaded.OK || loaded.State == nil || loaded.State.Precombat == nil ||
++		!loaded.State.Precombat.Active || loaded.State.Precombat.RelativeTimeMS != -1000 ||
++		loaded.State.NumTargets != 0 || !loaded.State.NeedsInput {
++		t.Fatalf("atomic precombat load is wrong: %+v", loaded)
++	}
++	foundPotion := false
++	for _, action := range responses[1].Actions {
++		if action.Action == potion {
++			foundPotion = action.Legal && !action.TriggersGCD
++		}
++	}
++	if !responses[1].OK || !foundPotion {
++		t.Fatalf("precombat potion was not advertised as legal: %+v", responses[1])
++	}
++	if !responses[2].OK || responses[2].Apply == nil || !responses[2].Apply.Casted || responses[2].Apply.ConsumesDecision {
++		t.Fatalf("precombat potion command was not accepted: %+v", responses[2])
++	}
++	if !responses[4].OK || responses[4].State == nil || responses[4].State.TimeMS != 1000 ||
++		responses[4].State.NumTargets != 1 || responses[4].State.Precombat == nil || responses[4].State.Precombat.Active {
++		t.Fatalf("bridge did not reach the pull boundary: %+v", responses[4])
++	}
++}
+diff --git a/proto/common.proto b/proto/common.proto
+index 512e35832..1b0acc504 100644
+--- a/proto/common.proto
++++ b/proto/common.proto
+@@ -485,6 +485,7 @@ message MiscConsumes {
+ 	bool juju_escape = 4;
+ 	bool juju_flurry = 5;
+ 	bool raptor_punch = 6;
++	bool elixir_of_rapid_growth = 7;
+ }
+ 
+ message PetMiscConsumes {
+diff --git a/sim/core/attack.go b/sim/core/attack.go
+index 4865003a7..a1161bd0c 100644
+--- a/sim/core/attack.go
++++ b/sim/core/attack.go
+@@ -444,6 +444,11 @@ type AutoAttacks struct {
+ 	enabled bool
+ }
+ 
++// IsEnabled reports whether automatic weapon attacks are currently running.
++func (aa *AutoAttacks) IsEnabled() bool {
++	return aa.enabled
++}
++
+ // Options for initializing auto attacks.
+ type AutoAttackOptions struct {
+ 	MainHand        Weapon
+diff --git a/sim/core/consumes.go b/sim/core/consumes.go
+index 5d4d7bf4d..90d6b1238 100644
+--- a/sim/core/consumes.go
++++ b/sim/core/consumes.go
+@@ -759,6 +759,7 @@ func applyMiscConsumes(character *Character, miscConsumes *proto.MiscConsumes) {
+ 		jujuFlurrySpell := character.RegisterSpell(SpellConfig{
+ 			ActionID: actionID,
+ 			ProcMask: ProcMaskEmpty,
++			Flags:    SpellFlagHelpful,
+ 			Cast: CastConfig{
+ 				CD: Cooldown{
+ 					Timer:    character.NewTimer(),
+@@ -780,6 +781,46 @@ func applyMiscConsumes(character *Character, miscConsumes *proto.MiscConsumes) {
+ 		})
+ 	}
+ 
++	if miscConsumes.ElixirOfRapidGrowth {
++		actionID := ActionID{ItemID: 56113}
++		deterioration := character.NewTemporaryStatsAura(
++			"Rapid Deterioration",
++			ActionID{SpellID: 46103},
++			stats.Stats{
++				stats.Strength: -25,
++				stats.Stamina:  -25,
++			},
++			time.Second*120,
++		)
++		growth := character.NewTemporaryStatsAura(
++			"Elixir of Rapid Growth",
++			ActionID{SpellID: 46102},
++			stats.Stats{stats.Strength: 30},
++			time.Second*120,
++		).ApplyOnExpire(func(aura *Aura, sim *Simulation) {
++			deterioration.Activate(sim)
++		})
++		spell := character.RegisterSpell(SpellConfig{
++			ActionID: actionID,
++			ProcMask: ProcMaskEmpty,
++			Flags:    SpellFlagHelpful | SpellFlagNoOnCastComplete,
++			Cast: CastConfig{
++				CD: Cooldown{
++					Timer:    character.NewTimer(),
++					Duration: time.Second * 120,
++				},
++			},
++			ApplyEffects: func(sim *Simulation, _ *Unit, _ *Spell) {
++				growth.Activate(sim)
++			},
++		})
++		character.AddMajorCooldown(MajorCooldown{
++			Spell:    spell,
++			Type:     CooldownTypeDPS,
++			Priority: CooldownPriorityDefault,
++		})
++	}
++
+ 	if miscConsumes.JujuEscape {
+ 		actionID := ActionID{SpellID: 16321}
+ 		jujuEscapeAura := character.RegisterAura(Aura{
+@@ -1215,7 +1256,10 @@ func makeQuicknessPotionMCD(character *Character, cdTimer *Timer) MajorCooldown
+ 	actionID := ActionID{ItemID: 61181}
+ 	cdDuration := time.Minute * 2
+ 
+-	aura := character.NewTemporaryStatsAura("Potion Of Quickness", actionID, stats.Stats{stats.SpellHaste: 5}, time.Second*30)
++	aura := character.NewTemporaryStatsAura("Potion Of Quickness", actionID, stats.Stats{
++		stats.MeleeHaste: 5,
++		stats.SpellHaste: 5,
++	}, time.Second*30)
+ 	return MajorCooldown{
+ 		Type: CooldownTypeSurvival,
+ 		Spell: character.GetOrRegisterSpell(SpellConfig{
+diff --git a/sim/core/proto/common.pb.go b/sim/core/proto/common.pb.go
+index e9be63ad7..599711cb1 100644
+--- a/sim/core/proto/common.pb.go
++++ b/sim/core/proto/common.pb.go
+@@ -3125,15 +3125,16 @@ func (x *UnitStats) GetPseudoStats() []float64 {
+ }
+ 
+ type MiscConsumes struct {
+-	state         protoimpl.MessageState `protogen:"open.v1"`
+-	BoglingRoot   bool                   `protobuf:"varint,1,opt,name=bogling_root,json=boglingRoot,proto3" json:"bogling_root,omitempty"`
+-	JujuEmber     bool                   `protobuf:"varint,2,opt,name=juju_ember,json=jujuEmber,proto3" json:"juju_ember,omitempty"`
+-	JujuChill     bool                   `protobuf:"varint,3,opt,name=juju_chill,json=jujuChill,proto3" json:"juju_chill,omitempty"`
+-	JujuEscape    bool                   `protobuf:"varint,4,opt,name=juju_escape,json=jujuEscape,proto3" json:"juju_escape,omitempty"`
+-	JujuFlurry    bool                   `protobuf:"varint,5,opt,name=juju_flurry,json=jujuFlurry,proto3" json:"juju_flurry,omitempty"`
+-	RaptorPunch   bool                   `protobuf:"varint,6,opt,name=raptor_punch,json=raptorPunch,proto3" json:"raptor_punch,omitempty"`
+-	unknownFields protoimpl.UnknownFields
+-	sizeCache     protoimpl.SizeCache
++	state               protoimpl.MessageState `protogen:"open.v1"`
++	BoglingRoot         bool                   `protobuf:"varint,1,opt,name=bogling_root,json=boglingRoot,proto3" json:"bogling_root,omitempty"`
++	JujuEmber           bool                   `protobuf:"varint,2,opt,name=juju_ember,json=jujuEmber,proto3" json:"juju_ember,omitempty"`
++	JujuChill           bool                   `protobuf:"varint,3,opt,name=juju_chill,json=jujuChill,proto3" json:"juju_chill,omitempty"`
++	JujuEscape          bool                   `protobuf:"varint,4,opt,name=juju_escape,json=jujuEscape,proto3" json:"juju_escape,omitempty"`
++	JujuFlurry          bool                   `protobuf:"varint,5,opt,name=juju_flurry,json=jujuFlurry,proto3" json:"juju_flurry,omitempty"`
++	RaptorPunch         bool                   `protobuf:"varint,6,opt,name=raptor_punch,json=raptorPunch,proto3" json:"raptor_punch,omitempty"`
++	ElixirOfRapidGrowth bool                   `protobuf:"varint,7,opt,name=elixir_of_rapid_growth,json=elixirOfRapidGrowth,proto3" json:"elixir_of_rapid_growth,omitempty"`
++	unknownFields       protoimpl.UnknownFields
++	sizeCache           protoimpl.SizeCache
+ }
+ 
+ func (x *MiscConsumes) Reset() {
+@@ -3208,6 +3209,13 @@ func (x *MiscConsumes) GetRaptorPunch() bool {
+ 	return false
+ }
+ 
++func (x *MiscConsumes) GetElixirOfRapidGrowth() bool {
++	if x != nil {
++		return x.ElixirOfRapidGrowth
++	}
++	return false
++}
++
+ type PetMiscConsumes struct {
+ 	state         protoimpl.MessageState `protogen:"open.v1"`
+ 	JujuFlurry    bool                   `protobuf:"varint,1,opt,name=juju_flurry,json=jujuFlurry,proto3" json:"juju_flurry,omitempty"`
+@@ -5817,7 +5825,7 @@ const file_common_proto_rawDesc = "" +
+ 	"\fcommon.proto\x12\x05proto\"D\n" +
+ 	"\tUnitStats\x12\x14\n" +
+ 	"\x05stats\x18\x01 \x03(\x01R\x05stats\x12!\n" +
+-	"\fpseudo_stats\x18\x02 \x03(\x01R\vpseudoStats\"\xd4\x01\n" +
++	"\fpseudo_stats\x18\x02 \x03(\x01R\vpseudoStats\"\x89\x02\n" +
+ 	"\fMiscConsumes\x12!\n" +
+ 	"\fbogling_root\x18\x01 \x01(\bR\vboglingRoot\x12\x1d\n" +
+ 	"\n" +
+@@ -5828,7 +5836,8 @@ const file_common_proto_rawDesc = "" +
+ 	"jujuEscape\x12\x1f\n" +
+ 	"\vjuju_flurry\x18\x05 \x01(\bR\n" +
+ 	"jujuFlurry\x12!\n" +
+-	"\fraptor_punch\x18\x06 \x01(\bR\vraptorPunch\"2\n" +
++	"\fraptor_punch\x18\x06 \x01(\bR\vraptorPunch\x123\n" +
++	"\x16elixir_of_rapid_growth\x18\a \x01(\bR\x13elixirOfRapidGrowth\"2\n" +
+ 	"\x0fPetMiscConsumes\x12\x1f\n" +
+ 	"\vjuju_flurry\x18\x01 \x01(\bR\n" +
+ 	"jujuFlurry\"\xf1\r\n" +
+diff --git a/sim/o2o/dynamic_target_semantics_v3.go b/sim/o2o/dynamic_target_semantics_v3.go
+index a7ca73ca1..4e71238dc 100644
+--- a/sim/o2o/dynamic_target_semantics_v3.go
++++ b/sim/o2o/dynamic_target_semantics_v3.go
+@@ -352,6 +352,12 @@ func (env *Environment) beginDynamicIdleAdvanceV3() bool {
+ 	if env.dynamicV3 == nil || env.dynamicV3.active || env.finished || !env.sim.NeedsInput {
+ 		return false
+ 	}
++	// A configured prepull is an intentional policy window, not an idle gap.
++	// The policy advances it with explicit WAIT/GCD actions until the existing
++	// attackability transition opens the pull.
++	if env.precombatWindowOpenV1() {
++		return false
++	}
+ 	if env.sim.Encounter.DynamicAllTargetsDead() || env.sim.Environment.GetNumActiveTargets() != 0 {
+ 		return false
+ 	}
+diff --git a/sim/o2o/environment.go b/sim/o2o/environment.go
+index 550f112ec..246ea7e60 100644
+--- a/sim/o2o/environment.go
++++ b/sim/o2o/environment.go
+@@ -56,6 +56,11 @@ type CastState struct {
+ 	DurationMS  int64     `json:"duration_ms"`
+ }
+ 
++type SwingQueueState struct {
++	Kind   string `json:"kind"`
++	Status string `json:"status"`
++}
++
+ type State struct {
+ 	TimeMS                 int64                          `json:"time_ms"`
+ 	RemainingMS            int64                          `json:"remaining_ms"`
+@@ -65,6 +70,9 @@ type State struct {
+ 	HealthMaximum          float64                        `json:"health_maximum"`
+ 	Power                  PowerState                     `json:"power"`
+ 	Moving                 bool                           `json:"moving"`
++	AutoattackActive       bool                           `json:"autoattack_active"`
++	Stance                 string                         `json:"stance"`
++	SwingQueue             SwingQueueState                `json:"swing_queue"`
+ 	GCDRemainingMS         int64                          `json:"gcd_remaining_ms"`
+ 	MHSwingRemainingMS     int64                          `json:"mh_swing_remaining_ms"`
+ 	MHSwingDurationMS      int64                          `json:"mh_swing_duration_ms"`
+@@ -96,6 +104,7 @@ type State struct {
+ 	DynamicTeamResponse    *DynamicTeamResponseStateV1    `json:"dynamic_team_response,omitempty"`
+ 	WakeReady              *DynamicTeamWakeReadyV1        `json:"wake_ready,omitempty"`
+ 	PressClock             *PressClockState               `json:"press_clock,omitempty"`
++	Precombat              *PrecombatActionsStateV1       `json:"precombat,omitempty"`
+ }
+ 
+ // PressClockState describes an opt-in external key opportunity. It is not a
+@@ -109,12 +118,14 @@ type PressClockState struct {
+ }
+ 
+ type AvailableAction struct {
+-	Index       int       `json:"index"`
+-	Action      ActionRef `json:"action"`
+-	Label       string    `json:"label"`
+-	Legal       bool      `json:"legal"`
+-	ReadyInMS   int64     `json:"ready_in_ms"`
+-	TriggersGCD bool      `json:"triggers_gcd"`
++	Index              int       `json:"index"`
++	Action             ActionRef `json:"action"`
++	Label              string    `json:"label"`
++	Legal              bool      `json:"legal"`
++	ReadyInMS          int64     `json:"ready_in_ms"`
++	CooldownDurationMS int64     `json:"cooldown_duration_ms"`
++	TriggersGCD        bool      `json:"triggers_gcd"`
++	ResultBearing      bool      `json:"result_bearing"`
+ }
+ 
+ type ApplyResult struct {
+@@ -177,6 +188,11 @@ type queuedMeleeCanceler interface {
+ 	CancelQueuedHSOrCleave(*core.Simulation) bool
+ }
+ 
++type warriorControlStateProvider interface {
++	O2OStanceName() string
++	O2OSwingQueueState() (kind string, status string)
++}
++
+ var resultBearingFuryGCDSpellIDs = map[int32]struct{}{
+ 	23894: {}, // Bloodthirst
+ 	1680:  {}, // Whirlwind
+@@ -190,6 +206,11 @@ var resultBearingFuryGCDSpellIDs = map[int32]struct{}{
+ 	12809: {}, // Concussion Blow
+ }
+ 
++func isResultBearingAction(ref core.ActionID) bool {
++	_, resultBearing := resultBearingFuryGCDSpellIDs[ref.SpellID]
++	return resultBearing && ref.Tag == 0
++}
++
+ type pendingServerResult struct {
+ 	action       ActionRef
+ 	attemptID    string
+@@ -217,6 +238,7 @@ type Environment struct {
+ 	activeAttemptID      string
+ 	activeAttemptAction  core.ActionID
+ 	pressClock           *pressClockRuntime
++	precombat            *precombatActionsRuntimeV1
+ }
+ 
+ type pressClockRuntime struct {
+@@ -469,13 +491,16 @@ func (env *Environment) AvailableActions() []AvailableAction {
+ 			continue
+ 		}
+ 		ready := spell.TimeToReady(env.sim)
++		precombatAllowed := env.precombatActionAllowedV1(actionRef(spell.ActionID))
+ 		actions = append(actions, AvailableAction{
+-			Index:       index,
+-			Action:      actionRef(spell.ActionID),
+-			Label:       spell.ActionID.String(),
+-			Legal:       !env.finished && env.inputOpportunityOpen() && targetAlive && spell.CanCast(env.sim, target),
+-			ReadyInMS:   nonNegativeMS(ready),
+-			TriggersGCD: spell.DefaultCast.GCD > 0,
++			Index:              index,
++			Action:             actionRef(spell.ActionID),
++			Label:              spell.ActionID.String(),
++			Legal:              !env.finished && env.inputOpportunityOpen() && (targetAlive || precombatAllowed) && spell.CanCast(env.sim, target),
++			ReadyInMS:          nonNegativeMS(ready),
++			CooldownDurationMS: nonNegativeMS(spell.CD.Duration),
++			TriggersGCD:        spell.DefaultCast.GCD > 0,
++			ResultBearing:      isResultBearingAction(spell.ActionID),
+ 		})
+ 	}
+ 	return actions
+@@ -503,7 +528,7 @@ func (env *Environment) apply(ref ActionRef, attemptID string, trackResults bool
+ 		return ApplyResult{}, errors.New("simulator is not waiting for an action")
+ 	}
+ 	character := env.player().GetCharacter()
+-	if env.dynamic != nil && (character.CurrentTarget == nil || !env.sim.Encounter.DynamicTargetUnitIsAttackable(character.CurrentTarget)) {
++	if env.dynamic != nil && (character.CurrentTarget == nil || !env.sim.Encounter.DynamicTargetUnitIsAttackable(character.CurrentTarget)) && !env.precombatActionAllowedV1(ref) {
+ 		if character.CurrentTarget != nil && !env.sim.Encounter.DynamicTargetUnitIsDead(character.CurrentTarget) {
+ 			return ApplyResult{NeedsInput: env.sim.NeedsInput}, errors.New("current target is unattackable; select an attackable target")
+ 		}
+@@ -516,8 +541,7 @@ func (env *Environment) apply(ref ActionRef, attemptID string, trackResults bool
+ 	if !spell.Flags.Matches(core.SpellFlagAPL) {
+ 		return ApplyResult{}, fmt.Errorf("action is not externally triggerable: %s", ref.coreID().String())
+ 	}
+-	_, resultBearing := resultBearingFuryGCDSpellIDs[spell.ActionID.SpellID]
+-	resultBearing = resultBearing && spell.ActionID.Tag == 0
++	resultBearing := isResultBearingAction(spell.ActionID)
+ 	if trackResults {
+ 		switch {
+ 		case resultBearing && attemptID == "":
+@@ -821,6 +845,9 @@ func (env *Environment) State() State {
+ 		HealthCurrent:          character.CurrentHealth(),
+ 		HealthMaximum:          character.MaxHealth(),
+ 		Moving:                 character.IsMoving(),
++		AutoattackActive:       character.AutoAttacks.IsEnabled(),
++		Stance:                 "NONE",
++		SwingQueue:             SwingQueueState{Kind: "NONE", Status: "NONE"},
+ 		GCDRemainingMS:         nonNegativeMS(character.GCD.TimeToReady(env.sim)),
+ 		MHSwingRemainingMS:     nonNegativeMS(character.AutoAttacks.NextMHSwingAt() - env.sim.CurrentTime),
+ 		MHSwingDurationMS:      int64(character.AutoAttacks.MH().SwingSpeed / character.SwingSpeed() * 1000),
+@@ -840,6 +867,11 @@ func (env *Environment) State() State {
+ 		DynamicIdleAdvance:     env.dynamicIdleAdvanceStateV3(),
+ 		DynamicTeamResponse:    env.dynamicTeamResponseStateV1(),
+ 		WakeReady:              env.dynamicTeamResponseWakeReadyStateV1(),
++		Precombat:              env.precombatStateV1(),
++	}
++	if provider, ok := env.player().(warriorControlStateProvider); ok {
++		state.Stance = provider.O2OStanceName()
++		state.SwingQueue.Kind, state.SwingQueue.Status = provider.O2OSwingQueueState()
+ 	}
+ 	if clock := env.pressClock; clock != nil {
+ 		state.NeedsInput = env.inputOpportunityOpen() && !env.finished
+diff --git a/sim/o2o/environment_test.go b/sim/o2o/environment_test.go
+index 5b532091d..cda05b780 100644
+--- a/sim/o2o/environment_test.go
++++ b/sim/o2o/environment_test.go
+@@ -127,6 +127,75 @@ func TestWarriorQueueThenGCD(t *testing.T) {
+ 	}
+ }
+ 
++func TestWarriorStateExportsStanceQueueAndAutoattack(t *testing.T) {
++	request := testWarriorRequest()
++	request.Raid.Parties[0].Players[0].GetWarrior().Options.QueueDelay = 100
++	env := newTestWarriorEnvironment(t, request)
++
++	initial := env.State()
++	if initial.Stance != "BERSERKER" {
++		t.Fatalf("initial stance: got %q, want BERSERKER", initial.Stance)
++	}
++	if !initial.AutoattackActive {
++		t.Fatal("automatic attacks should be active after pull")
++	}
++	if initial.SwingQueue != (SwingQueueState{Kind: "NONE", Status: "NONE"}) {
++		t.Fatalf("unexpected initial swing queue: %+v", initial.SwingQueue)
++	}
++
++	queue := requireQueuedMeleeAction(t, env, 25286, 11567)
++	queued, err := env.Apply(queue)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !queued.Casted || queued.ConsumesDecision {
++		t.Fatalf("queue action should be accepted without consuming the decision: %+v", queued)
++	}
++	if got := env.State().SwingQueue; got != (SwingQueueState{Kind: "HEROIC_STRIKE", Status: "PENDING"}) {
++		t.Fatalf("pending swing queue: got %+v", got)
++	}
++
++	advanceUntilQueueAura(t, env, queue)
++	if got := env.State().SwingQueue; got != (SwingQueueState{Kind: "HEROIC_STRIKE", Status: "ACTIVE"}) {
++		t.Fatalf("active swing queue: got %+v", got)
++	}
++	canceled, err := env.CancelQueuedMelee()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !canceled.Canceled {
++		t.Fatalf("active swing queue was not canceled: %+v", canceled)
++	}
++	if got := env.State().SwingQueue; got != (SwingQueueState{Kind: "NONE", Status: "NONE"}) {
++		t.Fatalf("canceled swing queue: got %+v", got)
++	}
++
++	character := env.player().GetCharacter()
++	character.AutoAttacks.CancelAutoSwing(env.sim)
++	if env.State().AutoattackActive {
++		t.Fatal("stopped automatic attacks were still exported as active")
++	}
++	started, err := env.StartAttack()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !started.Accepted || !env.State().AutoattackActive {
++		t.Fatalf("start_attack did not reactivate automatic attacks: %+v", started)
++	}
++
++	_, battle := requireSpellAction(t, env, 0, 2457)
++	changed, err := env.Apply(battle)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !changed.Casted || changed.ConsumesDecision {
++		t.Fatalf("stance action should not consume the decision: %+v", changed)
++	}
++	if got := env.State().Stance; got != "BATTLE" {
++		t.Fatalf("changed stance: got %q, want BATTLE", got)
++	}
++}
++
+ func TestSingletonHealthExportsEncounterProgressAndStopsAtExactBudget(t *testing.T) {
+ 	request := testWarriorRequest()
+ 	request.Encounter.UseHealth = true
+diff --git a/sim/o2o/precombat_actions_v1.go b/sim/o2o/precombat_actions_v1.go
+new file mode 100644
+index 000000000..130c3a799
+--- /dev/null
++++ b/sim/o2o/precombat_actions_v1.go
+@@ -0,0 +1,150 @@
++package o2o
++
++import (
++	"errors"
++	"fmt"
++	"time"
++
++	"github.com/isfir/wowsims-turtle/sim/core"
++)
++
++const PrecombatActionsSchemaV1 = "o2o_precombat_actions/v1"
++
++// PrecombatActionsConfigV1 declares the short interval before a modeled pull
++// and the exact self-only actions the caller may submit in that interval.  The
++// simulator clock remains non-negative; RelativeTimeMS in State is the clock
++// viewed from the pull origin.
++type PrecombatActionsConfigV1 struct {
++	Schema      string      `json:"schema"`
++	PullTimeMS  int64       `json:"pull_time_ms"`
++	SelfActions []ActionRef `json:"self_actions"`
++}
++
++type PrecombatActionsStateV1 struct {
++	Schema          string `json:"schema"`
++	PullTimeMS      int64  `json:"pull_time_ms"`
++	RelativeTimeMS  int64  `json:"relative_time_ms"`
++	Active          bool   `json:"active"`
++	SelfActionCount int    `json:"self_action_count"`
++}
++
++type precombatActionsRuntimeV1 struct {
++	config  PrecombatActionsConfigV1
++	allowed map[ActionRef]struct{}
++}
++
++// ConfigurePrecombatActionsV1 must run immediately after NewDynamicV3 and
++// before AdvanceUntilDecision.  It keeps the initial all-unattackable interval
++// policy-visible.  A target may become attackable at the pull or later when
++// player reachability is modeled separately from teammates already fighting.
++func (env *Environment) ConfigurePrecombatActionsV1(config PrecombatActionsConfigV1) error {
++	if env == nil || env.sim == nil || env.dynamicV3 == nil {
++		return errors.New("precombat actions require a live dynamic-v3 environment")
++	}
++	if env.precombat != nil || env.finished || env.sim.CurrentTime != 0 {
++		return errors.New("precombat actions must be configured once at simulator time zero")
++	}
++	if config.Schema != PrecombatActionsSchemaV1 {
++		return fmt.Errorf("precombat schema must be %q", PrecombatActionsSchemaV1)
++	}
++	if config.PullTimeMS <= 0 || config.PullTimeMS >= env.dynamicV3.config.IdleAdvanceHorizonMS {
++		return errors.New("pull_time_ms must be positive and before the scenario horizon")
++	}
++	if len(config.SelfActions) == 0 {
++		return errors.New("precombat self_actions must not be empty")
++	}
++	if env.sim.Environment.GetNumActiveTargets() != 0 {
++		return errors.New("precombat actions require every target to be unattackable at time zero")
++	}
++	foundCombatAccess := false
++	for _, event := range env.dynamicV3.config.AttackabilityEvents {
++		if event.TimeMS >= config.PullTimeMS &&
++			event.TimeMS < env.dynamicV3.config.IdleAdvanceHorizonMS &&
++			event.Attackable {
++			foundCombatAccess = true
++			break
++		}
++	}
++	if !foundCombatAccess {
++		return errors.New("scenario must have an attackable target transition at or after pull_time_ms")
++	}
++
++	character := env.player().GetCharacter()
++	allowed := make(map[ActionRef]struct{}, len(config.SelfActions))
++	for index, ref := range config.SelfActions {
++		if err := validatePrecombatActionRefV1(ref); err != nil {
++			return fmt.Errorf("self_actions[%d]: %w", index, err)
++		}
++		if _, duplicate := allowed[ref]; duplicate {
++			return fmt.Errorf("self_actions[%d] duplicates an earlier action", index)
++		}
++		spell := character.GetSpell(ref.coreID())
++		if spell == nil || !spell.Flags.Matches(core.SpellFlagAPL) {
++			return fmt.Errorf("self_actions[%d] is not an externally triggerable spellbook action", index)
++		}
++		if !precombatSelfSpellV1(spell) {
++			return fmt.Errorf("self_actions[%d] is not marked as a potion, helpful spell, prepull action, or equipment activation", index)
++		}
++		allowed[ref] = struct{}{}
++	}
++	config.SelfActions = append([]ActionRef(nil), config.SelfActions...)
++	env.precombat = &precombatActionsRuntimeV1{config: config, allowed: allowed}
++	return nil
++}
++
++func validatePrecombatActionRefV1(ref ActionRef) error {
++	if ref.SpellID < 0 || ref.ItemID < 0 || int32(ref.OtherID) < 0 || ref.Tag < 0 {
++		return errors.New("action identity fields must be non-negative")
++	}
++	identities := 0
++	if ref.SpellID > 0 {
++		identities++
++	}
++	if ref.ItemID > 0 {
++		identities++
++	}
++	if ref.OtherID > 0 {
++		identities++
++	}
++	if identities != 1 {
++		return errors.New("action must contain exactly one positive identity")
++	}
++	return nil
++}
++
++func precombatSelfSpellV1(spell *core.Spell) bool {
++	return spell.Flags.Matches(
++		core.SpellFlagPotion |
++			core.SpellFlagHelpful |
++			core.SpellFlagPrepullOnly |
++			core.SpellFlagOffensiveEquipment |
++			core.SpellFlagDefensiveEquipment,
++	)
++}
++
++func (env *Environment) precombatWindowOpenV1() bool {
++	return env.precombat != nil && !env.finished &&
++		env.sim.CurrentTime < time.Duration(env.precombat.config.PullTimeMS)*time.Millisecond
++}
++
++func (env *Environment) precombatActionAllowedV1(ref ActionRef) bool {
++	if !env.precombatWindowOpenV1() {
++		return false
++	}
++	_, ok := env.precombat.allowed[ref]
++	return ok
++}
++
++func (env *Environment) precombatStateV1() *PrecombatActionsStateV1 {
++	if env.precombat == nil {
++		return nil
++	}
++	pull := env.precombat.config.PullTimeMS
++	return &PrecombatActionsStateV1{
++		Schema:          PrecombatActionsSchemaV1,
++		PullTimeMS:      pull,
++		RelativeTimeMS:  env.sim.CurrentTime.Milliseconds() - pull,
++		Active:          env.precombatWindowOpenV1(),
++		SelfActionCount: len(env.precombat.allowed),
++	}
++}
+diff --git a/sim/o2o/precombat_actions_v1_test.go b/sim/o2o/precombat_actions_v1_test.go
+new file mode 100644
+index 000000000..9c820c520
+--- /dev/null
++++ b/sim/o2o/precombat_actions_v1_test.go
+@@ -0,0 +1,414 @@
++package o2o
++
++import (
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/isfir/wowsims-turtle/sim/core/proto"
++	"github.com/isfir/wowsims-turtle/sim/core/stats"
++)
++
++const precombatTestPullMS int64 = 1000
++
++func newPrecombatTestEnvironment(t *testing.T, actions []ActionRef, potion bool) *Environment {
++	return newPrecombatTestEnvironmentAt(t, actions, potion, precombatTestPullMS)
++}
++
++func newPrecombatTestEnvironmentAt(t *testing.T, actions []ActionRef, potion bool, pullMS int64) *Environment {
++	var consumes *proto.Consumes
++	if potion {
++		consumes = &proto.Consumes{DefaultPotion: proto.Potions_MightyRagePotion}
++	}
++	return newPrecombatTestEnvironmentWithConsumesAt(t, actions, consumes, pullMS)
++}
++
++func newPrecombatTestEnvironmentWithConsumesAt(t *testing.T, actions []ActionRef, consumes *proto.Consumes, pullMS int64) *Environment {
++	t.Helper()
++	request := dynamicRequest(1_000_000)
++	request.Encounter.Duration = float64(pullMS+4000) / 1000
++	request.Raid.Parties[0].Players[0].Consumes = consumes
++	config := boundDynamicV3Config(
++		t,
++		DynamicRetargetNextAliveCyclic,
++		pullMS+4000,
++		[]float64{1_000_000},
++		nil,
++		[]DynamicAttackabilityEventV2{
++			{ScheduleIndex: 0, TimeMS: 0, TargetIndex: 0, Attackable: false},
++			{ScheduleIndex: 1, TimeMS: pullMS, TargetIndex: 0, Attackable: true},
++		},
++		nil,
++	)
++	env, _, err := NewDynamicV3(request, 871, config, 1)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(env.Cleanup)
++	if err := env.ConfigurePrecombatActionsV1(PrecombatActionsConfigV1{
++		Schema:      PrecombatActionsSchemaV1,
++		PullTimeMS:  pullMS,
++		SelfActions: actions,
++	}); err != nil {
++		t.Fatal(err)
++	}
++	if finished, err := env.AdvanceUntilDecision(); err != nil || finished {
++		t.Fatalf("precombat did not expose its initial decision: finished=%v err=%v", finished, err)
++	}
++	return env
++}
++
++func TestPrecombatContraConsumableActionsUseNativeTurtleIdentities(t *testing.T) {
++	quickness := ActionRef{ItemID: 61181}
++	juju := ActionRef{SpellID: 16322}
++	env := newPrecombatTestEnvironmentWithConsumesAt(
++		t,
++		[]ActionRef{quickness, juju},
++		&proto.Consumes{
++			DefaultPotion: proto.Potions_QuicknessPotion,
++			MiscConsumes:  &proto.MiscConsumes{JujuFlurry: true},
++		},
++		precombatTestPullMS,
++	)
++	for _, ref := range []ActionRef{quickness, juju} {
++		available := findPrecombatAction(t, env, ref)
++		if !available.Legal || available.CooldownDurationMS <= 0 {
++			t.Fatalf("Contra consumable is not a legal precombat action: %+v", available)
++		}
++	}
++	if result, err := env.Apply(juju); err != nil || !result.Casted {
++		t.Fatalf("Juju Flurry was not accepted precombat: result=%+v err=%v", result, err)
++	}
++	if aura := activeAuraByLabel(t, env.State(), "Juju Flurry"); aura.RemainingMS != 20_000 {
++		t.Fatalf("Juju Flurry duration = %dms, want 20000ms", aura.RemainingMS)
++	}
++}
++
++func TestPrecombatRapidGrowthUsesTurtleBuffAndDeterioration(t *testing.T) {
++	const pullMS int64 = 121000
++	rapidGrowth := ActionRef{ItemID: 56113}
++	env := newPrecombatTestEnvironmentWithConsumesAt(
++		t,
++		[]ActionRef{rapidGrowth},
++		&proto.Consumes{
++			MiscConsumes: &proto.MiscConsumes{ElixirOfRapidGrowth: true},
++		},
++		pullMS,
++	)
++	initial := env.State()
++	initialStamina := env.player().GetCharacter().GetStat(stats.Stamina)
++	available := findPrecombatAction(t, env, rapidGrowth)
++	if !available.Legal || available.TriggersGCD || available.CooldownDurationMS != 120_000 {
++		t.Fatalf("Rapid Growth action metadata is wrong: %+v", available)
++	}
++	if result, err := env.Apply(rapidGrowth); err != nil || !result.Casted || result.ConsumesDecision {
++		t.Fatalf("Rapid Growth was not accepted precombat: result=%+v err=%v", result, err)
++	}
++	afterGrowth := env.State()
++	if got := afterGrowth.Strength - initial.Strength; got != 30 {
++		t.Fatalf("Rapid Growth strength delta = %v, want 30", got)
++	}
++	if aura := activeAuraByLabel(t, afterGrowth, "Elixir of Rapid Growth"); aura.RemainingMS != 120_000 {
++		t.Fatalf("Rapid Growth duration = %dms, want 120000ms", aura.RemainingMS)
++	}
++	if err := env.Wait(120 * time.Second); err != nil {
++		t.Fatal(err)
++	}
++	if finished, err := env.AdvanceUntilDecision(); err != nil || finished {
++		t.Fatalf("advance through Rapid Growth expiry failed: finished=%v err=%v", finished, err)
++	}
++	afterExpire := env.State()
++	if got := afterExpire.Strength - initial.Strength; got != -25 {
++		t.Fatalf("Rapid Deterioration strength delta = %v, want -25", got)
++	}
++	if got := env.player().GetCharacter().GetStat(stats.Stamina) - initialStamina; got != -25 {
++		t.Fatalf("Rapid Deterioration stamina delta = %v, want -25", got)
++	}
++	if aura := activeAuraByLabel(t, afterExpire, "Rapid Deterioration"); aura.RemainingMS != 120_000 {
++		t.Fatalf("Rapid Deterioration duration = %dms, want 120000ms", aura.RemainingMS)
++	}
++	ready := findPrecombatAction(t, env, rapidGrowth)
++	if !ready.Legal || ready.ReadyInMS != 0 || ready.CooldownDurationMS != 120_000 {
++		t.Fatalf("Rapid Growth did not recover on its native 120s clock: %+v", ready)
++	}
++}
++
++func TestPrecombatRapidGrowthDoesNotShareCombatPotionCooldown(t *testing.T) {
++	rapidGrowth := ActionRef{ItemID: 56113}
++	mightyRage := ActionRef{ItemID: 13442}
++	env := newPrecombatTestEnvironmentWithConsumesAt(
++		t,
++		[]ActionRef{rapidGrowth, mightyRage},
++		&proto.Consumes{
++			DefaultPotion: proto.Potions_MightyRagePotion,
++			MiscConsumes:  &proto.MiscConsumes{ElixirOfRapidGrowth: true},
++		},
++		precombatTestPullMS,
++	)
++	if result, err := env.Apply(rapidGrowth); err != nil || !result.Casted || result.ConsumesDecision {
++		t.Fatalf("Rapid Growth precombat cast failed: result=%+v err=%v", result, err)
++	}
++	potionBefore := findPrecombatAction(t, env, mightyRage)
++	if !potionBefore.Legal || potionBefore.ReadyInMS != 0 || potionBefore.CooldownDurationMS != 120_000 {
++		t.Fatalf("Rapid Growth incorrectly started the combat-potion clock: %+v", potionBefore)
++	}
++	if result, err := env.Apply(mightyRage); err != nil || !result.Casted || result.ConsumesDecision {
++		t.Fatalf("Mighty Rage after Rapid Growth failed: result=%+v err=%v", result, err)
++	}
++	rapidAfter := findPrecombatAction(t, env, rapidGrowth)
++	potionAfter := findPrecombatAction(t, env, mightyRage)
++	if rapidAfter.ReadyInMS != 120_000 || potionAfter.ReadyInMS != 120_000 {
++		t.Fatalf("independent clocks were not both started: rapid=%+v potion=%+v", rapidAfter, potionAfter)
++	}
++}
++
++func activeAuraByLabel(t *testing.T, state State, label string) AuraState {
++	t.Helper()
++	for _, aura := range state.Auras {
++		if aura.Label == label {
++			return aura
++		}
++	}
++	t.Fatalf("active aura %q not found: %+v", label, state.Auras)
++	return AuraState{}
++}
++
++func findPrecombatAction(t *testing.T, env *Environment, ref ActionRef) AvailableAction {
++	t.Helper()
++	for _, action := range env.AvailableActions() {
++		if action.Action == ref {
++			return action
++		}
++	}
++	t.Fatalf("action not exported: %+v", ref)
++	return AvailableAction{}
++}
++
++func TestPrecombatPotionCastsWhileTargetIsUnattackableAndPersistsAcrossPull(t *testing.T) {
++	potion := ActionRef{ItemID: 13442}
++	env := newPrecombatTestEnvironment(t, []ActionRef{potion}, true)
++	initial := env.State()
++	if initial.TimeMS != 0 || initial.NumTargets != 0 || !initial.NeedsInput ||
++		initial.Precombat == nil || !initial.Precombat.Active || initial.Precombat.RelativeTimeMS != -precombatTestPullMS {
++		t.Fatalf("initial precombat state is wrong: %+v", initial)
++	}
++	available := findPrecombatAction(t, env, potion)
++	if !available.Legal || available.TriggersGCD || available.ResultBearing {
++		t.Fatalf("Mighty Rage potion legality/lanes are wrong: %+v", available)
++	}
++	if available.CooldownDurationMS != 120_000 {
++		t.Fatalf("Mighty Rage cooldown duration = %dms, want 120000ms", available.CooldownDurationMS)
++	}
++	strengthBefore := initial.Strength
++	result, err := env.Apply(potion)
++	if err != nil || !result.Casted || result.ConsumesDecision || !result.NeedsInput {
++		t.Fatalf("precombat potion was not accepted: result=%+v err=%v", result, err)
++	}
++	afterPotion := env.State()
++	if afterPotion.DamageDone != 0 || afterPotion.Strength <= strengthBefore {
++		t.Fatalf("precombat potion changed damage or missed its self buff: %+v", afterPotion)
++	}
++	foundAura := false
++	for _, aura := range afterPotion.Auras {
++		if aura.Label == "Mighty Rage Potion" && aura.RemainingMS == 20_000 {
++			foundAura = true
++		}
++	}
++	if !foundAura {
++		t.Fatalf("Mighty Rage aura was not active for its full initial duration: %+v", afterPotion.Auras)
++	}
++
++	if err := env.Wait(time.Second); err != nil {
++		t.Fatal(err)
++	}
++	if finished, err := env.AdvanceUntilDecision(); err != nil || finished {
++		t.Fatalf("advance to pull failed: finished=%v err=%v", finished, err)
++	}
++	atPull := env.State()
++	if atPull.TimeMS != precombatTestPullMS || atPull.NumTargets != 1 ||
++		atPull.Precombat == nil || atPull.Precombat.Active || atPull.Precombat.RelativeTimeMS != 0 {
++		t.Fatalf("pull boundary is wrong: %+v", atPull)
++	}
++	ready := findPrecombatAction(t, env, potion)
++	if ready.ReadyInMS != 119_000 || ready.Legal {
++		t.Fatalf("potion cooldown did not naturally cross the pull: %+v", ready)
++	}
++}
++
++func TestPrecombatGCDNaturallyRemainsAtPull(t *testing.T) {
++	shout := ActionRef{SpellID: 25289}
++	env := newPrecombatTestEnvironment(t, []ActionRef{shout}, false)
++	if err := env.Wait(500 * time.Millisecond); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	available := findPrecombatAction(t, env, shout)
++	if !available.Legal || !available.TriggersGCD {
++		t.Fatalf("Battle Shout was not an admitted GCD self-buff: %+v", available)
++	}
++	result, err := env.Apply(shout)
++	if err != nil || !result.Casted || !result.ConsumesDecision {
++		t.Fatalf("Battle Shout was not cast precombat: result=%+v err=%v", result, err)
++	}
++	if got := env.State().GCDRemainingMS; got != 1500 {
++		t.Fatalf("GCD immediately after precombat shout = %dms, want 1500ms", got)
++	}
++	for env.sim.CurrentTime < time.Duration(precombatTestPullMS)*time.Millisecond {
++		if env.sim.Step() {
++			t.Fatal("simulator terminated before pull")
++		}
++	}
++	atPull := env.State()
++	if atPull.TimeMS != precombatTestPullMS || atPull.GCDRemainingMS != 1000 || atPull.NumTargets != 1 {
++		t.Fatalf("precombat GCD did not naturally cross the pull: %+v", atPull)
++	}
++}
++
++func TestPrecombatBurstActionsComposeAtMinus3000AndMinus1500(t *testing.T) {
++	const pullMS int64 = 3000
++	potion := ActionRef{ItemID: 13442}
++	deathWish := ActionRef{SpellID: 12328}
++	recklessness := ActionRef{SpellID: 1719}
++	env := newPrecombatTestEnvironmentAt(
++		t, []ActionRef{potion, deathWish, recklessness}, true, pullMS,
++	)
++
++	for _, ref := range []ActionRef{potion, deathWish, recklessness} {
++		if action := findPrecombatAction(t, env, ref); !action.Legal || action.CooldownDurationMS <= 0 {
++			t.Fatalf("burst action is not legal at -3000ms: %+v", action)
++		}
++	}
++	if result, err := env.Apply(potion); err != nil || !result.Casted || result.ConsumesDecision {
++		t.Fatalf("-3000ms potion failed: result=%+v err=%v", result, err)
++	}
++	if result, err := env.Apply(deathWish); err != nil || !result.Casted || !result.ConsumesDecision {
++		t.Fatalf("-3000ms Death Wish failed: result=%+v err=%v", result, err)
++	}
++	if finished, err := env.AdvanceUntilDecision(); err != nil || finished {
++		t.Fatalf("advance to -1500ms failed: finished=%v err=%v", finished, err)
++	}
++	beforeReck := env.State()
++	if beforeReck.TimeMS != 1500 || beforeReck.Precombat == nil || beforeReck.Precombat.RelativeTimeMS != -1500 {
++		t.Fatalf("Death Wish GCD did not reach -1500ms decision: %+v", beforeReck)
++	}
++	if result, err := env.Apply(recklessness); err != nil || !result.Casted || !result.ConsumesDecision {
++		t.Fatalf("-1500ms Recklessness failed: result=%+v err=%v", result, err)
++	}
++	if finished, err := env.AdvanceUntilDecision(); err != nil || finished {
++		t.Fatalf("advance from Recklessness to pull failed: finished=%v err=%v", finished, err)
++	}
++	atPull := env.State()
++	if atPull.TimeMS != pullMS || atPull.NumTargets != 1 || atPull.GCDRemainingMS != 0 {
++		t.Fatalf("combined burst did not land exactly at pull: %+v", atPull)
++	}
++	if got := activeAuraByLabel(t, atPull, "Mighty Rage Potion").RemainingMS; got != 17_000 {
++		t.Fatalf("Mighty Rage duration at pull = %dms, want 17000ms", got)
++	}
++	if got := activeAuraByLabel(t, atPull, "Death Wish").RemainingMS; got != 27_000 {
++		t.Fatalf("Death Wish duration at pull = %dms, want 27000ms", got)
++	}
++	if got := activeAuraByLabel(t, atPull, "Recklessness").RemainingMS; got != 13_500 {
++		t.Fatalf("Recklessness duration at pull = %dms, want 13500ms", got)
++	}
++}
++
++func TestPrecombatRecklessnessGCDNaturallyRemainsAtPull(t *testing.T) {
++	recklessness := ActionRef{SpellID: 1719}
++	env := newPrecombatTestEnvironment(t, []ActionRef{recklessness}, false)
++	if err := env.Wait(500 * time.Millisecond); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := env.AdvanceUntilDecision(); err != nil {
++		t.Fatal(err)
++	}
++	if action := findPrecombatAction(t, env, recklessness); !action.Legal || !action.TriggersGCD {
++		t.Fatalf("Recklessness was not an admitted GCD self-buff: %+v", action)
++	}
++	if result, err := env.Apply(recklessness); err != nil || !result.Casted || !result.ConsumesDecision {
++		t.Fatalf("precombat Recklessness failed: result=%+v err=%v", result, err)
++	}
++	for env.sim.CurrentTime < time.Duration(precombatTestPullMS)*time.Millisecond {
++		if env.sim.Step() {
++			t.Fatal("simulator terminated before pull")
++		}
++	}
++	atPull := env.State()
++	if atPull.TimeMS != precombatTestPullMS || atPull.GCDRemainingMS != 1000 || atPull.NumTargets != 1 {
++		t.Fatalf("Recklessness GCD did not naturally cross pull: %+v", atPull)
++	}
++}
++
++func TestPrecombatDoesNotOpenHostileOrUndeclaredActions(t *testing.T) {
++	potion := ActionRef{ItemID: 13442}
++	bloodthirst := ActionRef{SpellID: 23894}
++	env := newPrecombatTestEnvironment(t, []ActionRef{potion}, true)
++	if findPrecombatAction(t, env, bloodthirst).Legal {
++		t.Fatal("Bloodthirst became legal without an attackable target")
++	}
++	if _, err := env.Apply(bloodthirst); err == nil || !strings.Contains(err.Error(), "unattackable") {
++		t.Fatalf("undeclared hostile action did not fail at the target gate: %v", err)
++	}
++
++	request := dynamicRequest(1_000_000)
++	request.Encounter.Duration = 5
++	config := boundDynamicV3Config(
++		t,
++		DynamicRetargetNextAliveCyclic,
++		5000,
++		[]float64{1_000_000},
++		nil,
++		[]DynamicAttackabilityEventV2{
++			{ScheduleIndex: 0, TimeMS: 0, TargetIndex: 0, Attackable: false},
++			{ScheduleIndex: 1, TimeMS: precombatTestPullMS, TargetIndex: 0, Attackable: true},
++		},
++		nil,
++	)
++	invalid, _, err := NewDynamicV3(request, 872, config, 2)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer invalid.Cleanup()
++	err = invalid.ConfigurePrecombatActionsV1(PrecombatActionsConfigV1{
++		Schema:      PrecombatActionsSchemaV1,
++		PullTimeMS:  precombatTestPullMS,
++		SelfActions: []ActionRef{bloodthirst},
++	})
++	if err == nil || !strings.Contains(err.Error(), "not marked") {
++		t.Fatalf("hostile action was admitted as a precombat self action: %v", err)
++	}
++}
++
++func TestPrecombatAllowsPlayerReachabilityAfterPull(t *testing.T) {
++	potion := ActionRef{ItemID: 13442}
++	request := dynamicRequest(1_000_000)
++	request.Encounter.Duration = 5
++	request.Raid.Parties[0].Players[0].Consumes = &proto.Consumes{
++		DefaultPotion: proto.Potions_MightyRagePotion,
++	}
++	config := boundDynamicV3Config(
++		t,
++		DynamicRetargetNextAliveCyclic,
++		5000,
++		[]float64{1_000_000},
++		nil,
++		[]DynamicAttackabilityEventV2{
++			{ScheduleIndex: 0, TimeMS: 0, TargetIndex: 0, Attackable: false},
++			{ScheduleIndex: 1, TimeMS: 2500, TargetIndex: 0, Attackable: true},
++		},
++		nil,
++	)
++	env, _, err := NewDynamicV3(request, 873, config, 1)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer env.Cleanup()
++	if err := env.ConfigurePrecombatActionsV1(PrecombatActionsConfigV1{
++		Schema:      PrecombatActionsSchemaV1,
++		PullTimeMS:  precombatTestPullMS,
++		SelfActions: []ActionRef{potion},
++	}); err != nil {
++		t.Fatalf("post-pull reachability was rejected: %v", err)
++	}
++}
+diff --git a/sim/warrior/heroic_strike_cleave.go b/sim/warrior/heroic_strike_cleave.go
+index ba6902926..cf7479bf0 100644
+--- a/sim/warrior/heroic_strike_cleave.go
++++ b/sim/warrior/heroic_strike_cleave.go
+@@ -102,6 +102,9 @@ func (warrior *Warrior) makeQueueSpellsAndAura(srcSpell *WarriorSpell, realismIC
+ 			if warrior.curQueueAura != nil {
+ 				warrior.curQueueAura.Deactivate(sim)
+ 			}
++			if warrior.pendingQueuedAutoSpell == srcSpell {
++				warrior.pendingQueuedAutoSpell = nil
++			}
+ 			warrior.PseudoStats.DisableDWMissPenalty = true
+ 			warrior.curQueueAura = aura
+ 			warrior.curQueuedAutoSpell = srcSpell
+@@ -128,10 +131,14 @@ func (warrior *Warrior) makeQueueSpellsAndAura(srcSpell *WarriorSpell, realismIC
+ 		ApplyEffects: func(sim *core.Simulation, target *core.Unit, spell *core.Spell) {
+ 			if realismICD.IsReady(sim) {
+ 				isQueueQueued = true
++				warrior.pendingQueuedAutoSpell = srcSpell
+ 				realismICD.Use(sim)
+ 				sim.AddPendingAction(&core.PendingAction{
+ 					NextActionAt: sim.CurrentTime + realismICD.Duration,
+ 					OnAction: func(sim *core.Simulation) {
++						if warrior.pendingQueuedAutoSpell == srcSpell {
++							warrior.pendingQueuedAutoSpell = nil
++						}
+ 						queueAura.Activate(sim)
+ 						isQueueQueued = false
+ 					},
+@@ -143,6 +150,30 @@ func (warrior *Warrior) makeQueueSpellsAndAura(srcSpell *WarriorSpell, realismIC
+ 	return queueSpell
+ }
+ 
++// O2OSwingQueueState exposes the next-swing replacement accepted by the
++// warrior queue machinery, including the reaction-delay interval before its
++// aura becomes active.
++func (warrior *Warrior) O2OSwingQueueState() (kind string, status string) {
++	if warrior.curQueueAura != nil && warrior.curQueueAura.IsActive() {
++		return warrior.o2oSwingQueueKind(warrior.curQueuedAutoSpell), "ACTIVE"
++	}
++	if warrior.pendingQueuedAutoSpell != nil {
++		return warrior.o2oSwingQueueKind(warrior.pendingQueuedAutoSpell), "PENDING"
++	}
++	return "NONE", "NONE"
++}
++
++func (warrior *Warrior) o2oSwingQueueKind(spell *WarriorSpell) string {
++	switch spell {
++	case warrior.HeroicStrike:
++		return "HEROIC_STRIKE"
++	case warrior.Cleave:
++		return "CLEAVE"
++	default:
++		return "UNKNOWN"
++	}
++}
++
+ func (warrior *Warrior) TryHSOrCleave(sim *core.Simulation, mhSwingSpell *core.Spell) *core.Spell {
+ 	if warrior.curQueueAura == nil || !warrior.curQueueAura.IsActive() {
+ 		return mhSwingSpell
+diff --git a/sim/warrior/recklessness.go b/sim/warrior/recklessness.go
+index db79da601..858100c5b 100644
+--- a/sim/warrior/recklessness.go
++++ b/sim/warrior/recklessness.go
+@@ -32,6 +32,7 @@ func (warrior *Warrior) RegisterRecklessnessCD() {
+ 
+ 	Recklessness := warrior.RegisterSpell(BerserkerStance, core.SpellConfig{
+ 		ActionID: actionID,
++		Flags:    core.SpellFlagHelpful,
+ 		Cast: core.CastConfig{
+ 			IgnoreHaste: true,
+ 			DefaultCast: core.Cast{
+diff --git a/sim/warrior/stances.go b/sim/warrior/stances.go
+index e61d92120..4cd9c497c 100644
+--- a/sim/warrior/stances.go
++++ b/sim/warrior/stances.go
+@@ -29,6 +29,20 @@ func (warrior *Warrior) StanceMatches(other Stance) bool {
+ 	return warrior.Stance.Matches(other)
+ }
+ 
++// O2OStanceName returns the warrior's current stance in a stable wire form.
++func (warrior *Warrior) O2OStanceName() string {
++	switch warrior.Stance {
++	case BattleStance:
++		return "BATTLE"
++	case DefensiveStance:
++		return "DEFENSIVE"
++	case BerserkerStance:
++		return "BERSERKER"
++	default:
++		return "UNKNOWN"
++	}
++}
++
+ func (warrior *Warrior) makeStanceSpell(stance Stance, aura *core.Aura, stanceCD *core.Timer) *WarriorSpell {
+ 	spellCode := map[Stance]int32{
+ 		BattleStance:    SpellCode_WarriorStanceBattle,
+diff --git a/sim/warrior/warrior.go b/sim/warrior/warrior.go
+index 2a5d71ff2..c9d9518b7 100644
+--- a/sim/warrior/warrior.go
++++ b/sim/warrior/warrior.go
+@@ -101,12 +101,13 @@ type Warrior struct {
+ 	ConcussionBlow    *WarriorSpell
+ 	Hamstring         *WarriorSpell
+ 
+-	HeroicStrike       *WarriorSpell
+-	HeroicStrikeQueue  *WarriorSpell
+-	Cleave             *WarriorSpell
+-	CleaveQueue        *WarriorSpell
+-	curQueueAura       *core.Aura
+-	curQueuedAutoSpell *WarriorSpell
++	HeroicStrike           *WarriorSpell
++	HeroicStrikeQueue      *WarriorSpell
++	Cleave                 *WarriorSpell
++	CleaveQueue            *WarriorSpell
++	curQueueAura           *core.Aura
++	curQueuedAutoSpell     *WarriorSpell
++	pendingQueuedAutoSpell *WarriorSpell
+ 
+ 	BattleStanceAura    *core.Aura
+ 	DefensiveStanceAura *core.Aura
+@@ -203,6 +204,7 @@ func (warrior *Warrior) Initialize() {
+ func (warrior *Warrior) Reset(sim *core.Simulation) {
+ 	warrior.curQueueAura = nil
+ 	warrior.curQueuedAutoSpell = nil
++	warrior.pendingQueuedAutoSpell = nil
+ 
+ 	// Reset Stance
+ 	switch warrior.WarriorInputs.Stance {

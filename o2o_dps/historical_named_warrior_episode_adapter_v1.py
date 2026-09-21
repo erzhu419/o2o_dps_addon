@@ -107,7 +107,7 @@ ACTION_ONTOLOGY: tuple[ActionSpec, ...] = (
     ActionSpec("warrior.charge", frozenset({11578}), _aliases("Charge", "冲锋"), "gcd"),
     ActionSpec("warrior.intercept", frozenset({20617}), _aliases("Intercept", "拦截"), "gcd"),
     ActionSpec("warrior.berserker_rage", frozenset({18499}), _aliases("Berserker Rage", "狂暴之怒"), "off_gcd"),
-    ActionSpec("warrior.recklessness", frozenset({1719}), _aliases("Recklessness", "鲁莽"), "off_gcd"),
+    ActionSpec("warrior.recklessness", frozenset({1719}), _aliases("Recklessness", "鲁莽"), "gcd"),
 )
 
 _SPEC_BY_ID = {

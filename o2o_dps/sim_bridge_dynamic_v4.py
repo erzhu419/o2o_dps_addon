@@ -35,7 +35,7 @@ JSONMap = dict[str, Any]
 
 DYNAMIC_TARGET_SEMANTICS_SCHEMA_V4 = "o2o_dynamic_target_semantics/v4"
 DYNAMIC_TEAM_RESPONSE_STATE_SCHEMA_V1 = (
-    "o2o_dynamic_team_response_receipts/v1"
+    "o2o_dynamic_team_response_receipts/v2"
 )
 DYNAMIC_TEAM_WAKE_SCHEMA_V1 = "o2o_dynamic_team_wake/v1"
 DYNAMIC_SAME_TIMESTAMP_ORDER_V4 = (
@@ -1210,33 +1210,45 @@ def _parse_idle_state_v4(
     needs_input = _v2._strict_bool_field(state, "needs_input")
     time_ms = _v2._nonnegative_int_field(state, "time_ms")
     num_targets = _v2._nonnegative_int_field(state, "num_targets")
-    if (
-        result.schema != _v3.DYNAMIC_IDLE_ADVANCE_RECEIPT_SCHEMA_V3
-        or result.config_digest != config.content_sha256
-        or result.environment_generation != generation
-        or result.mode != config.idle_advance_mode
-        or result.horizon_ms != config.idle_advance_horizon_ms
-        or result.stream_closed != finished
-        or time_ms > result.horizon_ms
-        or result.total_auto_advanced_ms > time_ms
-        or result.active
-        and (
-            needs_input
-            or num_targets != 0
-            or result.planned_wake_source
-            not in _v3.DYNAMIC_IDLE_WAKE_SOURCES_V3
-            or result.active_start_time_ms is None
-            or result.planned_wake_time_ms is None
-            or result.active_start_time_ms > time_ms
-            or result.planned_wake_time_ms < time_ms
-            or result.planned_wake_time_ms > result.horizon_ms
-        )
-        or needs_input
-        and num_targets == 0
-        and wake_ready is None
+    violations = []
+    if result.schema != _v3.DYNAMIC_IDLE_ADVANCE_RECEIPT_SCHEMA_V3:
+        violations.append("schema")
+    if result.config_digest != config.content_sha256:
+        violations.append("config_digest")
+    if result.environment_generation != generation:
+        violations.append("environment_generation")
+    if result.mode != config.idle_advance_mode:
+        violations.append("mode")
+    if result.horizon_ms != config.idle_advance_horizon_ms:
+        violations.append("horizon_ms")
+    if result.stream_closed != finished:
+        violations.append(f"stream_closed={result.stream_closed},finished={finished}")
+    if time_ms > result.horizon_ms:
+        violations.append(f"time_ms={time_ms}>horizon_ms={result.horizon_ms}")
+    if result.total_auto_advanced_ms > time_ms:
+        violations.append("total_auto_advanced_ms>time_ms")
+    if result.active and (
+        needs_input and wake_ready is None
+        or num_targets != 0
+        or result.planned_wake_source not in _v3.DYNAMIC_IDLE_WAKE_SOURCES_V3
+        or result.active_start_time_ms is None
+        or result.planned_wake_time_ms is None
+        or result.active_start_time_ms > time_ms
+        or result.planned_wake_time_ms < time_ms
+        or result.planned_wake_time_ms > result.horizon_ms
     ):
+        violations.append(
+            f"active_wake(finished={finished},needs_input={needs_input},"
+            f"num_targets={num_targets},wake_ready={wake_ready is not None},"
+            f"source={result.planned_wake_source},time_ms={time_ms},"
+            f"start_ms={result.active_start_time_ms},wake_ms={result.planned_wake_time_ms})"
+        )
+    if needs_input and num_targets == 0 and wake_ready is None:
+        violations.append("empty_target_input_without_ready_wake")
+    if violations:
         raise SimBridgeProtocolError(
-            "dynamic-v4 idle state violates its lifecycle/horizon binding"
+            "dynamic-v4 idle state violates its lifecycle/horizon binding: "
+            + "; ".join(violations)
         )
     return result
 

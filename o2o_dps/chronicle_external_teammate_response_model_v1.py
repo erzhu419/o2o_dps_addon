@@ -8,7 +8,9 @@ compiles exact-GUID player event streams into two causal views:
 * an emission state ending strictly before the current EventMeta row.
 
 The first view trains a semi-Markov inter-event clock.  The second trains the
-event mark, target choice, and damage heads at the sampled emission time.  A
+event mark and the joint target-choice/damage head at the sampled emission
+time.  Marginal target and damage counters are retained for diagnostics, but
+runtime sampling never combines them independently.  A
 simulator can therefore let candidate and other-team events change the live
 prefix before choosing a teammate's next mark/damage.  Target deaths truncate
 the generated team clock and force live retargeting rather than replaying a
@@ -37,7 +39,7 @@ from . import chronicle_external_team_wave_model_v2 as wave_model_v2
 ROW_SCHEMA = "chronicle_external_teammate_response_transition/v1"
 SUFFICIENT_ROW_SCHEMA = "chronicle_external_teammate_response_sufficient_transition/v1"
 SPLIT_SCHEMA = "chronicle_external_teammate_response_component_split/v1"
-MODEL_SCHEMA = "chronicle_external_teammate_response_model/v1"
+MODEL_SCHEMA = "chronicle_external_teammate_response_model/v5"
 REMOTE_PLAN_SCHEMA = "chronicle_external_teammate_response_remote_plan/v1"
 STATUS = "DEVELOPMENT_ONLY_NONVOTING_NONCOMPARISON"
 
@@ -429,6 +431,8 @@ class _TargetPrefix:
     last_seen_ms: int
     prefix_damage: int = 0
     dead: bool = False
+    activity_seen: bool = False
+    first_activity_ms: int | None = None
 
 
 @dataclass(frozen=True)
@@ -437,6 +441,8 @@ class _Activity:
     actor_guid: str | None
     event_type: str
     damage: int
+    target_guid: str | None
+    direct_start: bool
 
 
 @dataclass
@@ -445,6 +451,8 @@ class _ActorPrefix:
     last_mark_token: str | None = None
     last_spell_id: int | None = None
     last_target_guid: str | None = None
+    last_direct_white6603_ms: int | None = None
+    has_prior_direct_hostile_start: bool = False
 
 
 @dataclass
@@ -465,6 +473,54 @@ class _PrefixReplay:
     def _prune(self, time_ms: int) -> None:
         while self.recent and time_ms - self.recent[0].time_ms > 3_000:
             self.recent.popleft()
+
+    @staticmethod
+    def _white6603_prefix_fields(actor: _ActorPrefix, time_ms: int) -> dict[str, Any]:
+        last_white_ms = actor.last_direct_white6603_ms
+        return {
+            "actor_last_direct_white6603_ms": last_white_ms,
+            "time_since_actor_direct_white6603_ms": (
+                time_ms - last_white_ms if last_white_ms is not None else None
+            ),
+            "actor_has_prior_direct_hostile_start": actor.has_prior_direct_hostile_start,
+            "white6603_phase": "FIRST" if last_white_ms is None else "REPEAT",
+            "white6603_age_ms": (
+                time_ms if last_white_ms is None else time_ms - last_white_ms
+            ),
+        }
+
+    def target_choice_candidates(
+        self,
+        time_ms: int,
+        *,
+        recent_actions: Counter[str] | None = None,
+        recent_damage: Counter[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Targets known from the strict prefix, never the current label."""
+
+        self._prune(time_ms)
+        if recent_actions is None or recent_damage is None:
+            recent_actions = Counter()
+            recent_damage = Counter()
+            for row in self.recent:
+                if row.target_guid is None:
+                    continue
+                if row.direct_start:
+                    recent_actions[row.target_guid] += 1
+                recent_damage[row.target_guid] += row.damage
+        return [
+            {
+                "target_guid": target.guid,
+                "first_activity_ms": target.first_activity_ms,
+                "prefix_damage": target.prefix_damage,
+                "recent_direct_start_count_3000ms": recent_actions[target.guid],
+                "recent_damage_amount_3000ms": recent_damage[target.guid],
+            }
+            for target in sorted(self.targets.values(), key=lambda item: item.guid)
+            if target.lane == "HOSTILE_CREATURE"
+            and target.activity_seen
+            and not target.dead
+        ]
 
     @staticmethod
     def _activity_summaries(
@@ -565,6 +621,7 @@ class _PrefixReplay:
             "actor_last_mark_token": actor.last_mark_token,
             "actor_last_spell_id": actor.last_spell_id,
             "actor_last_target_guid": actor.last_target_guid,
+            **self._white6603_prefix_fields(actor, time_ms),
             "marked_activity": activity,
             "target_state": {
                 "alive_target_guids": alive,
@@ -578,9 +635,12 @@ class _PrefixReplay:
                         "last_seen_ms": target.last_seen_ms,
                         "prefix_damage": target.prefix_damage,
                         "observed_dead": target.dead,
+                        "activity_seen": target.activity_seen,
+                        "first_activity_ms": target.first_activity_ms,
                     }
                     for target in sorted(self.targets.values(), key=lambda item: item.guid)
                 ],
+                "target_choice_candidates": self.target_choice_candidates(time_ms),
             },
             "future_event_or_death_visible": False,
         }
@@ -592,6 +652,7 @@ class _PrefixReplay:
         time_ms: int,
         cutoff_order_key: Sequence[int] | None,
         cutoff_semantics: str,
+        include_target_choice: bool = False,
     ) -> dict[str, Any]:
         """Return only the causal fields consumed by B/C/D statistics."""
 
@@ -599,13 +660,17 @@ class _PrefixReplay:
         actor = self.actors[actor_guid]
         other_action_count = 0
         other_damage_amount = 0
+        target_actions: Counter[str] = Counter()
+        target_damage: Counter[str] = Counter()
         for row in self.recent:
             age_ms = time_ms - row.time_ms
-            if (
-                age_ms < 0
-                or age_ms > 3_000
-                or row.actor_guid == actor_guid
-            ):
+            if age_ms < 0 or age_ms > 3_000:
+                continue
+            if include_target_choice and row.target_guid is not None:
+                if row.direct_start:
+                    target_actions[row.target_guid] += 1
+                target_damage[row.target_guid] += row.damage
+            if row.actor_guid == actor_guid:
                 continue
             other_action_count += row.event_type in ACTION_EVENT_TYPES
             other_damage_amount += row.damage
@@ -619,14 +684,30 @@ class _PrefixReplay:
                 list(cutoff_order_key) if cutoff_order_key else None
             ),
             "prefix_trace_exclusive_index": self.prefix_trace_count,
+            "wave_elapsed_ms": time_ms,
             "actor_last_mark_token": actor.last_mark_token,
+            "actor_last_target_guid": actor.last_target_guid,
+            **self._white6603_prefix_fields(actor, time_ms),
             "marked_activity": {
                 "other_team_including_unattributed": {
                     "action_event_count_3000ms": other_action_count,
                     "damage_amount_3000ms": other_damage_amount,
                 }
             },
-            "target_state": {"alive_target_count": alive_target_count},
+            "target_state": {
+                "alive_target_count": alive_target_count,
+                **(
+                    {
+                        "target_choice_candidates": self.target_choice_candidates(
+                            time_ms,
+                            recent_actions=target_actions,
+                            recent_damage=target_damage,
+                        )
+                    }
+                    if include_target_choice
+                    else {}
+                ),
+            },
             "future_event_or_death_visible": False,
         }
 
@@ -638,6 +719,7 @@ class _PrefixReplay:
         *,
         damage: int = 0,
         dead: bool = False,
+        activity_seen: bool = False,
     ) -> None:
         if guid is None:
             return
@@ -651,6 +733,9 @@ class _PrefixReplay:
             target.last_seen_ms = time_ms
         target.prefix_damage += damage
         target.dead = target.dead or dead
+        if activity_seen and not target.activity_seen:
+            target.first_activity_ms = time_ms
+        target.activity_seen = target.activity_seen or activity_seen
 
     def observe(self, trace: Mapping[str, Any]) -> None:
         kind = _text(trace.get("trace_kind"), "trace_kind")
@@ -697,8 +782,22 @@ class _PrefixReplay:
                 _mapping(event.get("damage"), "event damage").get("amount"),
                 "damage amount",
             )
-        self._observe_target(target_guid, target_lane, time_ms, damage=damage)
-        self.recent.append(_Activity(time_ms, actor_guid, event_type, damage))
+        self._observe_target(
+            target_guid, target_lane, time_ms, damage=damage, activity_seen=True
+        )
+        direct_intent = (
+            actor_guid is not None
+            and target_guid is not None
+            and target_lane == "HOSTILE_CREATURE"
+            and target.get("voting_enemy_target") is True
+            and _is_direct_target_intent(event, actor_guid)
+        )
+        self.recent.append(
+            _Activity(
+                time_ms, actor_guid, event_type, damage, target_guid,
+                direct_intent and event_type == "START",
+            )
+        )
         if actor_guid is not None:
             actor = self.actors[actor_guid]
             actor.last_event_ms = time_ms
@@ -707,7 +806,22 @@ class _PrefixReplay:
             actor.last_spell_id = (
                 spell.get("id") if isinstance(spell.get("id"), int) else None
             )
-            actor.last_target_guid = target_guid
+            if direct_intent and event_type == "START":
+                actor.has_prior_direct_hostile_start = True
+            if event_type == "DMG" and actor.last_spell_id == 6603:
+                attribution = _mapping(event.get("attribution"), "event attribution")
+                if (
+                    attribution.get("attribution_kind") == "DIRECT_FRIENDLY_PLAYER"
+                    and attribution.get("player_guid") == actor_guid
+                ):
+                    actor.last_direct_white6603_ms = time_ms
+            if (
+                target_guid is not None
+                and target_lane == "HOSTILE_CREATURE"
+                and target.get("voting_enemy_target") is True
+                and direct_intent
+            ):
+                actor.last_target_guid = target_guid
         self.prefix_trace_count += 1
 
 
@@ -719,6 +833,21 @@ def _mark_token(event: Mapping[str, Any]) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def _is_direct_target_intent(event: Mapping[str, Any], actor_guid: str) -> bool:
+    """A result hit on a secondary target is not an explicit target switch."""
+
+    attribution = _mapping(event.get("attribution"), "event attribution")
+    if (
+        attribution.get("attribution_kind") != "DIRECT_FRIENDLY_PLAYER"
+        or attribution.get("player_guid") != actor_guid
+    ):
+        return False
+    if event.get("event_type") == "START":
+        return True
+    spell = _mapping(event.get("spell"), "event spell")
+    return event.get("event_type") == "DMG" and spell.get("id") == 6603
 
 
 def _actor_metadata(player_record: Mapping[str, Any]) -> dict[str, Any]:
@@ -885,6 +1014,18 @@ def _iter_wave_response_rows_v1(
             time_ms=time_ms,
             cutoff_order_key=order,
             cutoff_semantics="STRICTLY_BEFORE_CURRENT_EVENTMETA_ROW",
+            **(
+                {"include_target_choice": True}
+                if sufficient_only
+                and (
+                    event_type == "START"
+                    or (
+                        event_type == "DMG"
+                        and _mapping(event.get("spell"), "event spell").get("id") == 6603
+                    )
+                )
+                else {}
+            ),
         )
         timing_state = timing_state_by_actor.get(actor_guid)
         if timing_state is None:
@@ -1153,6 +1294,124 @@ def _context_keys(
     return [available[level] for level in variant["context_levels"]]
 
 
+def _delay_context_keys(
+    actor: Mapping[str, Any],
+    timing_state: Mapping[str, Any],
+    variant_id: str,
+) -> list[tuple[str, ...]]:
+    # A first wake is measured from wave start; later wakes are measured from
+    # the preceding actor event.  In particular their GLOBAL heads must differ.
+    origin = (
+        "PREVIOUS_ACTOR_EVENT"
+        if _optional_text(timing_state.get("actor_last_mark_token"))
+        else "WAVE_START"
+    )
+    # The Stage-5 wave-start timing snapshot is taken before every trace row,
+    # so its prefix-observed hostile count is 0. A simulator may already have
+    # registered attackable targets at t=0. Project only the first-wake delay
+    # context to that training definition; leave the live target registry and
+    # emission/after-event contexts untouched.
+    delay_state = (
+        {**timing_state, "target_state": {"alive_target_count": 0}}
+        if origin == "WAVE_START"
+        else timing_state
+    )
+    return [
+        (context[0], origin, *context[1:])
+        for context in _context_keys(actor, delay_state, variant_id)
+    ]
+
+
+def _target_choice_features(
+    candidates: Sequence[Mapping[str, Any]],
+) -> dict[str, tuple[str, str, str]]:
+    """Coarse relative features shared by strict-prefix training and runtime."""
+
+    if not candidates:
+        return {}
+    max_actions = max(int(item["recent_direct_start_count_3000ms"]) for item in candidates)
+    max_damage = max(int(item["recent_damage_amount_3000ms"]) for item in candidates)
+    earliest = min(int(item["first_activity_ms"]) for item in candidates)
+    result: dict[str, tuple[str, str, str]] = {}
+    for item in candidates:
+        guid = _text(item.get("target_guid"), "target-choice candidate guid")
+        actions = _count(item.get("recent_direct_start_count_3000ms"), "recent direct STARTs")
+        damage = _count(item.get("recent_damage_amount_3000ms"), "recent damage")
+        result[guid] = (
+            "ACTION_LEADER" if max_actions > 0 and actions == max_actions else (
+                "NO_ACTION" if max_actions == 0 else "ACTION_OTHER"
+            ),
+            "DAMAGE_LEADER" if max_damage > 0 and damage == max_damage else (
+                "NO_DAMAGE" if max_damage == 0 else "DAMAGE_OTHER"
+            ),
+            "EARLIEST_SEEN"
+            if item["first_activity_ms"] == earliest
+            else "LATER_SEEN",
+        )
+    return result
+
+
+def _target_choice_training_observations(
+    row: Mapping[str, Any],
+) -> tuple[str, dict[str, tuple[str, str, str]], str] | None:
+    """One directed START/white-6603 choice and its prefix-only negatives."""
+
+    label = _mapping(row.get("label"), "row label")
+    if label.get("attribution_kind") != "DIRECT_FRIENDLY_PLAYER" or label.get(
+        "target_mode"
+    ) not in {"STAY_ALIVE", "SWITCH_ALIVE"}:
+        return None
+    if label.get("event_type") == "START":
+        intent_kind = "START"
+    elif label.get("event_type") == "DMG" and label.get("spell_id") == 6603:
+        intent_kind = "WHITE6603"
+    else:
+        return None
+    state = _mapping(row.get("emission_state_before_current_event"), "emission state")
+    target_state = _mapping(state.get("target_state"), "target state")
+    raw_candidates = target_state.get("target_choice_candidates", ())
+    candidates = [
+        _mapping(item, "target-choice candidate") for item in raw_candidates
+    ]
+    selected = _optional_text(label.get("target_guid"))
+    if selected is None or selected not in {
+        item.get("target_guid") for item in candidates
+    }:
+        # The first event exposing a target cannot retroactively make it a
+        # decision-time candidate. In particular it creates no negatives.
+        return None
+    previous = _optional_text(state.get("actor_last_target_guid"))
+    if previous == selected:
+        return None  # Staying has a deterministic target, not a choice head.
+    alternatives = [
+        item for item in candidates if item.get("target_guid") != previous
+    ]
+    if len(alternatives) < 2:
+        return None
+    phase = f"{intent_kind}_{'FIRST_ACQUISITION' if previous is None else 'RETARGET'}"
+    return phase, _target_choice_features(alternatives), selected
+
+
+def _sample_target_choice_from_counts(
+    *,
+    counts: Mapping[str, tuple[int, int]],
+    rng: random.Random,
+) -> str | None:
+    if not counts:
+        return None
+    ordered = sorted(counts)
+    weights = [
+        (positive + 1) / (positive + negative + 2)
+        for positive, negative in (counts[guid] for guid in ordered)
+    ]
+    threshold = rng.random() * sum(weights)
+    for guid, weight in zip(ordered, weights):
+        threshold -= weight
+        if threshold < 0:
+            return guid
+    return ordered[-1]
+
+
 class HierarchicalMarkedSemiMarkovV1:
     """Mergeable empirical response baseline with exact-GUID backoff."""
 
@@ -1184,8 +1443,14 @@ class HierarchicalMarkedSemiMarkovV1:
         self.delay_counts: dict[tuple[str, ...], Counter[int]] = defaultdict(Counter)
         self.target_counts: dict[tuple[tuple[str, ...], str], Counter[str]] = defaultdict(Counter)
         self.damage_counts: dict[tuple[tuple[str, ...], str], Counter[int]] = defaultdict(Counter)
+        self.target_damage_joint_counts: dict[
+            tuple[tuple[str, ...], str], Counter[tuple[str, int]]
+        ] = defaultdict(Counter)
         self.spell_name_counts: dict[str, Counter[str | None]] = defaultdict(Counter)
         self.source_guid_counts: dict[tuple[str, str], Counter[str | None]] = defaultdict(Counter)
+        self.target_choice_counts: dict[
+            tuple[tuple[str, ...], str, tuple[str, str, str]], Counter[bool]
+        ] = defaultdict(Counter)
         self.row_count = 0
 
     def update(self, row: Mapping[str, Any]) -> None:
@@ -1208,9 +1473,27 @@ class HierarchicalMarkedSemiMarkovV1:
         for context in _context_keys(actor, emission, self.variant_id):
             self.mark_counts[context][token] += 1
             self.target_counts[(context, token)][target_mode] += 1
-            self.damage_counts[(context, token)][_damage_bucket(damage)] += 1
-        for context in _context_keys(actor, timing, self.variant_id):
+            damage_bucket = _damage_bucket(damage)
+            self.damage_counts[(context, token)][damage_bucket] += 1
+            self.target_damage_joint_counts[(context, token)][
+                (target_mode, damage_bucket)
+            ] += 1
+        origin = _text(label.get("delay_origin"), "delay origin")
+        delay_contexts = _delay_context_keys(actor, timing, self.variant_id)
+        if origin != delay_contexts[0][1]:
+            raise ChronicleExternalTeammateResponseModelV1Error(
+                "delay origin differs from causal timing state"
+            )
+        for context in delay_contexts:
             self.delay_counts[context][_delay_bucket(delay)] += 1
+        choice = _target_choice_training_observations(row)
+        if choice is not None:
+            phase, features, selected = choice
+            for context in _context_keys(actor, emission, self.variant_id):
+                for guid, feature in features.items():
+                    self.target_choice_counts[(context, phase, feature)][
+                        guid == selected
+                    ] += 1
         spell_name = label.get("spell_name")
         self.spell_name_counts[token][spell_name if isinstance(spell_name, str) else None] += 1
         if "GUID" in self.variant["context_levels"]:
@@ -1229,12 +1512,72 @@ class HierarchicalMarkedSemiMarkovV1:
             (self.delay_counts, other.delay_counts),
             (self.target_counts, other.target_counts),
             (self.damage_counts, other.damage_counts),
+            (self.target_damage_joint_counts, other.target_damage_joint_counts),
             (self.spell_name_counts, other.spell_name_counts),
             (self.source_guid_counts, other.source_guid_counts),
+            (self.target_choice_counts, other.target_choice_counts),
         ):
             for key, counts in source.items():
                 destination[key].update(counts)
         self.row_count += other.row_count
+
+    def sample_target_choice(
+        self,
+        *,
+        actor: Mapping[str, Any],
+        emission_state: Mapping[str, Any],
+        target_mode: str,
+        intent_kind: str,
+        eligible_target_guids: Sequence[str],
+        current_target_guid: str | None,
+        rng: random.Random,
+    ) -> dict[str, Any] | None:
+        if (
+            target_mode not in {"STAY_ALIVE", "SWITCH_ALIVE"}
+            or intent_kind not in {"START", "WHITE6603"}
+        ):
+            return None
+        eligible = set(eligible_target_guids)
+        if target_mode == "SWITCH_ALIVE":
+            eligible.discard(current_target_guid)
+        if len(eligible) < 2:
+            return None
+        target_state = _mapping(emission_state.get("target_state"), "target state")
+        candidates = [
+            _mapping(item, "runtime target-choice candidate")
+            for item in target_state.get("target_choice_candidates", ())
+            if item.get("target_guid") in eligible
+        ]
+        if len(candidates) < 2:
+            return None
+        last_intended = _optional_text(emission_state.get("actor_last_target_guid"))
+        phase = f"{intent_kind}_{'FIRST_ACQUISITION' if last_intended is None else 'RETARGET'}"
+        features = _target_choice_features(candidates)
+        for context in _context_keys(actor, emission_state, self.variant_id):
+            by_guid: dict[str, tuple[int, int]] = {}
+            support = 0
+            seen_features: set[tuple[str, str, str]] = set()
+            for guid, feature in features.items():
+                counts = self.target_choice_counts.get((context, phase, feature))
+                if counts:
+                    positive, negative = counts[True], counts[False]
+                    by_guid[guid] = positive, negative
+                    if feature not in seen_features:
+                        support += positive + negative
+                        seen_features.add(feature)
+            if support >= self.minimums[context[0]] and by_guid:
+                for guid in features:
+                    by_guid.setdefault(guid, (0, 0))
+                selected = _sample_target_choice_from_counts(
+                    counts=by_guid, rng=rng
+                )
+                return {
+                    "target_guid": selected,
+                    "context_level": context[0],
+                    "phase": phase,
+                    "support": support,
+                }
+        return None
 
     def _select_context(
         self,
@@ -1256,7 +1599,19 @@ class HierarchicalMarkedSemiMarkovV1:
         timing_state: Mapping[str, Any],
         rng: random.Random,
     ) -> dict[str, Any]:
-        context = self._select_context(self.delay_counts, actor, timing_state)
+        context = next(
+            (
+                key
+                for key in _delay_context_keys(actor, timing_state, self.variant_id)
+                if sum(self.delay_counts.get(key, Counter()).values())
+                >= self.minimums[key[0]]
+            ),
+            None,
+        )
+        if context is None:
+            raise ChronicleExternalTeammateResponseModelV1Error(
+                "model has no delay-origin-specific global empirical support"
+            )
         bucket = _weighted_choice(self.delay_counts[context], rng)
         return {
             "delay_ms": _sample_delay_bucket(bucket, rng),
@@ -1276,8 +1631,9 @@ class HierarchicalMarkedSemiMarkovV1:
         context = self._select_context(self.mark_counts, actor, emission_state)
         token = _weighted_choice(self.mark_counts[context], rng)
         event_type, spell_id, attribution_kind = json.loads(token)
-        target_mode = _weighted_choice(self.target_counts[(context, token)], rng)
-        damage_bucket = _weighted_choice(self.damage_counts[(context, token)], rng)
+        target_mode, damage_bucket = _weighted_choice(
+            self.target_damage_joint_counts[(context, token)], rng
+        )
         damage = _sample_damage_bucket(damage_bucket, rng) if event_type == "DMG" else 0
         actor_guid = _text(actor.get("player_guid"), "actor guid")
         source_counts = (
@@ -1297,6 +1653,9 @@ class HierarchicalMarkedSemiMarkovV1:
             "target_mode": target_mode,
             "sampled_damage": damage,
             "damage_bucket": damage_bucket,
+            "target_damage_joint_support": sum(
+                self.target_damage_joint_counts[(context, token)].values()
+            ),
             "context_level": context[0],
             "context": list(context),
             "support": sum(self.mark_counts[context].values()),
@@ -1317,6 +1676,7 @@ class DynamicTeamRuntimeV1:
         *,
         actors: Sequence[Mapping[str, Any]],
         target_health_by_guid: Mapping[str, int | float],
+        target_introduced_at_ms_by_guid: Mapping[str, int] | None = None,
     ) -> None:
         self.actors: dict[str, _RuntimeActor] = {}
         for raw in actors:
@@ -1339,13 +1699,45 @@ class DynamicTeamRuntimeV1:
             raise ChronicleExternalTeammateResponseModelV1Error(
                 "runtime requires at least one target"
             )
+        if target_introduced_at_ms_by_guid is None:
+            introductions = {guid: 0 for guid in self.health}
+        else:
+            introductions = {
+                _text(guid, "runtime introduced target guid"): _count(
+                    time_ms, "runtime target introduced_at_ms"
+                )
+                for guid, time_ms in target_introduced_at_ms_by_guid.items()
+            }
+            if set(introductions) != set(self.health):
+                raise ChronicleExternalTeammateResponseModelV1Error(
+                    "runtime target introductions must cover exactly the health registry"
+                )
+        self.target_introduced_at_ms_by_guid = introductions
         self.time_ms = 0
         self.kill_clock_ms: int | None = None
         self._replay = _PrefixReplay(0)
         for guid in sorted(self.health):
-            self._replay._observe_target(guid, "HOSTILE_CREATURE", 0)
+            if self.target_introduced_at_ms_by_guid[guid] == 0:
+                self._replay._observe_target(guid, "HOSTILE_CREATURE", 0)
 
     def alive_target_guids(self) -> list[str]:
+        """Return positive-health targets causally introduced by ``time_ms``."""
+
+        return sorted(
+            guid
+            for guid, health in self.health.items()
+            if health > 0
+            and self.target_introduced_at_ms_by_guid[guid] <= self.time_ms
+        )
+
+    def remaining_target_guids(self) -> list[str]:
+        """Return all positive-health targets, including future introductions.
+
+        Schedulers use this to distinguish a temporary no-current-target gap
+        from the terminal team kill clock.  Target selection must continue to
+        use :meth:`alive_target_guids` so a future target is never actionable.
+        """
+
         return sorted(guid for guid, health in self.health.items() if health > 0)
 
     def snapshot_for_actor(self, actor_guid: str, *, time_ms: int | None = None) -> dict[str, Any]:
@@ -1372,6 +1764,15 @@ class DynamicTeamRuntimeV1:
             raise ChronicleExternalTeammateResponseModelV1Error(
                 "runtime advance cannot move backwards"
             )
+        previous = self.time_ms
+        for guid, introduced_at_ms in sorted(
+            self.target_introduced_at_ms_by_guid.items(),
+            key=lambda row: (row[1], row[0]),
+        ):
+            if previous < introduced_at_ms <= now:
+                self._replay._observe_target(
+                    guid, "HOSTILE_CREATURE", introduced_at_ms
+                )
         self.time_ms = now
         self._replay._prune(now)
 
@@ -1402,6 +1803,7 @@ class DynamicTeamRuntimeV1:
         attribution_kind: str,
         exact_source_guid: str | None,
         target_mode: str,
+        observed_damage: int | float,
         requested_damage: int | float,
         rng: random.Random,
         actor_role: str,
@@ -1417,24 +1819,68 @@ class DynamicTeamRuntimeV1:
             raise ChronicleExternalTeammateResponseModelV1Error("unknown runtime actor")
         if event_type not in EVENT_TYPES:
             raise ChronicleExternalTeammateResponseModelV1Error("unsupported runtime event type")
-        damage = float(requested_damage)
-        if not math.isfinite(damage) or damage < 0 or (event_type != "DMG" and damage != 0):
+        observed = float(observed_damage)
+        requested = float(requested_damage)
+        if (
+            not math.isfinite(observed)
+            or observed < 0
+            or not math.isfinite(requested)
+            or requested < 0
+            or (event_type != "DMG" and (observed != 0 or requested != 0))
+        ):
             raise ChronicleExternalTeammateResponseModelV1Error(
                 "runtime damage is invalid for event type"
             )
+        if target_mode in {
+            "DEAD_TARGET_OBSERVED_DIAGNOSTIC",
+            "UNSEEN_HOSTILE_CURRENT_LABEL",
+        }:
+            raise ChronicleExternalTeammateResponseModelV1Error(
+                "diagnostic target mode is not an actionable live target"
+            )
+        if target_mode not in {
+            "NO_TARGET",
+            "NON_HOSTILE_OR_UNKNOWN",
+            "STAY_ALIVE",
+            "SWITCH_ALIVE",
+        }:
+            raise ChronicleExternalTeammateResponseModelV1Error(
+                "unsupported runtime target mode"
+            )
+        self.advance_to(now)
         requested_target = _optional_text(explicit_target_guid)
-        target_guid = (
-            requested_target
-            if requested_target in self.alive_target_guids()
-            else self._resolve_target(guid, target_mode, rng)
-        )
+        if target_mode in {"NO_TARGET", "NON_HOSTILE_OR_UNKNOWN"}:
+            if requested != 0:
+                raise ChronicleExternalTeammateResponseModelV1Error(
+                    "non-hostile runtime event cannot request hostile target damage"
+                )
+            target_guid = None
+            target_resolution_basis = "UNTARGETED_EVENT"
+        else:
+            target_resolution_basis = (
+                "EXPLICIT_TARGET_GUID"
+                if requested_target in self.alive_target_guids()
+                else "LEGACY_UNIFORM_RUNTIME_FALLBACK"
+            )
+            target_guid = (
+                requested_target
+                if requested_target in self.alive_target_guids()
+                else self._resolve_target(guid, target_mode, rng)
+            )
+        if target_guid is None and requested != 0:
+            raise ChronicleExternalTeammateResponseModelV1Error(
+                "hostile runtime damage requires a live target"
+            )
+        if target_guid is not None and observed != requested:
+            raise ChronicleExternalTeammateResponseModelV1Error(
+                "targeted runtime damage requires observed and requested damage to match"
+            )
         applied = 0.0
         killed = False
         if event_type == "DMG" and target_guid is not None:
-            applied = min(damage, self.health[target_guid])
+            applied = min(requested, self.health[target_guid])
             self.health[target_guid] -= applied
             killed = self.health[target_guid] <= 0
-        self.time_ms = now
         source_guid = exact_source_guid or guid
         synthetic_trace = {
             "trace_kind": "EXACT_PLAYER_EVENT",
@@ -1454,7 +1900,12 @@ class DynamicTeamRuntimeV1:
                     "player_guid": guid,
                 },
                 **(
-                    {"damage": {"amount": int(round(applied)), "amount_source": "DMG_ONLY"}}
+                    {
+                        "damage": {
+                            "amount": int(round(observed)),
+                            "amount_source": "OBSERVED_DMG_EVENT",
+                        }
+                    }
                     if event_type == "DMG"
                     else {}
                 ),
@@ -1466,7 +1917,10 @@ class DynamicTeamRuntimeV1:
             },
         }
         self._replay.observe(synthetic_trace)
-        self.actors[guid].current_target_guid = target_guid
+        if target_guid is not None and _is_direct_target_intent(
+            synthetic_trace["event"], guid
+        ):
+            self.actors[guid].current_target_guid = target_guid
         retargets: list[dict[str, str | None]] = []
         if killed and target_guid is not None:
             self._replay._observe_target(target_guid, "HOSTILE_CREATURE", now, dead=True)
@@ -1484,7 +1938,7 @@ class DynamicTeamRuntimeV1:
                             "retargeted_to": None,
                         }
                     )
-            if not alive:
+            if not self.remaining_target_guids():
                 self.kill_clock_ms = now
         return {
             "time_ms": now,
@@ -1492,9 +1946,11 @@ class DynamicTeamRuntimeV1:
             "actor_role": actor_role,
             "event_type": event_type,
             "target_guid": target_guid,
-            "requested_damage": damage,
+            "target_resolution_basis": target_resolution_basis,
+            "observed_damage": observed,
+            "requested_damage": requested,
             "applied_damage": applied,
-            "overkill_damage": damage - applied,
+            "overkill_damage": requested - applied,
             "killed": killed,
             "retargets": retargets,
             "all_targets_dead": self.kill_clock_ms is not None,
@@ -1615,7 +2071,10 @@ def build_remote_training_plan_v1(
         "model_choice": {
             "family": "HIERARCHICAL_MARKED_SEMI_MARKOV_EMPIRICAL_BACKOFF",
             "timing_head": "previous-actor-event causal state to inter-event delay bucket",
-            "emission_heads": "live-prefix mark, target-mode, and damage buckets",
+            "emission_heads": (
+                "live-prefix mark plus empirical joint target-mode and damage bucket; "
+                "marginals are diagnostic only"
+            ),
             "backoff_order": ["exact GUID", "class plus available spec", "class", "global"],
             "non_warrior_spec_status": "SPEC_NOT_AVAILABLE_FROM_CURRENT_ARTIFACT",
             "fixed_historical_schedule_is_model": False,

@@ -1,0 +1,20 @@
+{
+  "schema": "development_white6603_v8_external_holdout/v1",
+  "instance_id": "418307df-0321-40cd-8065-d33dd47de197",
+  "role": "one-shot external white-head check after frozen internal selection PASS",
+  "eligibility_evidence": "development_white6603_v8_prospective_postfix_raids.json",
+  "fit_instance_ids_source": "development_white6603_v8_inner_selection.json:fit_instance_ids",
+  "candidate": "the alpha selected on the 13 TRAIN selection raids, without re-selection",
+  "control": "v7 white-mark head fitted on the identical 52 TRAIN fit raids and smoothed with the selected alpha=1; raw v7 is descriptive only",
+  "comparator_amendment": "Added after internal selection showed raw v7 zero-likelihood NLL, before reading any external event stream; compare v8 prefix feature against equally smoothed v7 to isolate more than smoothing",
+  "paired_unit": "same observed event opportunity, grouped by raid wave",
+  "metrics": [
+    "binary_white_mean_nll",
+    "mean_wave_absolute_white_count_error",
+    "mean_wave_absolute_early_white_count_error",
+    "first_white_hazard_mean_nll"
+  ],
+  "early_cutoff_ms": 9098,
+  "decision_rule": "against smoothed v7 require lower binary white NLL and no worse three wave-count/first-white metrics; report raw v7 descriptively; never use this raid to change alpha, contexts, or thresholds",
+  "not_claimed": "free-running kill-clock or Cat/Contra DPS superiority"
+}

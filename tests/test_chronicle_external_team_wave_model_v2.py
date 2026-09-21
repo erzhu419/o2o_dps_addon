@@ -764,11 +764,11 @@ class ChronicleExternalTeamWaveModelV2Tests(unittest.TestCase):
                 timeline_manifest_path=timeline["manifest_path"],
                 cohort_receipt_path=timeline["cohort_receipt_path"],
                 output_directory=parallel_output,
-                workers=2,
+                workers=4,
             )
             self.assertEqual(serial["content_sha256"], parallel["content_sha256"])
             self.assertEqual(serial["workers_used"], 1)
-            self.assertEqual(parallel["workers_used"], 2)
+            self.assertEqual(parallel["workers_used"], 4)
             self.assertEqual(
                 Path(serial["manifest_path"]).read_bytes(),
                 Path(parallel["manifest_path"]).read_bytes(),
@@ -782,6 +782,38 @@ class ChronicleExternalTeamWaveModelV2Tests(unittest.TestCase):
                     (serial_output / relative).read_bytes(),
                     (parallel_output / relative).read_bytes(),
                 )
+
+    def test_single_instance_wave_parallel_bytes_are_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            timeline = _single_timeline(base)
+            serial_output = base / "offline_data" / "derived" / "external_model" / "serial"
+            parallel_output = base / "offline_data" / "derived" / "external_model" / "parallel"
+            serial = build_external_team_wave_model(
+                timeline_manifest_path=timeline["manifest_path"],
+                cohort_receipt_path=timeline["cohort_receipt_path"],
+                output_directory=serial_output,
+                workers=1,
+            )
+            parallel = build_external_team_wave_model(
+                timeline_manifest_path=timeline["manifest_path"],
+                cohort_receipt_path=timeline["cohort_receipt_path"],
+                output_directory=parallel_output,
+                workers=2,
+            )
+            self.assertEqual(serial["content_sha256"], parallel["content_sha256"])
+            self.assertEqual(parallel["workers_used"], 2)
+            self.assertEqual(
+                Path(serial["manifest_path"]).read_bytes(),
+                Path(parallel["manifest_path"]).read_bytes(),
+            )
+            manifest = json.loads(Path(serial["manifest_path"]).read_text("utf-8"))
+            self.assertEqual(manifest["summary"]["wave_count"], 2)
+            relative = manifest["instances"][0]["partition"]["path"]
+            self.assertEqual(
+                (serial_output / relative).read_bytes(),
+                (parallel_output / relative).read_bytes(),
+            )
 
     def test_tampered_output_partition_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -256,6 +256,29 @@ def _policy_input(state: dict[str, object], *, run_digest: str) -> dict[str, obj
 
 
 class PolicyObservationCausalProjectionV1Tests(unittest.TestCase):
+    def test_available_action_runtime_semantics_are_causal_and_legacy_safe(self):
+        state = _state(
+            [],
+            config_digest="a" * 64,
+            environment_generation=11,
+        )
+        raw = _policy_input(state, run_digest="b" * 64)
+        raw["available_actions"][0]["cooldown_duration_ms"] = 6000
+        raw["available_actions"][0]["result_bearing"] = True
+        projection = project_cat2_policy_input_v1(
+            raw,
+            TargetIntroductionRegistryV1(
+                targets=(TargetIntroductionV1(0, 0),)
+            ),
+            _health_registry(((0, 0, 1000.0, 1000.0),)),
+        )
+        first = projection.policy_input["available_actions"][0]
+        second = projection.policy_input["available_actions"][1]
+        self.assertEqual(6000, first["cooldown_duration_ms"])
+        self.assertTrue(first["result_bearing"])
+        self.assertEqual(0, second["cooldown_duration_ms"])
+        self.assertFalse(second["result_bearing"])
+
     def test_common_prefix_different_future_has_identical_bytes_and_cat2_decision(self):
         left_state = _state(
             [(9000.0, 9000.0, 5000.0, False)],
@@ -316,6 +339,11 @@ class PolicyObservationCausalProjectionV1Tests(unittest.TestCase):
         self.assertNotIn(
             "attackability_events_total", state["dynamic_target_semantics"]
         )
+        rate = state["dynamic_team_background"]["prefix_damage_rate"]
+        self.assertEqual("CURRENT_PREFIX_DAMAGE_DELTAS_ONLY", rate["source_semantics"])
+        self.assertEqual(100, rate["elapsed_ms"])
+        self.assertEqual(200.0, rate["combined_damage"])
+        self.assertEqual(2000.0, rate["combined_damage_per_second"])
         serialized = json.dumps(left.policy_input, sort_keys=True)
         self.assertNotIn("9000.0", serialized)
         self.assertNotIn("500000.0", serialized)
@@ -604,6 +632,31 @@ class PolicyObservationCausalProjectionV1Tests(unittest.TestCase):
                 registry,
                 _health_registry(((0, 101, 1000.0, 1000.0),)),
             )
+
+    def test_zero_length_prefix_has_no_fabricated_team_rate(self):
+        state = _state([], config_digest="6" * 64, environment_generation=19)
+        state["time_ms"] = 0
+        state["dynamic_team_background"]["targets"][0][
+            "simulated_damage_applied"
+        ] = 0.0
+        state["dynamic_team_background"]["simulated_damage_applied"] = 0.0
+        state["dynamic_team_background"]["combined_damage_applied"] = 0.0
+        state["dynamic_team_background"]["targets"][0]["current_health"] = 1000.0
+        state["dynamic_target_semantics"]["targets"][0]["current_health"] = 1000.0
+
+        projected = project_live_state_for_policy_v1(
+            state,
+            TargetIntroductionRegistryV1(
+                targets=(TargetIntroductionV1(0, 0),)
+            ),
+            _health_registry(((0, 0, 1000.0, 1000.0),)),
+        ).state
+
+        rate = projected["dynamic_team_background"]["prefix_damage_rate"]
+        self.assertEqual(0, rate["elapsed_ms"])
+        self.assertEqual(0.0, rate["combined_damage"])
+        self.assertIsNone(rate["combined_damage_per_second"])
+        self.assertNotIn("dynamic_team_response", projected)
 
     def test_dynamic_v4_state_uses_prefix_hp_and_drops_runtime_control(self):
         state = bound_state_v4(

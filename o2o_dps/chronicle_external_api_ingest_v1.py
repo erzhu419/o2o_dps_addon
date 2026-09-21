@@ -624,6 +624,17 @@ def _activity_record(value: Any) -> dict[str, Any]:
         )
     if started_at is not None:
         _parse_rfc3339(started_at, field="activity.started_at")
+    guild_name = _extract_guild(value)
+    guild_source_field = None
+    if guild_name is not None:
+        if isinstance(value.get("guild_name"), str) and value["guild_name"].strip():
+            guild_source_field = "activity.guild_name"
+        elif isinstance(value.get("guildName"), str) and value["guildName"].strip():
+            guild_source_field = "activity.guildName"
+        elif isinstance(value.get("guild"), dict):
+            guild_source_field = "activity.guild.name"
+        else:
+            guild_source_field = "activity.guild"
     return {
         "instance_id": instance_id,
         "slug": value.get("slug") if isinstance(value.get("slug"), str) else None,
@@ -631,7 +642,8 @@ def _activity_record(value: Any) -> dict[str, Any]:
         "uploaded_at": str(uploaded_at),
         "uploaded_at_utc": _rfc3339_utc(uploaded_dt),
         "started_at": started_at if isinstance(started_at, str) else None,
-        "guild_name": value.get("guild_name") if isinstance(value.get("guild_name"), str) else None,
+        "guild_name": guild_name,
+        "guild_source_field": guild_source_field,
         "discovery_source": "recent_upload_after",
     }
 
@@ -710,6 +722,7 @@ def _instance_guild_context(
     metadata: Mapping[str, Any],
     *,
     activity_guild_name: str | None,
+    activity_guild_source_field: str | None = None,
     leaderboard_entries: Sequence[Mapping[str, Any]],
 ) -> tuple[str | None, str | None]:
     guild = metadata.get("guild")
@@ -720,7 +733,7 @@ def _instance_guild_context(
     if isinstance(metadata.get("guild_name"), str) and metadata["guild_name"].strip():
         return metadata["guild_name"].strip(), "metadata.guild_name"
     if isinstance(activity_guild_name, str) and activity_guild_name.strip():
-        return activity_guild_name.strip(), "activity.guild_name"
+        return activity_guild_name.strip(), activity_guild_source_field or "activity.guild_name"
     leaderboard_guilds = sorted(
         {
             value
@@ -1196,10 +1209,13 @@ def replay_manifest_from_local_raw(
         guild_context, guild_evidence = _instance_guild_context(
             metadata,
             activity_guild_name=(
-                source_row.get("contamination_guild_context")
+                recent_activity["guild_name"]
+                if recent_activity.get("guild_name") is not None
+                else source_row.get("contamination_guild_context")
                 if isinstance(source_row.get("contamination_guild_context"), str)
                 else None
             ),
+            activity_guild_source_field=recent_activity.get("guild_source_field"),
             leaderboard_entries=matching_leaderboard,
         )
         observations = _extract_warrior_observations(
@@ -1554,6 +1570,7 @@ def ingest_external_api(
         guild_context, guild_evidence = _instance_guild_context(
             metadata,
             activity_guild_name=activity["guild_name"],
+            activity_guild_source_field=activity.get("guild_source_field"),
             leaderboard_entries=matching_leaderboard,
         )
         observations = _extract_warrior_observations(

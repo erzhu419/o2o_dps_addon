@@ -34,7 +34,7 @@ from . import chronicle_external_teammate_response_model_v1 as response_v1
 
 
 SCHEMA = "chronicle_external_teammate_response_hpc/v1"
-REVISION = "single_scan_joint_sufficient_statistics_source_runtime_bound_v3"
+REVISION = "single_scan_direct_white6603_target_choice_v7"
 DISPATCH_SCHEMA = f"{SCHEMA}/dispatch"
 WORKER_SCHEMA = f"{SCHEMA}/worker"
 RESULT_SCHEMA = f"{SCHEMA}/development_validation"
@@ -53,23 +53,37 @@ TABLE_FIELDS = (
     "delay_counts",
     "target_counts",
     "damage_counts",
+    "target_damage_joint_counts",
     "spell_name_counts",
     "source_guid_counts",
+    "target_choice_counts",
 )
 CONTEXT_TABLE_FIELDS = (
     "mark_counts",
     "delay_counts",
     "target_counts",
     "damage_counts",
+    "target_damage_joint_counts",
+    "target_choice_counts",
 )
-JOINT_TRAINING_SCHEMA = f"{SCHEMA}/joint_dynamic_training_counts_v3"
+TOKEN_KEYED_CONTEXT_FIELDS = frozenset(
+    {"target_counts", "damage_counts", "target_damage_joint_counts", "target_choice_counts"}
+)
+JOINT_TRAINING_SCHEMA = f"{SCHEMA}/joint_dynamic_training_counts_v7"
 D_SPECIFIC_CONTEXT_LEVELS = frozenset({"GUID", "CLASS_SPEC"})
 JOINT_BUILD_COMPONENTS = [
     "C_BASE_ALL_CONTEXTS_SHARED_SPELL_AND_SOURCE",
     "D_GUID_CLASS_SPEC_CONTEXT_DELTA",
     "B_EXACT_C_PROJECTION_DROP_GUID_AND_SOURCE",
+    "DIRECT_START_AND_WHITE6603_PREFIX_TARGET_CHOICE_POSITIVE_AND_NEGATIVE",
 ]
-OBSERVATION_HEADS = ("mark", "delay", "target", "positive_damage")
+OBSERVATION_HEADS = (
+    "mark",
+    "delay",
+    "target",
+    "positive_damage",
+    "target_damage_joint",
+)
 VALIDATION_FRACTION = 0.20
 SOURCE_ENTRY_MODULE_PATHS = (
     "o2o_dps/chronicle_external_teammate_response_hpc_v1.py",
@@ -652,10 +666,19 @@ def deserialize_model_v1(value: Mapping[str, Any]) -> response_v1.HierarchicalMa
     model.row_count = _integer(document.get("row_count"), "model row_count", nonnegative=True)
     if sum(model.mark_counts[("GLOBAL",)].values()) != model.row_count:
         raise TeammateResponseHpcV1Error("serialized model row count differs")
+    global_joint_count = sum(
+        sum(counts.values())
+        for (context, _token), counts in model.target_damage_joint_counts.items()
+        if context == ("GLOBAL",)
+    )
+    if global_joint_count != model.row_count:
+        raise TeammateResponseHpcV1Error(
+            "serialized model global target/damage joint count differs"
+        )
     return model
 
 
-class _JointTrainingCountsV3:
+class _JointTrainingCountsV4:
     """Exact B/C/D sufficient statistics without three duplicate models."""
 
     def __init__(
@@ -700,6 +723,7 @@ class _JointTrainingCountsV3:
         target_mode = _text(label.get("target_mode"), "target mode")
         delay_bucket = response_v1._delay_bucket(delay)
         damage_bucket = response_v1._damage_bucket(damage)
+        target_damage_pair = (target_mode, damage_bucket)
 
         for context in response_v1._context_keys(
             actor, emission, response_v1.ABLATION_C
@@ -707,10 +731,30 @@ class _JointTrainingCountsV3:
             self.base_c.mark_counts[context][token] += 1
             self.base_c.target_counts[(context, token)][target_mode] += 1
             self.base_c.damage_counts[(context, token)][damage_bucket] += 1
-        for context in response_v1._context_keys(
+            self.base_c.target_damage_joint_counts[(context, token)][
+                target_damage_pair
+            ] += 1
+        origin = _text(label.get("delay_origin"), "delay origin")
+        delay_contexts_c = response_v1._delay_context_keys(
             actor, timing, response_v1.ABLATION_C
-        ):
+        )
+        if origin != delay_contexts_c[0][1]:
+            raise TeammateResponseHpcV1Error(
+                "delay origin differs from causal timing state"
+            )
+        for context in delay_contexts_c:
             self.base_c.delay_counts[context][delay_bucket] += 1
+
+        choice = response_v1._target_choice_training_observations(row)
+        if choice is not None:
+            phase, features, selected = choice
+            for context in response_v1._context_keys(
+                actor, emission, response_v1.ABLATION_C
+            ):
+                for guid, feature in features.items():
+                    self.base_c.target_choice_counts[(context, phase, feature)][
+                        guid == selected
+                    ] += 1
 
         for context in response_v1._context_keys(
             actor, emission, response_v1.ABLATION_D
@@ -719,11 +763,24 @@ class _JointTrainingCountsV3:
                 self.d_specific["mark_counts"][context][token] += 1
                 self.d_specific["target_counts"][(context, token)][target_mode] += 1
                 self.d_specific["damage_counts"][(context, token)][damage_bucket] += 1
-        for context in response_v1._context_keys(
+                self.d_specific["target_damage_joint_counts"][(context, token)][
+                    target_damage_pair
+                ] += 1
+        for context in response_v1._delay_context_keys(
             actor, timing, response_v1.ABLATION_D
         ):
             if context[0] in D_SPECIFIC_CONTEXT_LEVELS:
                 self.d_specific["delay_counts"][context][delay_bucket] += 1
+        if choice is not None:
+            phase, features, selected = choice
+            for context in response_v1._context_keys(
+                actor, emission, response_v1.ABLATION_D
+            ):
+                if context[0] in D_SPECIFIC_CONTEXT_LEVELS:
+                    for guid, feature in features.items():
+                        self.d_specific["target_choice_counts"][
+                            (context, phase, feature)
+                        ][guid == selected] += 1
 
         spell_name = label.get("spell_name")
         self.base_c.spell_name_counts[token][
@@ -735,7 +792,7 @@ class _JointTrainingCountsV3:
         self.base_c.row_count += 1
         self.row_count += 1
 
-    def merge(self, other: "_JointTrainingCountsV3") -> None:
+    def merge(self, other: "_JointTrainingCountsV4") -> None:
         self.base_c.merge(other.base_c)
         for field in CONTEXT_TABLE_FIELDS:
             destination = self.d_specific[field]
@@ -744,14 +801,14 @@ class _JointTrainingCountsV3:
         self.row_count += other.row_count
 
 
-def serialize_joint_training_v3(
-    model: _JointTrainingCountsV3, *, consume: bool = False
+def serialize_joint_training_v4(
+    model: _JointTrainingCountsV4, *, consume: bool = False
 ) -> dict[str, Any]:
     if model.row_count != model.base_c.row_count:
         raise TeammateResponseHpcV1Error("joint/base row counts differ")
     expected_delta_total = 2 * model.row_count
     for field in CONTEXT_TABLE_FIELDS:
-        if sum(sum(counts.values()) for counts in model.d_specific[field].values()) != expected_delta_total:
+        if field != "target_choice_counts" and sum(sum(counts.values()) for counts in model.d_specific[field].values()) != expected_delta_total:
             raise TeammateResponseHpcV1Error(
                 f"D-specific {field} total differs from two contexts per row"
             )
@@ -773,7 +830,7 @@ def serialize_joint_training_v3(
     }
 
 
-def deserialize_joint_training_v3(value: Mapping[str, Any]) -> _JointTrainingCountsV3:
+def deserialize_joint_training_v4(value: Mapping[str, Any]) -> _JointTrainingCountsV4:
     document = _mapping(value, "joint training counts")
     if set(document) != {
         "schema",
@@ -801,7 +858,7 @@ def deserialize_joint_training_v3(value: Mapping[str, Any]) -> _JointTrainingCou
     tables = _mapping(delta.get("tables"), "D-specific tables")
     if set(tables) != set(CONTEXT_TABLE_FIELDS):
         raise TeammateResponseHpcV1Error("D-specific table set differs")
-    result = _JointTrainingCountsV3(
+    result = _JointTrainingCountsV4(
         min_guid_events=base_c.minimums["GUID"],
         min_class_spec_events=base_c.minimums["CLASS_SPEC"],
         min_class_events=base_c.minimums["CLASS"],
@@ -811,11 +868,11 @@ def deserialize_joint_training_v3(value: Mapping[str, Any]) -> _JointTrainingCou
     expected_delta_total = 2 * row_count
     for field in CONTEXT_TABLE_FIELDS:
         loaded = _load_counter_table(tables[field], f"D-specific {field}")
-        if any(key[0][0] not in D_SPECIFIC_CONTEXT_LEVELS if field in {"target_counts", "damage_counts"} else key[0] not in D_SPECIFIC_CONTEXT_LEVELS for key in loaded):
+        if any(key[0][0] not in D_SPECIFIC_CONTEXT_LEVELS if field in TOKEN_KEYED_CONTEXT_FIELDS else key[0] not in D_SPECIFIC_CONTEXT_LEVELS for key in loaded):
             raise TeammateResponseHpcV1Error(
                 f"D-specific {field} contains a shared context"
             )
-        if sum(sum(counts.values()) for counts in loaded.values()) != expected_delta_total:
+        if field != "target_choice_counts" and sum(sum(counts.values()) for counts in loaded.values()) != expected_delta_total:
             raise TeammateResponseHpcV1Error(
                 f"D-specific {field} total differs from two contexts per row"
             )
@@ -868,7 +925,11 @@ def _merge_serialized_counter_table_v3(
         if not seen_values:
             raise TeammateResponseHpcV1Error(f"{label} counter is empty")
         all_count += row_count
-        context = key[0] if label.endswith(("target_counts", "damage_counts")) else key
+        context = (
+            key[0]
+            if label.endswith(tuple(TOKEN_KEYED_CONTEXT_FIELDS))
+            else key
+        )
         if isinstance(context, tuple) and context == ("GLOBAL",):
             global_context_count += row_count
     return all_count, global_context_count
@@ -897,6 +958,7 @@ def _merge_serialized_model_v1(
     if set(tables) != set(TABLE_FIELDS):
         raise TeammateResponseHpcV1Error("serialized model table set differs")
     global_mark_count = 0
+    global_joint_count = 0
     for field in TABLE_FIELDS:
         _, global_count = _merge_serialized_counter_table_v3(
             getattr(destination, field),
@@ -905,17 +967,23 @@ def _merge_serialized_model_v1(
         )
         if field == "mark_counts":
             global_mark_count = global_count
+        elif field == "target_damage_joint_counts":
+            global_joint_count = global_count
     row_count = _integer(
         document.get("row_count"), "model row_count", nonnegative=True
     )
     if global_mark_count != row_count:
         raise TeammateResponseHpcV1Error("serialized model row count differs")
+    if global_joint_count != row_count:
+        raise TeammateResponseHpcV1Error(
+            "serialized model global target/damage joint count differs"
+        )
     destination.row_count += row_count
     return row_count
 
 
-def _merge_serialized_joint_training_v3(
-    destination: _JointTrainingCountsV3,
+def _merge_serialized_joint_training_v4(
+    destination: _JointTrainingCountsV4,
     value: Mapping[str, Any],
     *,
     expected_row_count: int,
@@ -960,7 +1028,7 @@ def _merge_serialized_joint_training_v3(
     expected_delta_total = 2 * row_count
     for field in CONTEXT_TABLE_FIELDS:
         def validate_key(key: Any, *, table_field: str = field) -> None:
-            context = key[0] if table_field in {"target_counts", "damage_counts"} else key
+            context = key[0] if table_field in TOKEN_KEYED_CONTEXT_FIELDS else key
             if not isinstance(context, tuple) or context[0] not in D_SPECIFIC_CONTEXT_LEVELS:
                 raise TeammateResponseHpcV1Error(
                     f"D-specific {table_field} contains a shared context"
@@ -972,7 +1040,7 @@ def _merge_serialized_joint_training_v3(
             f"D-specific {field}",
             key_validator=validate_key,
         )
-        if merged_count != expected_delta_total:
+        if field != "target_choice_counts" and merged_count != expected_delta_total:
             raise TeammateResponseHpcV1Error(
                 f"D-specific {field} total differs from two contexts per row"
             )
@@ -981,8 +1049,8 @@ def _merge_serialized_joint_training_v3(
         raise TeammateResponseHpcV1Error("joint/base row counts differ")
 
 
-def materialize_joint_variant_v3(
-    joint: _JointTrainingCountsV3, variant_id: str
+def materialize_joint_variant_v4(
+    joint: _JointTrainingCountsV4, variant_id: str
 ) -> response_v1.HierarchicalMarkedSemiMarkovV1:
     variant = response_v1.ablation_variant_v1(variant_id)
     if variant_id not in DYNAMIC_VARIANTS:
@@ -1005,7 +1073,7 @@ def materialize_joint_variant_v3(
     for field in CONTEXT_TABLE_FIELDS:
         destination = getattr(model, field)
         for key, counts in getattr(joint.base_c, field).items():
-            context = key[0] if field in {"target_counts", "damage_counts"} else key
+            context = key[0] if field in TOKEN_KEYED_CONTEXT_FIELDS else key
             if context[0] in retained_levels:
                 destination[key].update(counts)
         if variant_id == response_v1.ABLATION_D:
@@ -1049,7 +1117,7 @@ def _load_observations(value: Mapping[str, Any]) -> dict[str, Counter[str]]:
     return result
 
 
-def _merge_serialized_observations_v3(
+def _merge_serialized_observations_v4(
     destination: dict[str, Counter[str]],
     value: Mapping[str, Any],
     *,
@@ -1078,7 +1146,7 @@ def _merge_serialized_observations_v3(
             destination[head][signature] += count
             total += count
         if (
-            head in {"mark", "delay", "target"}
+            head in {"mark", "delay", "target", "target_damage_joint"}
             and total != expected_row_count
         ) or (head == "positive_damage" and total > expected_row_count):
             raise TeammateResponseHpcV1Error(
@@ -1101,8 +1169,12 @@ def _add_observation(
     ]
     timing_contexts = [
         list(context)
-        for context in response_v1._context_keys(actor, timing, variant_id)
+        for context in response_v1._delay_context_keys(actor, timing, variant_id)
     ]
+    if _text(label.get("delay_origin"), "delay origin") != timing_contexts[0][1]:
+        raise TeammateResponseHpcV1Error(
+            "delay origin differs from causal timing state"
+        )
     token = _text(label.get("mark_token"), "mark token")
     mark = {"contexts": emission_contexts, "token": token}
     delay = {
@@ -1120,6 +1192,13 @@ def _add_observation(
     counters["delay"][_canonical(delay).decode("utf-8")] += 1
     counters["target"][_canonical(target).decode("utf-8")] += 1
     damage = _integer(label.get("damage_amount"), "damage amount", nonnegative=True)
+    joint = {
+        "contexts": emission_contexts,
+        "token": token,
+        "target_mode": target["target_mode"],
+        "damage_bucket": response_v1._damage_bucket(damage),
+    }
+    counters["target_damage_joint"][_canonical(joint).decode("utf-8")] += 1
     if damage > 0:
         positive = {
             "contexts": emission_contexts,
@@ -1539,7 +1618,7 @@ def run_worker_v1(
     )
     if not partition_path.is_file() or partition_path.stat().st_size != expected_size:
         raise TeammateResponseHpcV1Error("partition is absent or its size differs")
-    joint_training = _JointTrainingCountsV3() if task["split"] == "TRAIN" else None
+    joint_training = _JointTrainingCountsV4() if task["split"] == "TRAIN" else None
     observations = (
         {
             variant: {head: Counter() for head in OBSERVATION_HEADS}
@@ -1719,7 +1798,7 @@ def run_worker_v1(
         "arm_a_fixed_schedule_descriptors": descriptors,
         "arm_a_execution_status": "DESCRIPTOR_ONLY_UNEXECUTED",
         "joint_dynamic_training_counts": (
-            serialize_joint_training_v3(joint_training)
+            serialize_joint_training_v4(joint_training)
             if joint_training is not None
             else None
         ),
@@ -1793,7 +1872,7 @@ def _bucket_midpoint_damage(bucket: int) -> float:
     return ((1 << (bucket - 1)) + ((1 << bucket) - 1)) / 2.0
 
 
-class _JointContextTableViewV3:
+class _JointContextTableViewV4:
     """Read-only route from a D context to shared C or D-specific counts."""
 
     def __init__(
@@ -1820,10 +1899,10 @@ class _JointContextTableViewV3:
         return source[key]
 
 
-class _JointEvaluationModelViewV3:
+class _JointEvaluationModelViewV4:
     """Evaluator-compatible B/C/D view sharing one joint model's counters."""
 
-    def __init__(self, joint: _JointTrainingCountsV3, variant_id: str) -> None:
+    def __init__(self, joint: _JointTrainingCountsV4, variant_id: str) -> None:
         if variant_id not in DYNAMIC_VARIANTS:
             raise TeammateResponseHpcV1Error("joint training variant is not dynamic")
         self.variant_id = variant_id
@@ -1831,10 +1910,10 @@ class _JointEvaluationModelViewV3:
         for field in CONTEXT_TABLE_FIELDS:
             shared = getattr(joint.base_c, field)
             if variant_id == response_v1.ABLATION_D:
-                table: Any = _JointContextTableViewV3(
+                table: Any = _JointContextTableViewV4(
                     shared,
                     joint.d_specific[field],
-                    token_keyed=field in {"target_counts", "damage_counts"},
+                    token_keyed=field in TOKEN_KEYED_CONTEXT_FIELDS,
                 )
             else:
                 # B validation signatures only contain CLASS/GLOBAL contexts;
@@ -1843,13 +1922,13 @@ class _JointEvaluationModelViewV3:
             setattr(self, field, table)
 
 
-def _evaluate_joint_variant_v3(
-    joint: _JointTrainingCountsV3,
+def _evaluate_joint_variant_v4(
+    joint: _JointTrainingCountsV4,
     variant_id: str,
     observations: Mapping[str, Counter[str]],
 ) -> dict[str, Any]:
     return evaluate_development_validation_v1(
-        _JointEvaluationModelViewV3(joint, variant_id),  # type: ignore[arg-type]
+        _JointEvaluationModelViewV4(joint, variant_id),  # type: ignore[arg-type]
         observations,
     )
 
@@ -1925,6 +2004,33 @@ def evaluate_development_validation_v1(
             "DEAD_TARGET_OBSERVED_DIAGNOSTIC", 0
         ) / sum(counts.values())
 
+    joint_nll = 0.0
+    joint_correct = 0
+    joint_weight = 0
+    for signature, count in observations["target_damage_joint"].items():
+        item = _mapping(json.loads(signature), "target/damage joint signature")
+        context = _select_context(model, model.mark_counts, item["contexts"])
+        if context is None:
+            missing_support["target_damage_joint"] += count
+            continue
+        token = item["token"]
+        counts = model.target_damage_joint_counts.get((context, token), Counter())
+        if not counts:
+            missing_support["target_damage_joint"] += count
+            continue
+        actual = (
+            _text(item.get("target_mode"), "joint target mode"),
+            _integer(
+                item.get("damage_bucket"), "joint damage bucket", nonnegative=True
+            ),
+        )
+        vocabulary = len(counts) + 1
+        probability = (counts[actual] + 1.0) / (sum(counts.values()) + vocabulary)
+        joint_nll -= count * math.log(probability)
+        prediction = min(counts, key=lambda key: (-counts[key], repr(key)))
+        joint_correct += count * (prediction == actual)
+        joint_weight += count
+
     damage_log_mae = 0.0
     damage_weight = 0
     for signature, count in observations["positive_damage"].items():
@@ -1967,6 +2073,12 @@ def evaluate_development_validation_v1(
             "inter_event_log_mae": "distributional expected absolute log1p midpoint error",
             "inter_event_bucket_calibration": "multiclass Brier score",
             "target_mode_accuracy": "deterministic empirical-mode accuracy",
+            "target_damage_joint_negative_log_likelihood": (
+                "add-one conditional NLL over empirical target-mode and damage-bucket pairs"
+            ),
+            "target_damage_joint_mode_accuracy": (
+                "deterministic empirical joint-pair mode accuracy"
+            ),
             "generated_dead_target_rate": "live runtime structural rate; only alive targets resolve",
             "positive_damage_log_mae": "distributional expected absolute log1p midpoint error",
             "dynamic_rollout_team_kill_clock_calibration": (
@@ -1990,6 +2102,12 @@ def evaluate_development_validation_v1(
             "predicted_dead_target_diagnostic_mode_mass": (
                 dead_mode_mass / target_weight if target_weight else None
             ),
+            "target_damage_joint_negative_log_likelihood": (
+                joint_nll / joint_weight if joint_weight else None
+            ),
+            "target_damage_joint_mode_accuracy": (
+                joint_correct / joint_weight if joint_weight else None
+            ),
             "generated_dead_target_rate": 0.0,
             "positive_damage_log_mae": (
                 damage_log_mae / damage_weight if damage_weight else None
@@ -2000,6 +2118,7 @@ def evaluate_development_validation_v1(
             "mark": mark_weight,
             "delay": delay_weight,
             "target": target_weight,
+            "target_damage_joint": joint_weight,
             "positive_damage": damage_weight,
             "dynamic_kill_clock": 0,
         },
@@ -2041,7 +2160,7 @@ def _reduce_development_impl_v1(
         raise TeammateResponseHpcV1Error(
             "worker receipt set is incomplete or unexpected"
         )
-    train_joint = _JointTrainingCountsV3()
+    train_joint = _JointTrainingCountsV4()
     validation_observations = {
         variant: {head: Counter() for head in OBSERVATION_HEADS}
         for variant in DYNAMIC_VARIANTS
@@ -2217,7 +2336,7 @@ def _reduce_development_impl_v1(
                 raise TeammateResponseHpcV1Error(
                     "training worker retained validation observations"
                 )
-            _merge_serialized_joint_training_v3(
+            _merge_serialized_joint_training_v4(
                 train_joint,
                 _mapping(joint_document, "worker joint training counts"),
                 expected_row_count=worker_compiled_rows,
@@ -2235,7 +2354,7 @@ def _reduce_development_impl_v1(
                     "worker observation variant set differs"
                 )
             for variant in DYNAMIC_VARIANTS:
-                _merge_serialized_observations_v3(
+                _merge_serialized_observations_v4(
                     validation_observations[variant],
                     _mapping(compact[variant], variant),
                     expected_row_count=worker_compiled_rows,
@@ -2266,12 +2385,12 @@ def _reduce_development_impl_v1(
         )
     evaluations = {}
     for variant in DYNAMIC_VARIANTS:
-        evaluations[variant] = _evaluate_joint_variant_v3(
+        evaluations[variant] = _evaluate_joint_variant_v4(
             train_joint, variant, validation_observations[variant]
         )
     validation_observations = None
     seen_waves = None
-    serialized_train_joint = serialize_joint_training_v3(train_joint, consume=True)
+    serialized_train_joint = serialize_joint_training_v4(train_joint, consume=True)
     train_joint = None
     core = {
         "schema": RESULT_SCHEMA,
@@ -2312,15 +2431,15 @@ def _reduce_development_impl_v1(
         "train_joint_sufficient_statistics": serialized_train_joint,
         "train_model_views": {
             response_v1.ABLATION_B: {
-                "materialization": "PROJECT_C_DROP_GUID_AND_SOURCE_GUID",
+                "materialization": "PROJECT_C_V4_DROP_GUID_AND_SOURCE_GUID",
                 "exact": True,
             },
             response_v1.ABLATION_C: {
-                "materialization": "BASE_C",
+                "materialization": "BASE_C_V4_JOINT_TARGET_DAMAGE",
                 "exact": True,
             },
             response_v1.ABLATION_D: {
-                "materialization": "C_CLASS_GLOBAL_PLUS_D_GUID_CLASS_SPEC_DELTA",
+                "materialization": "C_V4_CLASS_GLOBAL_PLUS_D_GUID_CLASS_SPEC_DELTA",
                 "shared_spell_and_source_guid_tables_from_c": True,
                 "exact": True,
             },

@@ -128,6 +128,8 @@ class AvailableAction:
     legal: bool
     ready_in_ms: int
     triggers_gcd: bool
+    result_bearing: bool = False
+    cooldown_duration_ms: int = 0
 
     @classmethod
     def from_wire(cls, value: Mapping[str, Any]) -> "AvailableAction":
@@ -136,6 +138,20 @@ class AvailableAction:
         action = value.get("action")
         if not isinstance(action, Mapping):
             raise SimBridgeProtocolError("available action is missing action identity")
+        result_bearing = value.get("result_bearing", False)
+        if not isinstance(result_bearing, bool):
+            raise SimBridgeProtocolError(
+                "available action result_bearing must be boolean"
+            )
+        cooldown_duration_ms = value.get("cooldown_duration_ms", 0)
+        if (
+            isinstance(cooldown_duration_ms, bool)
+            or not isinstance(cooldown_duration_ms, int)
+            or cooldown_duration_ms < 0
+        ):
+            raise SimBridgeProtocolError(
+                "available action cooldown_duration_ms must be a nonnegative integer"
+            )
         return cls(
             index=_wire_int(value, "index"),
             action=ActionRef.from_wire(action),
@@ -143,6 +159,8 @@ class AvailableAction:
             legal=_wire_bool(value, "legal"),
             ready_in_ms=_wire_int(value, "ready_in_ms"),
             triggers_gcd=_wire_bool(value, "triggers_gcd"),
+            result_bearing=result_bearing,
+            cooldown_duration_ms=cooldown_duration_ms,
         )
 
 

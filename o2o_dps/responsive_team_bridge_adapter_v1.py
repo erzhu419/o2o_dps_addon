@@ -40,9 +40,9 @@ JSONMap = dict[str, Any]
 
 ADAPTER_SCHEMA = "o2o_responsive_team_bridge_adapter/v1"
 WAKE_SCHEMA = "o2o_dynamic_team_wake/v1"
-EVENT_SCHEMA = "o2o_dynamic_team_event/v1"
-EVENT_RECEIPT_SCHEMA = "o2o_dynamic_team_response_receipt/v1"
-EVENT_RECEIPTS_SCHEMA = "o2o_dynamic_team_response_receipts/v1"
+EVENT_SCHEMA = "o2o_dynamic_team_event/v2"
+EVENT_RECEIPT_SCHEMA = "o2o_dynamic_team_response_receipt/v2"
+EVENT_RECEIPTS_SCHEMA = "o2o_dynamic_team_response_receipts/v2"
 GAP_PROOF_SCHEMA = "o2o_responsive_team_bridge_gap_proof/v1"
 
 ARM_WAKE_COMMAND = "arm_dynamic_team_wake"
@@ -60,7 +60,12 @@ SAME_TIMESTAMP_ORDER = (
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _EVENT_TYPES = frozenset({"START", "GO", "FAIL", "DMG", "HEAL"})
 _EVENT_STATUSES = frozenset(
-    {"APPLIED", "OBSERVED_NO_DAMAGE", "CANCELED_TARGET_UNATTACKABLE"}
+    {
+        "APPLIED",
+        "OBSERVED_NO_DAMAGE",
+        "OBSERVED_NON_HOSTILE_DAMAGE",
+        "CANCELED_TARGET_UNATTACKABLE",
+    }
 )
 
 
@@ -122,9 +127,13 @@ def _apply_unattributed_damage(
         raise ResponsiveTeamBridgeAdapterV1Error(
             "runtime unattributed applied damage differs from live health"
         )
+    runtime.advance_to(now)
+    if target not in runtime.alive_target_guids():
+        raise ResponsiveTeamBridgeAdapterV1Error(
+            "runtime unattributed damage target has not been introduced"
+        )
     runtime.health[target] -= damage
     killed = runtime.health[target] <= 0
-    runtime.time_ms = now
     runtime._replay.observe(
         {
             "trace_kind": "UNATTRIBUTED_EVENT",
@@ -164,7 +173,7 @@ def _apply_unattributed_damage(
                         "retargeted_to": None,
                     }
                 )
-        if not runtime.alive_target_guids():
+        if not runtime.remaining_target_guids():
             runtime.kill_clock_ms = now
     return {
         "time_ms": now,
@@ -404,6 +413,12 @@ def required_go_protocol_contract_v1() -> JSONMap:
             "python_selects_from_live_alive_and_attackable_registry_while_simulator_paused": True,
             "go_receipt_reports_dead_or_unattackable_cancellation": True,
             "go_applies_damage_through_dynamic_target_lifecycle": True,
+            "wire_separates_observed_damage_from_hostile_requested_damage": True,
+            "positive_non_hostile_damage_preserved_without_hostile_hp_change": True,
+            "diagnostic_target_modes_never_resolve_to_live_targets": True,
+            "targeted_zero_damage_dmg_mark_preserved_with_positive_damage_ordinal": True,
+            "untargeted_zero_damage_dmg_mark_preserved_with_zero_damage_ordinal": True,
+            "untargeted_zero_damage_dmg_mark_enters_causal_prefix": True,
             "receipt_includes_damage_ordinal_health_and_death": True,
         },
         "scientific_boundary": {
@@ -524,6 +539,7 @@ class ResponsiveTeamBridgeAdapterV1:
         candidate_actor_guid: str,
         target_guid_by_index: Sequence[str],
         branch: CausalBranchBindingV1,
+        wake_horizon_exclusive_ms: int | None = None,
     ) -> None:
         if not isinstance(loaded_model, LoadedResponsiveTeammateModelV1):
             raise ResponsiveTeamBridgeAdapterV1Error(
@@ -567,11 +583,21 @@ class ResponsiveTeamBridgeAdapterV1:
         }
         self.model_provenance = model_provenance
         self.branch = branch
+        self.wake_horizon_exclusive_ms = (
+            _integer(
+                wake_horizon_exclusive_ms,
+                "wake_horizon_exclusive_ms",
+                minimum=1,
+            )
+            if wake_horizon_exclusive_ms is not None
+            else None
+        )
         self.background_cursor = 0
         self.candidate_cursor = 0
         self.team_response_cursor = 0
         self._sequence_by_actor = {guid: 0 for guid in runtime.actors if guid != candidate}
         self._deadline_by_actor: dict[str, JSONMap] = {}
+        self._horizon_discard_by_actor: dict[str, JSONMap] = {}
         self._armed_by_actor: dict[str, JSONMap] = {}
         self._active_actor: str | None = None
 
@@ -705,6 +731,7 @@ class ResponsiveTeamBridgeAdapterV1:
                     attribution_kind="DIRECT_FRIENDLY_PLAYER",
                     exact_source_guid=self.candidate_actor_guid,
                     target_mode="STAY_ALIVE",
+                    observed_damage=row["applied_damage"],
                     requested_damage=row["applied_damage"],
                     rng=random.Random(0),
                     actor_role="CANDIDATE_REALIZED_PREFIX",
@@ -723,15 +750,17 @@ class ResponsiveTeamBridgeAdapterV1:
             row.pop("source_sequence", None)
         return tuple(rows)
 
-    def _sample_actor_deadline(self, actor_guid: str) -> JSONMap:
+    def _sample_actor_deadline(self, actor_guid: str) -> JSONMap | None:
         actor = _text(actor_guid, "teammate actor_guid")
         if actor not in self._sequence_by_actor:
             raise ResponsiveTeamBridgeAdapterV1Error("unknown teammate actor")
+        if actor in self._horizon_discard_by_actor:
+            return None
         if actor in self._deadline_by_actor:
             raise ResponsiveTeamBridgeAdapterV1Error(
                 "teammate actor already has a planned deadline"
             )
-        if not self.runtime.alive_target_guids():
+        if not self.runtime.remaining_target_guids():
             raise ResponsiveTeamBridgeAdapterV1Error(
                 "cannot plan a teammate event after the team kill clock"
             )
@@ -769,8 +798,30 @@ class ResponsiveTeamBridgeAdapterV1:
             "wake_id": wake_id,
             "delay_sample": delay_sample,
         }
+        horizon = self.wake_horizon_exclusive_ms
+        if horizon is not None and wake["time_ms"] >= horizon:
+            discarded = {
+                **deadline,
+                "status": "DISCARDED_AT_OR_AFTER_EXCLUSIVE_WAKE_HORIZON",
+                "wake_horizon_exclusive_ms": horizon,
+                "boundary_semantics": "wake_time_ms < wake_horizon_exclusive_ms",
+                "go_arm_dynamic_team_wake_called": False,
+            }
+            self._horizon_discard_by_actor[actor] = discarded
+            return None
         self._deadline_by_actor[actor] = deadline
         return dict(deadline)
+
+    def horizon_discard_evidence(self) -> tuple[JSONMap, ...]:
+        """Return sampled absolute deadlines forbidden by Go's ``[now,horizon)`` bound."""
+
+        return tuple(
+            dict(row)
+            for row in sorted(
+                self._horizon_discard_by_actor.values(),
+                key=self._deadline_order_key,
+            )
+        )
 
     def plan_all_actor_deadlines(self) -> tuple[JSONMap, ...]:
         """Fill missing per-actor clocks without resampling retained deadlines."""
@@ -780,10 +831,13 @@ class ResponsiveTeamBridgeAdapterV1:
                 "cannot initialize actor deadlines while a wake is active"
             )
         self.sync_authoritative_damage_prefix()
-        if not self.runtime.alive_target_guids():
+        if not self.runtime.remaining_target_guids():
             return ()
         for actor in sorted(self._sequence_by_actor):
-            if actor not in self._deadline_by_actor:
+            if (
+                actor not in self._deadline_by_actor
+                and actor not in self._horizon_discard_by_actor
+            ):
                 self._sample_actor_deadline(actor)
         return tuple(
             dict(row)
@@ -839,7 +893,7 @@ class ResponsiveTeamBridgeAdapterV1:
         self._active_actor = actor
         return dict(self._armed_by_actor[actor])
 
-    def arm_next(self, actor_guid: str) -> JSONMap:
+    def arm_next(self, actor_guid: str) -> JSONMap | None:
         """Compatibility entry point for a single explicitly selected actor."""
 
         if self._deadline_by_actor:
@@ -848,6 +902,8 @@ class ResponsiveTeamBridgeAdapterV1:
             )
         self.sync_authoritative_damage_prefix()
         deadline = self._sample_actor_deadline(actor_guid)
+        if deadline is None:
+            return None
         return self._arm_planned_actor(str(deadline["actor_guid"]))
 
     def arm_global_next(self) -> JSONMap | None:
@@ -897,7 +953,10 @@ class ResponsiveTeamBridgeAdapterV1:
         tentative.advance_to(armed["time_ms"])
         model_input = tentative.snapshot_for_actor(actor)
         model_actor_identity = _model_actor_identity(tentative, actor)
-        sampled = self.model.sample_emission(
+        sample_emission = getattr(
+            self.model, "sample_actionable_emission", self.model.sample_emission
+        )
+        sampled = sample_emission(
             actor=model_actor_identity,
             emission_state=model_input,
             rng=random.Random(
@@ -907,44 +966,122 @@ class ResponsiveTeamBridgeAdapterV1:
         event_type = _text(sampled.get("event_type"), "sampled event_type")
         if event_type not in _EVENT_TYPES:
             raise ResponsiveTeamBridgeAdapterV1Error("sampled event_type is unsupported")
-        requested_damage = _number(sampled.get("sampled_damage"), "sampled damage")
-        if event_type == "DMG" and requested_damage <= 0:
-            raise ResponsiveTeamBridgeAdapterV1Error(
-                "sampled DMG requires positive damage"
-            )
-        if event_type != "DMG" and requested_damage != 0:
+        observed_damage = _number(sampled.get("sampled_damage"), "sampled damage")
+        if event_type != "DMG" and observed_damage != 0:
             raise ResponsiveTeamBridgeAdapterV1Error(
                 "sampled non-DMG event requires zero damage"
             )
         target_mode = _text(sampled.get("target_mode"), "sampled target_mode")
+        non_hostile_observation = target_mode in {
+            "NO_TARGET",
+            "NON_HOSTILE_OR_UNKNOWN",
+        }
+        if target_mode in {
+            "DEAD_TARGET_OBSERVED_DIAGNOSTIC",
+            "UNSEEN_HOSTILE_CURRENT_LABEL",
+        }:
+            raise ResponsiveTeamBridgeAdapterV1Error(
+                "diagnostic sampled target mode is not actionable and cannot be "
+                "mapped to a live target: "
+                f"actor={actor}, time_ms={armed['time_ms']}, "
+                f"event_sequence={sequence}, target_mode={target_mode}"
+            )
+        if target_mode not in {
+            "NO_TARGET",
+            "NON_HOSTILE_OR_UNKNOWN",
+            "STAY_ALIVE",
+            "SWITCH_ALIVE",
+        }:
+            raise ResponsiveTeamBridgeAdapterV1Error(
+                f"sampled target_mode is unsupported: {target_mode}"
+            )
+        requested_damage = 0.0 if non_hostile_observation else observed_damage
         eligible_target_guids = [
             self.target_guid_by_index[index]
             for index in bridge_registry["attackable_alive_target_indices"]
         ]
-        selected_target_guid = _resolve_eligible_target(
-            tentative,
-            actor_guid=actor,
-            target_mode=target_mode,
-            eligible_target_guids=eligible_target_guids,
-            rng=random.Random(
-                _substream_seed(self.branch.teammate_seed, actor, sequence, "target")
-            ),
+        target_rng = random.Random(
+            _substream_seed(self.branch.teammate_seed, actor, sequence, "target")
         )
-        expected_status = (
-            "APPLIED" if event_type == "DMG" else "OBSERVED_NO_DAMAGE"
+        target_choice = None
+        current_target = tentative.actors[actor].current_target_guid
+        # A direct 6603 white swing also reveals/sets focus when no directed
+        # START exists. Other damage (including AoE secondary hits) never
+        # enters the intent head or changes the player's focus.
+        attribution_kind = sampled.get("attribution_kind")
+        intent_kind = (
+            "START"
+            if event_type == "START"
+            and attribution_kind == "DIRECT_FRIENDLY_PLAYER"
+            else "WHITE6603"
+            if event_type == "DMG"
+            and sampled.get("spell_id") == 6603
+            and attribution_kind == "DIRECT_FRIENDLY_PLAYER"
+            else None
         )
-        target_selection_basis = "ATTACKABLE_ALIVE_REGISTRY"
+        if intent_kind is not None and not (
+            target_mode == "STAY_ALIVE" and current_target in eligible_target_guids
+        ):
+            sample_target = getattr(self.model, "sample_target_choice", None)
+            if callable(sample_target):
+                target_choice = sample_target(
+                    actor=model_actor_identity,
+                    emission_state=model_input,
+                    target_mode=target_mode,
+                    intent_kind=intent_kind,
+                    eligible_target_guids=eligible_target_guids,
+                    current_target_guid=current_target,
+                    rng=target_rng,
+                )
+        selected_target_guid = (
+            target_choice.get("target_guid")
+            if isinstance(target_choice, Mapping)
+            else None
+        )
+        if selected_target_guid is not None and selected_target_guid not in eligible_target_guids:
+            raise ResponsiveTeamBridgeAdapterV1Error(
+                "learned target choice is outside the attackable live registry"
+            )
+        if selected_target_guid is None:
+            selected_target_guid = _resolve_eligible_target(
+                tentative,
+                actor_guid=actor,
+                target_mode=target_mode,
+                eligible_target_guids=eligible_target_guids,
+                rng=target_rng,
+            )
+        if event_type == "DMG" and non_hostile_observation and observed_damage > 0:
+            expected_status = "OBSERVED_NON_HOSTILE_DAMAGE"
+        elif event_type == "DMG" and requested_damage > 0:
+            expected_status = "APPLIED"
+        else:
+            expected_status = "OBSERVED_NO_DAMAGE"
+        target_selection_basis = (
+            f"LEARNED_DIRECT_{intent_kind}_PREFIX_TARGET_CHOICE"
+            if isinstance(target_choice, Mapping)
+            and target_choice.get("target_guid") is not None
+            else "CURRENT_FOCUS_DIRECT_WHITE6603"
+            if intent_kind == "WHITE6603"
+            and target_mode == "STAY_ALIVE"
+            and current_target in eligible_target_guids
+            else "ATTACKABLE_ALIVE_REGISTRY_WHITE6603_NO_CHOICE_SUPPORT"
+            if intent_kind == "WHITE6603"
+            else "ATTACKABLE_ALIVE_REGISTRY_UNCALIBRATED_DAMAGE_TARGET"
+            if event_type in {"DMG", "GO", "FAIL", "HEAL"}
+            else "ATTACKABLE_ALIVE_REGISTRY_NO_CHOICE_SUPPORT"
+        )
         if (
             event_type == "DMG"
+            and requested_damage > 0
             and selected_target_guid is None
             and not bridge_registry["attackable_alive_target_indices"]
             and bridge_registry["alive_target_indices"]
             and target_mode not in {"NO_TARGET", "NON_HOSTILE_OR_UNKNOWN"}
         ):
             # The proposal is due while every living target is temporarily
-            # unattackable.  The Go protocol requires a positive DMG and a
-            # concrete target to consume the ready wake, so choose a stable
-            # living witness and let the authoritative lifecycle cancel it.
+            # unattackable.  This target mode still carries hostile-target
+            # intent, so choose a stable living witness and let the
+            # authoritative lifecycle cancel it.
             # This proposal is not inserted into the learned event prefix.
             selected_target_guid = _resolve_eligible_target(
                 tentative,
@@ -963,9 +1100,24 @@ class ResponsiveTeamBridgeAdapterV1:
             expected_status = "CANCELED_TARGET_UNATTACKABLE"
             target_selection_basis = "UNATTACKABLE_ALIVE_CANCEL_WITNESS"
         if event_type == "DMG" and selected_target_guid is None:
-            raise ResponsiveTeamBridgeAdapterV1Error(
-                "sampled teammate damage has no attackable living target"
-            )
+            if requested_damage > 0:
+                raise ResponsiveTeamBridgeAdapterV1Error(
+                    "positive sampled teammate damage requires a target: "
+                    f"actor={actor}, time_ms={armed['time_ms']}, "
+                    f"event_sequence={sequence}, target_mode={target_mode}, "
+                    f"spell_id={sampled.get('spell_id')}, "
+                    f"spell_name={sampled.get('spell_name')!r}, "
+                    f"sampled_damage={observed_damage}, "
+                    f"damage_bucket={sampled.get('damage_bucket')}, "
+                    f"context_level={sampled.get('context_level')}, "
+                    f"context={sampled.get('context')!r}"
+                )
+            if non_hostile_observation and observed_damage > 0:
+                target_selection_basis = "MODEL_EXPLICIT_OBSERVED_NON_HOSTILE_DAMAGE"
+            elif non_hostile_observation:
+                target_selection_basis = "MODEL_EXPLICIT_UNTARGETED_ZERO_DAMAGE"
+            else:
+                target_selection_basis = "NO_ATTACKABLE_TARGET_UNTARGETED_ZERO_DAMAGE"
         if expected_status == "CANCELED_TARGET_UNATTACKABLE":
             transition = {
                 "time_ms": armed["time_ms"],
@@ -973,6 +1125,7 @@ class ResponsiveTeamBridgeAdapterV1:
                 "actor_role": "TEAMMATE_RESPONSE_MODEL_CANCELED_PROPOSAL",
                 "event_type": event_type,
                 "target_guid": selected_target_guid,
+                "observed_damage": observed_damage,
                 "requested_damage": requested_damage,
                 "applied_damage": 0.0,
                 "overkill_damage": requested_damage,
@@ -997,6 +1150,7 @@ class ResponsiveTeamBridgeAdapterV1:
                 target_mode=(
                     target_mode if selected_target_guid is not None else "NO_TARGET"
                 ),
+                observed_damage=observed_damage,
                 requested_damage=requested_damage,
                 rng=random.Random(0),
                 actor_role="TEAMMATE_RESPONSE_MODEL",
@@ -1020,6 +1174,7 @@ class ResponsiveTeamBridgeAdapterV1:
             "actor_guid": actor,
             "event_type": event_type,
             "target_index": target_index,
+            "observed_damage": observed_damage,
             "requested_damage": requested_damage,
         }
         response = self.bridge._request(EMIT_EVENT_COMMAND, responsive=event)
@@ -1053,6 +1208,7 @@ class ResponsiveTeamBridgeAdapterV1:
             "cursor_stream_receipt": dict(stream_receipt),
             "local_runtime_transition": transition,
             "target_selection_basis": target_selection_basis,
+            "target_choice_head": dict(target_choice) if target_choice else None,
             "bridge_alive_target_indices_before_emission": list(
                 bridge_registry["alive_target_indices"]
             ),
@@ -1084,9 +1240,15 @@ class ResponsiveTeamBridgeAdapterV1:
         emitted = self.emit_ready(actor)
         next_wake = None
         discarded_after_kill_clock: list[JSONMap] = []
-        if self.runtime.alive_target_guids():
+        status = "EMITTED_TEAM_KILL_CLOCK_COMPLETE"
+        if self.runtime.remaining_target_guids():
             self._sample_actor_deadline(actor)
             next_wake = self.arm_global_next()
+            status = (
+                "EMITTED_AND_NEXT_GLOBAL_WAKE_ARMED"
+                if next_wake is not None
+                else "EMITTED_NO_NEXT_WAKE_BEFORE_EXCLUSIVE_HORIZON"
+            )
         else:
             discarded_after_kill_clock = [
                 dict(row)
@@ -1098,13 +1260,14 @@ class ResponsiveTeamBridgeAdapterV1:
             self._deadline_by_actor.clear()
         return {
             "schema": f"{ADAPTER_SCHEMA}/scheduled_step",
-            "status": "EMITTED_AND_NEXT_GLOBAL_WAKE_ARMED"
-            if next_wake is not None
-            else "EMITTED_TEAM_KILL_CLOCK_COMPLETE",
+            "status": status,
             "emitted": emitted,
             "next_wake": next_wake,
             "retained_actor_deadline_count": len(self._deadline_by_actor),
             "discarded_deadlines_after_team_kill_clock": discarded_after_kill_clock,
+            "discarded_deadlines_at_or_after_horizon": list(
+                self.horizon_discard_evidence()
+            ),
         }
 
     def _validate_bridge_target_registry(self, state: Mapping[str, Any]) -> JSONMap:
@@ -1264,6 +1427,7 @@ class ResponsiveTeamBridgeAdapterV1:
             "actor_guid",
             "event_type",
             "target_index",
+            "observed_damage",
             "requested_damage",
             "applied_damage",
             "overkill_damage",
@@ -1300,6 +1464,7 @@ class ResponsiveTeamBridgeAdapterV1:
                 "responsive team receipt status differs from the live target resolution"
             )
         for key, expected in (
+            ("observed_damage", event["observed_damage"]),
             ("requested_damage", event["requested_damage"]),
             ("applied_damage", transition["applied_damage"]),
             ("overkill_damage", transition["overkill_damage"]),
@@ -1325,8 +1490,21 @@ class ResponsiveTeamBridgeAdapterV1:
                 "responsive team receipt current health differs from runtime mirror"
             )
         ordinal = receipt.get("damage_ordinal")
-        if event["event_type"] == "DMG":
-            _integer(ordinal, "team event damage_ordinal", minimum=1)
+        if event["event_type"] == "DMG" and event["target_index"] is not None:
+            if event["observed_damage"] != event["requested_damage"]:
+                raise ResponsiveTeamBridgeAdapterV1Error(
+                    "targeted team damage must request its full observed damage"
+                )
+            _integer(ordinal, "targeted team damage event damage_ordinal", minimum=1)
+        elif event["event_type"] == "DMG":
+            if event["requested_damage"] != 0:
+                raise ResponsiveTeamBridgeAdapterV1Error(
+                    "untargeted team damage event cannot request hostile damage"
+                )
+            if ordinal != 0:
+                raise ResponsiveTeamBridgeAdapterV1Error(
+                    "untargeted team damage event must receive the zero damage ordinal"
+                )
         elif ordinal != 0:
             raise ResponsiveTeamBridgeAdapterV1Error(
                 "non-damage team event must receive the zero damage ordinal"

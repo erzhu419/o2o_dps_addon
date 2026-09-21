@@ -547,6 +547,7 @@ class DynamicTeamLifecycleStateV2:
     background_events_processed: int
     background_events_total: int
     background_events_canceled: int
+    background_damage_applications_processed: int | None
     candidate_events_processed: int
     candidate_events_canceled: int
     damage_applications_total: int
@@ -895,7 +896,7 @@ def _parse_team_state_v2(
     generation: int,
     config: DynamicTargetSemanticsConfigV2,
 ) -> DynamicTeamLifecycleStateV2:
-    raw = _exact_mapping(
+    raw = _mapping_with_optional(
         value,
         {
             "schema",
@@ -915,8 +916,8 @@ def _parse_team_state_v2(
             "damage_applications_total",
             "targets",
         },
+        {"background_damage_applications_processed"},
         "dynamic_team_background state",
-        protocol=True,
     )
     target_rows = _object_array(
         raw["targets"], "dynamic_team_background.targets", protocol=True
@@ -1011,6 +1012,13 @@ def _parse_team_state_v2(
         background_events_canceled=_nonnegative_int_field(
             raw, "background_events_canceled"
         ),
+        background_damage_applications_processed=(
+            _nonnegative_int_field(
+                raw, "background_damage_applications_processed"
+            )
+            if "background_damage_applications_processed" in raw
+            else None
+        ),
         candidate_events_processed=_nonnegative_int_field(
             raw, "candidate_events_processed"
         ),
@@ -1031,12 +1039,26 @@ def _parse_team_state_v2(
         or result.background_events_total != len(config.background_damage_events)
         or result.background_events_processed > result.background_events_total
         or result.background_events_canceled > result.background_events_processed
+        or (
+            result.background_damage_applications_processed is not None
+            and result.background_damage_applications_processed
+            > result.background_events_processed
+        )
         or result.candidate_events_canceled > result.candidate_events_processed
         # The simulator writes cancellation receipts for pending background
         # events when the last target dies. Those events count as processed,
         # but never enter ApplyTargetDamage and have no damage ordinal.
-        or result.damage_applications_total
-        > result.background_events_processed + result.candidate_events_processed
+        or (
+            result.background_damage_applications_processed is None
+            and result.damage_applications_total
+            > result.background_events_processed + result.candidate_events_processed
+        )
+        or (
+            result.background_damage_applications_processed is not None
+            and result.damage_applications_total
+            != result.background_damage_applications_processed
+            + result.candidate_events_processed
+        )
         or (
             any(not target.dead for target in targets)
             and result.damage_applications_total

@@ -341,6 +341,12 @@ class HistoricalNamedWarriorEpisodeAdapterV1Tests(unittest.TestCase):
                 for spell_id in expected
             },
         )
+        self.assertEqual(
+            "gcd",
+            adapter.action_spec(
+                {"id": 1719, "name": "Recklessness"}
+            ).lane,
+        )
 
     def test_exact_direct_prefix_and_no_client_queue_inference(self) -> None:
         with tempfile.TemporaryDirectory(prefix="named_episode_") as raw:

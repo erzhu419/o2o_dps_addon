@@ -413,13 +413,10 @@ class ResponsiveTeamDrivenBridgeV1:
             candidate_actor_guid=self._candidate_actor_guid,
             target_guid_by_index=self._target_guid_by_index,
             branch=self.branch,
+            wake_horizon_exclusive_ms=config.idle_advance_horizon_ms,
         )
         wake = self.adapter.arm_global_next()
-        if wake is None:
-            raise ResponsiveTeamSourceBoundRolloutWorkerV1Error(
-                "responsive teammate runtime produced no initial actor deadline"
-            )
-        self.initial_wake = dict(wake)
+        self.initial_wake = dict(wake) if wake is not None else None
         live = self._drain_ready(_mapping(self._bridge.state(), "bridge state"))
         return replace(result, state=dict(live))
 
@@ -609,6 +606,16 @@ class ResponsiveTeamDrivenBridgeV1:
                 == self.branch.prefix_content_sha256
             ),
             "initial_wake": dict(self.initial_wake) if self.initial_wake else None,
+            "wake_horizon_exclusive_ms": (
+                self.adapter.wake_horizon_exclusive_ms
+                if self.adapter is not None
+                else None
+            ),
+            "discarded_deadlines_at_or_after_horizon": (
+                list(self.adapter.horizon_discard_evidence())
+                if self.adapter is not None
+                else []
+            ),
             "responsive_event_count": self.responsive_event_count,
             "responsive_applied_damage": self.applied_damage,
             "responsive_status_counts": dict(sorted(self.status_counts.items())),

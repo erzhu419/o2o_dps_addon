@@ -23,6 +23,15 @@ from tests.test_chronicle_external_team_wave_model_v2 import (
     _single_timeline,
     _timeline_rows,
 )
+from tests.test_chronicle_external_teammate_response_model_v1 import (
+    ACTOR as CHOICE_ACTOR,
+    TEAMMATE as CHOICE_TEAMMATE,
+    TARGET_A as CHOICE_TARGET_A,
+    TARGET_B as CHOICE_TARGET_B,
+    _classification as _choice_classification,
+    _event as _choice_event,
+    _wave as _choice_wave,
+)
 
 
 INSTANCE_IDS = ("old-train", "validation-a", "validation-b", "validation-c")
@@ -768,11 +777,11 @@ class TeammateResponseHpcV1Tests(unittest.TestCase):
                 result["producer_contract"]["implementation_source"],
             )
             self.assertTrue(result["scientific_boundary"]["heavy_training_complete"])
-            joint = hpc_v1.deserialize_joint_training_v3(
+            joint = hpc_v1.deserialize_joint_training_v4(
                 result["train_joint_sufficient_statistics"]
             )
             for variant in hpc_v1.DYNAMIC_VARIANTS:
-                model = hpc_v1.materialize_joint_variant_v3(joint, variant)
+                model = hpc_v1.materialize_joint_variant_v4(joint, variant)
                 self.assertGreater(model.row_count, 0)
                 evaluation = result["development_validation"][variant]
                 self.assertFalse(evaluation["model_adoption_authorized"])
@@ -1033,6 +1042,33 @@ class TeammateResponseHpcV1Tests(unittest.TestCase):
         )
         self.assertFalse(evaluated["model_adoption_authorized"])
 
+    def test_white6603_choice_survives_joint_worker_merge(self) -> None:
+        target_c = "0xF130000003000003"
+        wave = _choice_wave()
+        wave["exact_trace"] = [
+            _choice_classification(0, 0, CHOICE_TARGET_A),
+            _choice_classification(1, 0, CHOICE_TARGET_B),
+            _choice_classification(2, 0, target_c),
+            _choice_event(3, 100, CHOICE_TEAMMATE, "START", CHOICE_TARGET_A, spell_id=100),
+            _choice_event(4, 150, CHOICE_TEAMMATE, "START", CHOICE_TARGET_B, spell_id=100),
+            _choice_event(5, 200, CHOICE_TEAMMATE, "START", target_c, spell_id=100),
+            _choice_event(6, 300, CHOICE_ACTOR, "DMG", CHOICE_TARGET_A, spell_id=6603, damage=30),
+        ]
+        joint = hpc_v1._JointTrainingCountsV4(
+            min_guid_events=1, min_class_spec_events=1, min_class_events=1
+        )
+        for row in response_v1.iter_wave_response_sufficient_rows_v1(wave):
+            joint.update(row)
+        serialized = hpc_v1.serialize_joint_training_v4(joint)
+        self.assertTrue(serialized["base_c"]["tables"]["target_choice_counts"])
+        restored = hpc_v1.deserialize_joint_training_v4(serialized)
+        for variant in hpc_v1.DYNAMIC_VARIANTS:
+            projected = hpc_v1.materialize_joint_variant_v4(restored, variant)
+            self.assertTrue(any(
+                key[1] == "WHITE6603_FIRST_ACQUISITION"
+                for key in projected.target_choice_counts
+            ))
+
     def test_joint_v3_is_exactly_equivalent_to_reference_three_model_v2(self) -> None:
         from tests.test_chronicle_external_teammate_response_model_v1 import _wave
 
@@ -1050,7 +1086,7 @@ class TeammateResponseHpcV1Tests(unittest.TestCase):
             )
             for variant in hpc_v1.DYNAMIC_VARIANTS
         }
-        joint = hpc_v1._JointTrainingCountsV3(
+        joint = hpc_v1._JointTrainingCountsV4(
             min_guid_events=1,
             min_class_spec_events=1,
             min_class_events=1,
@@ -1087,11 +1123,11 @@ class TeammateResponseHpcV1Tests(unittest.TestCase):
                     observations[variant], variant, sufficient_row
                 )
 
-        restored = hpc_v1.deserialize_joint_training_v3(
-            hpc_v1.serialize_joint_training_v3(joint)
+        restored = hpc_v1.deserialize_joint_training_v4(
+            hpc_v1.serialize_joint_training_v4(joint)
         )
         for variant in hpc_v1.DYNAMIC_VARIANTS:
-            optimized = hpc_v1.materialize_joint_variant_v3(restored, variant)
+            optimized = hpc_v1.materialize_joint_variant_v4(restored, variant)
             self.assertEqual(
                 hpc_v1.serialize_model_v1(reference[variant]),
                 hpc_v1.serialize_model_v1(optimized),
@@ -1121,10 +1157,13 @@ class TeammateResponseHpcV1Tests(unittest.TestCase):
         self.assertTrue(
             hpc_v1._is_canonical_json_plus_lf(document, canonical + b"\n")
         )
-        self.assertEqual(
-            gzip.compress(canonical + b"\n", compresslevel=6, mtime=0),
-            hpc_v1._gzip_payload(document),
-        )
+        expected = gzip.compress(canonical + b"\n", compresslevel=6, mtime=0)
+        actual = hpc_v1._gzip_payload(document)
+        # gzip.compress delegates the OS header byte to zlib on some Python
+        # versions; GzipFile emits the stable, platform-independent value 255.
+        self.assertEqual(expected[:9], actual[:9])
+        self.assertEqual(actual[9], 255)
+        self.assertEqual(expected[10:], actual[10:])
 
     def test_full_fixture_optimized_reducer_is_byte_exact_to_legacy_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1141,23 +1180,23 @@ class TeammateResponseHpcV1Tests(unittest.TestCase):
                     )
 
                 def legacy_merge(destination, value, *, expected_row_count):
-                    worker = hpc_v1.deserialize_joint_training_v3(value)
+                    worker = hpc_v1.deserialize_joint_training_v4(value)
                     self.assertEqual(expected_row_count, worker.row_count)
                     destination.merge(worker)
 
                 def legacy_evaluate(joint, variant, observations):
-                    model = hpc_v1.materialize_joint_variant_v3(joint, variant)
+                    model = hpc_v1.materialize_joint_variant_v4(joint, variant)
                     return hpc_v1.evaluate_development_validation_v1(
                         model, observations
                     )
 
                 with mock.patch.object(
                     hpc_v1,
-                    "_merge_serialized_joint_training_v3",
+                    "_merge_serialized_joint_training_v4",
                     side_effect=legacy_merge,
                 ), mock.patch.object(
                     hpc_v1,
-                    "_evaluate_joint_variant_v3",
+                    "_evaluate_joint_variant_v4",
                     side_effect=legacy_evaluate,
                 ):
                     legacy = hpc_v1.reduce_development_v1(

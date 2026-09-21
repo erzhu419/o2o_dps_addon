@@ -79,15 +79,15 @@ class CurrentSourceDeclarationV1:
 
 _EXPECTED_MODEL_VIEWS = {
     response_v1.ABLATION_B: {
-        "materialization": "PROJECT_C_DROP_GUID_AND_SOURCE_GUID",
+        "materialization": "PROJECT_C_V4_DROP_GUID_AND_SOURCE_GUID",
         "exact": True,
     },
     response_v1.ABLATION_C: {
-        "materialization": "BASE_C",
+        "materialization": "BASE_C_V4_JOINT_TARGET_DAMAGE",
         "exact": True,
     },
     response_v1.ABLATION_D: {
-        "materialization": "C_CLASS_GLOBAL_PLUS_D_GUID_CLASS_SPEC_DELTA",
+        "materialization": "C_V4_CLASS_GLOBAL_PLUS_D_GUID_CLASS_SPEC_DELTA",
         "shared_spell_and_source_guid_tables_from_c": True,
         "exact": True,
     },
@@ -118,6 +118,48 @@ def _validate_result_boundary(
     result: Mapping[str, Any], *, joint_row_count: int
 ) -> tuple[str, ...]:
 
+    evaluations = _mapping(
+        result.get("development_validation"), "development validation"
+    )
+    if set(evaluations) != set(hpc_v1.DYNAMIC_VARIANTS):
+        raise ResponsiveTeamHpcResultLoaderV1Error(
+            "development validation variant set differs"
+        )
+    validation_row_count: int | None = None
+    for variant_id in hpc_v1.DYNAMIC_VARIANTS:
+        evaluation = _mapping(evaluations[variant_id], f"{variant_id} evaluation")
+        if (
+            evaluation.get("variant_id") != variant_id
+            or evaluation.get("status")
+            != "DEVELOPMENT_METRICS_INCOMPLETE_NO_ADOPTION"
+        ):
+            raise ResponsiveTeamHpcResultLoaderV1Error(
+                f"{variant_id} development evaluation binding differs"
+            )
+        weights = _mapping(
+            evaluation.get("weights"), f"{variant_id} validation weights"
+        )
+        mark_weight = _integer(
+            weights.get("mark"), f"{variant_id} validation mark weight", minimum=1
+        )
+        delay_weight = _integer(
+            weights.get("delay"), f"{variant_id} validation delay weight", minimum=1
+        )
+        if mark_weight != delay_weight:
+            raise ResponsiveTeamHpcResultLoaderV1Error(
+                f"{variant_id} validation mark/delay row counts differ"
+            )
+        if validation_row_count is None:
+            validation_row_count = mark_weight
+        elif validation_row_count != mark_weight:
+            raise ResponsiveTeamHpcResultLoaderV1Error(
+                "development validation row counts differ across variants"
+            )
+    if validation_row_count is None:  # pragma: no cover - variant set is nonempty
+        raise ResponsiveTeamHpcResultLoaderV1Error(
+            "development validation row count is absent"
+        )
+
     completeness = _mapping(result.get("completeness"), "result completeness")
     expected_workers = _integer(
         completeness.get("expected_worker_count"), "expected worker count", minimum=1
@@ -126,7 +168,8 @@ def _validate_result_boundary(
         completeness.get("observed_worker_count") != expected_workers
         or completeness.get("partition_scan_count") != expected_workers
         or completeness.get("duplicate_wave_count") != 0
-        or completeness.get("compiled_exact_player_row_count") != joint_row_count
+        or completeness.get("compiled_exact_player_row_count")
+        != joint_row_count + validation_row_count
         or completeness.get("old50_stage5_overlap_split") != "TRAIN_NONHELDOUT"
         or completeness.get("old50_absent_from_stage5_not_tasked") is not True
     ):
@@ -158,24 +201,6 @@ def _validate_result_boundary(
         raise ResponsiveTeamHpcResultLoaderV1Error(
             "HPC teammate model materialization views differ"
         )
-    evaluations = _mapping(
-        result.get("development_validation"), "development validation"
-    )
-    if set(evaluations) != set(hpc_v1.DYNAMIC_VARIANTS):
-        raise ResponsiveTeamHpcResultLoaderV1Error(
-            "development validation variant set differs"
-        )
-    for variant_id in hpc_v1.DYNAMIC_VARIANTS:
-        evaluation = _mapping(evaluations[variant_id], f"{variant_id} evaluation")
-        if (
-            evaluation.get("variant_id") != variant_id
-            or evaluation.get("status")
-            != "DEVELOPMENT_METRICS_INCOMPLETE_NO_ADOPTION"
-        ):
-            raise ResponsiveTeamHpcResultLoaderV1Error(
-                f"{variant_id} development evaluation binding differs"
-            )
-
     adoption = _mapping(result.get("model_adoption"), "model adoption")
     boundary = _mapping(result.get("scientific_boundary"), "scientific boundary")
     if (
@@ -209,7 +234,7 @@ def materialize_responsive_teammate_model_from_hpc_result_v1(
         )
     result_sha = _validate_result_identity(document)
     try:
-        joint = hpc_v1.deserialize_joint_training_v3(
+        joint = hpc_v1.deserialize_joint_training_v4(
             _mapping(
                 document.get("train_joint_sufficient_statistics"),
                 "train joint sufficient statistics",
@@ -240,7 +265,7 @@ def materialize_responsive_teammate_model_from_hpc_result_v1(
         )
 
     try:
-        model = hpc_v1.materialize_joint_variant_v3(joint, variant_id)
+        model = hpc_v1.materialize_joint_variant_v4(joint, variant_id)
         serialized_model = hpc_v1.serialize_model_v1(model)
         model_sha = hpc_v1._canonical_sha256(serialized_model)
         model.model_content_sha256 = model_sha

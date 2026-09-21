@@ -1,0 +1,23 @@
+{
+  "schema": "incantagos_clean_dual_item_names/v1",
+  "source": "wowsims-turtle/assets/db_inputs/Items.csv:name1",
+  "scope": "controlled-simulator-loadout-not-historical-focal-gear",
+  "items": [
+    {"id": 21329, "name": "Conqueror's Crown"},
+    {"id": 18404, "name": "Onyxia Tooth Pendant"},
+    {"id": 21330, "name": "Conqueror's Spaulders"},
+    {"id": 21394, "name": "Drape of Unyielding Strength"},
+    {"id": 23226, "name": "Ghoul Skin Tunic"},
+    {"id": 22936, "name": "Wristguards of Vengeance"},
+    {"id": 19143, "name": "Flameguard Gauntlets"},
+    {"id": 19137, "name": "Onslaught Girdle"},
+    {"id": 61365, "name": "Dreamsteel Leggings"},
+    {"id": 19387, "name": "Chromatic Boots"},
+    {"id": 19384, "name": "Master Dragonslayer's Ring"},
+    {"id": 17063, "name": "Band of Accuria"},
+    {"id": 19406, "name": "Drake Fang Talisman"},
+    {"id": 60501, "name": "Whip of Encouragement"},
+    {"id": 18832, "name": "Brutality Blade"},
+    {"id": 19866, "name": "Warblade of the Hakkari"}
+  ]
+}

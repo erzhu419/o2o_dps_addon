@@ -31,6 +31,7 @@ Thumbs.db
 # intentionally not published from this source-only repository.
 offline_data/
 bin/
+/results/
 
 # Local review material and third-party source trees are inputs, never part of
 # the source-only o2o-dps publication.

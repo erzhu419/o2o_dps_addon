@@ -318,6 +318,52 @@ class RecentListingTests(unittest.TestCase):
 
 
 class ChronicleIngestTests(unittest.TestCase):
+    def test_recent_nested_guild_is_per_instance_in_ingest_and_replay(self) -> None:
+        with_guild = _activity(
+            "guild-raid",
+            slug="guild-slug",
+            uploaded_at="2026-09-20T14:17:38.889861Z",
+            started_at="2026-09-20T12:18:12.297Z",
+        )
+        with_guild["guild"] = {"id": "guild-id", "name": "南北"}
+        without_guild = _activity(
+            "unknown-raid",
+            slug="unknown-slug",
+            uploaded_at="2026-09-20T13:05:42.008596Z",
+            started_at="2026-09-20T11:37:48.309Z",
+        )
+
+        def handler(method, url, headers, timeout):
+            path = urlparse(url).path
+            if path.endswith("/raidlogs/recent"):
+                return _response(url, _recent_page([with_guild, without_guild]))
+            if path.endswith("/guild-raid"):
+                return _response(url, _metadata("guild-raid", "guild-slug"))
+            if path.endswith("/unknown-raid"):
+                return _response(url, _metadata("unknown-raid", "unknown-slug"))
+            self.fail(url)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            data_root = Path(temporary) / "offline_data"
+            result = ingest_external_api(
+                data_root=data_root,
+                client=_client(Router(handler)),
+                upload_after="2026-09-20T00:00:00Z",
+                max_instances=2,
+            )
+            manifest = json.loads(Path(result["manifest_path"]).read_text(encoding="utf-8"))
+            rows = {row["instance_id"]: row for row in manifest["instances"]}
+            self.assertEqual(rows["guild-raid"]["contamination_guild_context"], "南北")
+            self.assertEqual(rows["guild-raid"]["contamination_guild_evidence"], "activity.guild.name")
+            self.assertEqual(rows["guild-raid"]["uploaded_at"], with_guild["uploaded_at"])
+            self.assertEqual(rows["guild-raid"]["started_at"], with_guild["started_at"])
+            self.assertIsNone(rows["unknown-raid"]["contamination_guild_context"])
+            self.assertEqual(rows["unknown-raid"]["instance_contamination_label"], UNKNOWN_NONVOTING)
+            replayed = replay_manifest_from_local_raw(
+                Path(result["manifest_path"]), data_root=data_root
+            )
+            self.assertEqual(replayed["status"], "ALREADY_CURRENT_LOCAL_RAW")
+
     def test_manifest_last_full_snapshot_and_uploaded_watermark(self) -> None:
         activities = [
             _activity(

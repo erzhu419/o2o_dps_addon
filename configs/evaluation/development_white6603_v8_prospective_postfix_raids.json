@@ -1,0 +1,23 @@
+{
+  "schema": "development_white6603_v8_prospective_postfix_raids/v1",
+  "scope": "metadata_only_before_v8_selection_result",
+  "discovery": "GET https://capy.chronicleclassic.com/api/external/v1/raidlogs/recent?after_date=2026-09-18T00:00:00Z&instance_name=Upper%20Tower%20of%20Karazhan&page=1&page_size=50; GET /raidlogs/instances/{id} metadata only",
+  "roster_comparison": "exact player GUID overlap with the frozen 65 TRAIN raid metadata; no damage or ranking records used",
+  "train_unique_player_guids": 1246,
+  "instances": [
+    {"instance_id": "418307df-0321-40cd-8065-d33dd47de197", "started_at": "2026-09-18T14:28:20.847Z", "uploaded_at": "2026-09-19T03:18:52.788552Z", "players": 40, "train_player_overlap": 0, "prior_validation_player_overlap": 0, "train_or_validation_raid_guild_overlap": 0, "raid_guild": "诸神夜", "boss_kills": 9, "event_streams_inspected": false, "prior_board_inspection": "FURY_NOT_ON_CURRENT_BOARD"},
+    {"instance_id": "4c9575fd-0f08-4af5-ac30-96fc77565a12", "players": 40, "train_player_overlap": 1, "raid_guild": null, "event_streams_inspected": false},
+    {"instance_id": "bc01e29f-d5ca-4909-8f81-d0b1edf3826a", "players": 43, "train_player_overlap": 35, "raid_guild": "老干部活动中心", "event_streams_inspected": false},
+    {"instance_id": "34375229-21d3-4496-9e16-fa74b7cd5881", "players": 41, "train_player_overlap": 2, "raid_guild": null, "event_streams_inspected": false},
+    {"instance_id": "0c735957-ffc1-49ea-a57a-a049d7a9857b", "players": 42, "train_player_overlap": 0, "raid_guild": null, "event_streams_inspected": true},
+    {"instance_id": "99b5b176-8840-4ab1-9f6a-e82a6f30df37", "players": 41, "train_player_overlap": 32, "raid_guild": "橙丰", "event_streams_inspected": false}
+  ],
+  "prospective_low_overlap_without_event_inspection": [
+    "418307df-0321-40cd-8065-d33dd47de197",
+    "4c9575fd-0f08-4af5-ac30-96fc77565a12",
+    "34375229-21d3-4496-9e16-fa74b7cd5881"
+  ],
+  "already_inspected_disjoint_roster_diagnostic": "0c735957-ffc1-49ea-a57a-a049d7a9857b",
+  "prospective_raid_guild_known_and_disjoint_from_train_and_prior_validation": "418307df-0321-40cd-8065-d33dd47de197",
+  "evaluation_boundary": "not used for fit or internal selection; missing raid-level guild remains UNKNOWN_NONVOTING until an independently justified provenance rule changes"
+}

@@ -54,10 +54,18 @@ OLD_WINDOWS_BRIDGE = (
 RESPONSIVE_WINDOWS_BRIDGE = (
     PROJECT_ROOT
     / "bin"
-    / "o2obridge.seedfix-v14.dynamicv4responsive.withdb.goamd64v1.windows-amd64.exe"
+    / "o2obridge.seedfix-v26.observed-damage-v2.withdb.goamd64v1.windows-amd64.exe"
 )
 RESPONSIVE_WINDOWS_BRIDGE_SHA256 = (
-    "f3be3f6670c34f986d9ad99a617e6432201f7b49e65ab116e258be5ad18a1ecc"
+    "2226bf02063455b6c15d7314b1bb1ea588a00f21d96d20f37a7814a909bc0a9a"
+)
+ZERO_DMG_RESPONSIVE_WINDOWS_BRIDGE = (
+    PROJECT_ROOT
+    / "bin"
+    / "o2obridge.seedfix-v26.observed-damage-v2.withdb.goamd64v1.windows-amd64.exe"
+)
+ZERO_DMG_RESPONSIVE_WINDOWS_BRIDGE_SHA256 = (
+    "2226bf02063455b6c15d7314b1bb1ea588a00f21d96d20f37a7814a909bc0a9a"
 )
 
 TEAMMATE = "0x00000000000000AA"
@@ -122,6 +130,48 @@ class _RandomDelayModel(_FixedModel):
             "context": ["GLOBAL"],
             "support": 10,
         }
+
+
+class _ZeroDamageDmgModel(_FixedModel):
+    def sample_emission(self, *, actor, emission_state, rng):
+        sampled = super().sample_emission(
+            actor=actor,
+            emission_state=emission_state,
+            rng=rng,
+        )
+        sampled.update(
+            {
+                "spell_id": 11722,
+                "spell_name": "Curse of the Elements",
+                "sampled_damage": 0,
+                "damage_bucket": 0,
+            }
+        )
+        return sampled
+
+
+class _UntargetedDmgModel(_FixedModel):
+    def __init__(self, *, target_mode: str, sampled_damage: float) -> None:
+        super().__init__()
+        self.target_mode = target_mode
+        self.sampled_damage = sampled_damage
+
+    def sample_emission(self, *, actor, emission_state, rng):
+        sampled = super().sample_emission(
+            actor=actor,
+            emission_state=emission_state,
+            rng=rng,
+        )
+        sampled.update(
+            {
+                "spell_id": 11722,
+                "spell_name": "untargeted-model-mark",
+                "target_mode": self.target_mode,
+                "sampled_damage": self.sampled_damage,
+                "damage_bucket": 0,
+            }
+        )
+        return sampled
 
 
 class _ContractBridge:
@@ -263,14 +313,22 @@ class _ContractBridge:
             assert event["wake_id"] == self.armed["wake_id"]
             assert self.now == self.armed["time_ms"]
             target_index = event["target_index"]
+            observed = float(event["observed_damage"])
             requested = float(event["requested_damage"])
             if target_index is None:
+                assert requested == 0
                 applied = 0.0
                 current_health = None
-                status = "NO_ALIVE_TARGET"
-                ordinal = None
+                status = (
+                    "OBSERVED_NON_HOSTILE_DAMAGE"
+                    if event["event_type"] == "DMG" and observed > 0
+                    else "OBSERVED_NO_DAMAGE"
+                )
+                ordinal = 0
             else:
                 assert self.health[target_index] > 0
+                if event["event_type"] == "DMG":
+                    assert observed == requested
                 canceled_unattackable = (
                     event["event_type"] == "DMG"
                     and not self.attackable[target_index]
@@ -304,6 +362,7 @@ class _ContractBridge:
                 "actor_guid": event["actor_guid"],
                 "event_type": event["event_type"],
                 "target_index": target_index,
+                "observed_damage": observed,
                 "requested_damage": requested,
                 "applied_damage": applied,
                 "overkill_damage": requested - applied,
@@ -535,6 +594,171 @@ def _dynamic_v4_wire(
 
 
 class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
+    def test_direct_white6603_uses_own_head_and_aoe_does_not(self) -> None:
+        class _WhiteModel(_FixedModel):
+            def sample_emission(self, *, actor, emission_state, rng):
+                sampled = super().sample_emission(
+                    actor=actor, emission_state=emission_state, rng=rng
+                )
+                sampled.update(
+                    spell_id=6603, spell_name="Attack", target_mode="SWITCH_ALIVE"
+                )
+                return sampled
+
+            def sample_target_choice(self, **kwargs):
+                assert kwargs["intent_kind"] == "WHITE6603"
+                assert set(kwargs["eligible_target_guids"]) == {TARGET_A, TARGET_B}
+                return {
+                    "target_guid": TARGET_B,
+                    "context_level": "GLOBAL",
+                    "phase": "WHITE6603_RETARGET",
+                    "support": 8,
+                }
+
+        provenance = _provenance()
+        adapter = ResponsiveTeamBridgeAdapterV1(
+            bridge=_ContractBridge(generation=1, config_digest="b" * 64),
+            runtime=_runtime(), loaded_model=_loaded_model(_WhiteModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(provenance, branch_id="white6603-head", suffix_id="same-suffix"),
+        )
+        adapter.arm_next(TEAMMATE)
+        result = adapter.emit_ready(TEAMMATE)
+        self.assertEqual(result["local_runtime_transition"]["target_guid"], TARGET_B)
+        self.assertEqual(result["target_choice_head"]["phase"], "WHITE6603_RETARGET")
+        self.assertEqual(
+            result["target_selection_basis"],
+            "LEARNED_DIRECT_WHITE6603_PREFIX_TARGET_CHOICE",
+        )
+        self.assertEqual(adapter.runtime.actors[TEAMMATE].current_target_guid, TARGET_B)
+
+        class _AoeModel(_WhiteModel):
+            def sample_emission(self, *, actor, emission_state, rng):
+                sampled = super().sample_emission(
+                    actor=actor, emission_state=emission_state, rng=rng
+                )
+                sampled["spell_id"] = 1680
+                return sampled
+
+            def sample_target_choice(self, **kwargs):
+                raise AssertionError("AoE result must not invoke the intent head")
+
+        aoe = ResponsiveTeamBridgeAdapterV1(
+            bridge=_ContractBridge(generation=1, config_digest="b" * 64),
+            runtime=_runtime(), loaded_model=_loaded_model(_AoeModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(provenance, branch_id="aoe-no-head", suffix_id="same-suffix"),
+        )
+        aoe.arm_next(TEAMMATE)
+        aoe_result = aoe.emit_ready(TEAMMATE)
+        self.assertIsNone(aoe_result["target_choice_head"])
+        self.assertEqual(
+            aoe_result["target_selection_basis"],
+            "ATTACKABLE_ALIVE_REGISTRY_UNCALIBRATED_DAMAGE_TARGET",
+        )
+        self.assertEqual(aoe.runtime.actors[TEAMMATE].current_target_guid, TARGET_A)
+
+    def test_white6603_stay_uses_focus_without_redraw(self) -> None:
+        class _StayWhiteModel(_FixedModel):
+            def sample_emission(self, *, actor, emission_state, rng):
+                sampled = super().sample_emission(
+                    actor=actor, emission_state=emission_state, rng=rng
+                )
+                sampled["spell_id"] = 6603
+                return sampled
+
+            def sample_target_choice(self, **kwargs):
+                raise AssertionError("live STAY focus is deterministic")
+
+        provenance = _provenance()
+        adapter = ResponsiveTeamBridgeAdapterV1(
+            bridge=_ContractBridge(generation=1, config_digest="b" * 64),
+            runtime=_runtime(), loaded_model=_loaded_model(_StayWhiteModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(provenance, branch_id="white6603-stay", suffix_id="same-suffix"),
+        )
+        adapter.arm_next(TEAMMATE)
+        result = adapter.emit_ready(TEAMMATE)
+        self.assertEqual(result["local_runtime_transition"]["target_guid"], TARGET_A)
+        self.assertEqual(result["target_selection_basis"], "CURRENT_FOCUS_DIRECT_WHITE6603")
+
+    def test_white6603_head_only_receives_attackable_registry(self) -> None:
+        class _RestrictedWhiteModel(_FixedModel):
+            def sample_emission(self, *, actor, emission_state, rng):
+                sampled = super().sample_emission(
+                    actor=actor, emission_state=emission_state, rng=rng
+                )
+                sampled.update(spell_id=6603, target_mode="SWITCH_ALIVE")
+                return sampled
+
+            def sample_target_choice(self, **kwargs):
+                assert kwargs["intent_kind"] == "WHITE6603"
+                assert kwargs["eligible_target_guids"] == [TARGET_A]
+                return None
+
+        provenance = _provenance()
+        adapter = ResponsiveTeamBridgeAdapterV1(
+            bridge=_ContractBridge(
+                generation=1, config_digest="b" * 64,
+                attackable=(True, False),
+            ),
+            runtime=_runtime(),
+            loaded_model=_loaded_model(_RestrictedWhiteModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(provenance, branch_id="white6603-eligible", suffix_id="same-suffix"),
+        )
+        adapter.arm_next(TEAMMATE)
+        result = adapter.emit_ready(TEAMMATE)
+        self.assertEqual(result["local_runtime_transition"]["target_guid"], TARGET_A)
+        self.assertEqual(
+            result["target_selection_basis"],
+            "ATTACKABLE_ALIVE_REGISTRY_WHITE6603_NO_CHOICE_SUPPORT",
+        )
+
+    def test_direct_start_uses_learned_attackable_choice_and_sets_focus(self) -> None:
+        class _DirectedStartModel(_FixedModel):
+            def sample_emission(self, *, actor, emission_state, rng):
+                sampled = super().sample_emission(
+                    actor=actor, emission_state=emission_state, rng=rng
+                )
+                sampled.update(
+                    event_type="START", spell_id=23881, spell_name="Bloodthirst",
+                    target_mode="SWITCH_ALIVE", sampled_damage=0, damage_bucket=0,
+                )
+                return sampled
+
+            def sample_target_choice(self, **kwargs):
+                assert set(kwargs["eligible_target_guids"]) == {TARGET_A, TARGET_B}
+                assert kwargs["intent_kind"] == "START"
+                return {
+                    "target_guid": TARGET_B,
+                    "context_level": "GLOBAL",
+                    "phase": "START_FIRST_ACQUISITION",
+                    "support": 5,
+                }
+
+        provenance = _provenance()
+        bridge = _ContractBridge(generation=1, config_digest="b" * 64)
+        adapter = ResponsiveTeamBridgeAdapterV1(
+            bridge=bridge, runtime=_runtime(),
+            loaded_model=_loaded_model(_DirectedStartModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(provenance, branch_id="directed-start", suffix_id="same-suffix"),
+        )
+        adapter.arm_next(TEAMMATE)
+        result = adapter.emit_ready(TEAMMATE)
+        self.assertEqual(result["local_runtime_transition"]["target_guid"], TARGET_B)
+        self.assertEqual(
+            result["target_selection_basis"],
+            "LEARNED_DIRECT_START_PREFIX_TARGET_CHOICE",
+        )
+        self.assertEqual(adapter.runtime.actors[TEAMMATE].current_target_guid, TARGET_B)
+
     def test_adapter_rejects_model_identity_mutated_after_atomic_load(self) -> None:
         provenance = _provenance()
         model = _FixedModel()
@@ -587,6 +811,40 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
         )
         self.assertTrue(
             contract["emit_contract"]["go_applies_damage_through_dynamic_target_lifecycle"]
+        )
+        self.assertTrue(
+            contract["emit_contract"][
+                "targeted_zero_damage_dmg_mark_preserved_with_positive_damage_ordinal"
+            ]
+        )
+        self.assertTrue(
+            contract["emit_contract"][
+                "untargeted_zero_damage_dmg_mark_preserved_with_zero_damage_ordinal"
+            ]
+        )
+        self.assertTrue(
+            contract["emit_contract"][
+                "untargeted_zero_damage_dmg_mark_enters_causal_prefix"
+            ]
+        )
+        self.assertTrue(
+            contract["emit_contract"][
+                "wire_separates_observed_damage_from_hostile_requested_damage"
+            ]
+        )
+        self.assertTrue(
+            contract["emit_contract"][
+                "positive_non_hostile_damage_preserved_without_hostile_hp_change"
+            ]
+        )
+        self.assertTrue(
+            contract["emit_contract"][
+                "diagnostic_target_modes_never_resolve_to_live_targets"
+            ]
+        )
+        self.assertNotIn(
+            "zero_damage_dmg_mark_preserved_with_damage_ordinal",
+            contract["emit_contract"],
         )
         self.assertFalse(
             contract["scientific_boundary"]["candidate_policy_identity_visible_to_model"]
@@ -769,6 +1027,233 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
         self.assertEqual(1, result["wire_event"]["target_index"])
         self.assertEqual(TARGET_B, result["local_runtime_transition"]["target_guid"])
 
+    def test_zero_damage_dmg_mark_is_observed_with_ordinal_without_hp_change(self) -> None:
+        provenance = _provenance()
+        bridge = _ContractBridge(generation=1, config_digest="b" * 64)
+        adapter = ResponsiveTeamBridgeAdapterV1(
+            bridge=bridge,
+            runtime=_runtime(),
+            loaded_model=_loaded_model(_ZeroDamageDmgModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(
+                provenance,
+                branch_id="zero-damage-dmg-mark",
+                suffix_id="same-suffix",
+            ),
+        )
+
+        adapter.arm_next(TEAMMATE)
+        result = adapter.emit_ready(TEAMMATE)
+
+        self.assertEqual("DMG", result["wire_event"]["event_type"])
+        self.assertEqual(0.0, result["wire_event"]["observed_damage"])
+        self.assertEqual(0.0, result["wire_event"]["requested_damage"])
+        self.assertEqual("OBSERVED_NO_DAMAGE", result["wire_receipt"]["status"])
+        self.assertEqual(1, result["wire_receipt"]["damage_ordinal"])
+        self.assertEqual(10.0, result["wire_receipt"]["current_health"])
+        self.assertEqual([10.0, 20.0], bridge.health)
+        self.assertEqual({TARGET_A: 10.0, TARGET_B: 20.0}, adapter.runtime.health)
+        self.assertTrue(
+            result["local_runtime_transition"]["observed_in_model_prefix"]
+        )
+        self.assertEqual(
+            '["DMG",11722,"DIRECT_FRIENDLY_PLAYER"]',
+            adapter.runtime._replay.actors[TEAMMATE].last_mark_token,
+        )
+
+    def test_untargeted_zero_damage_dmg_mark_has_zero_ordinal_and_enters_prefix(
+        self,
+    ) -> None:
+        for target_mode in ("NO_TARGET", "NON_HOSTILE_OR_UNKNOWN"):
+            with self.subTest(target_mode=target_mode):
+                provenance = _provenance()
+                bridge = _ContractBridge(generation=1, config_digest="b" * 64)
+                adapter = ResponsiveTeamBridgeAdapterV1(
+                    bridge=bridge,
+                    runtime=_runtime(),
+                    loaded_model=_loaded_model(
+                        _UntargetedDmgModel(
+                            target_mode=target_mode,
+                            sampled_damage=0,
+                        ),
+                        provenance,
+                    ),
+                    candidate_actor_guid=CANDIDATE,
+                    target_guid_by_index=(TARGET_A, TARGET_B),
+                    branch=_binding(
+                        provenance,
+                        branch_id=f"untargeted-zero-{target_mode}",
+                        suffix_id="same-suffix",
+                    ),
+                )
+
+                adapter.arm_next(TEAMMATE)
+                result = adapter.emit_ready(TEAMMATE)
+
+                self.assertIsNone(result["wire_event"]["target_index"])
+                self.assertEqual(0.0, result["wire_event"]["observed_damage"])
+                self.assertEqual(0.0, result["wire_event"]["requested_damage"])
+                self.assertEqual(
+                    "OBSERVED_NO_DAMAGE", result["wire_receipt"]["status"]
+                )
+                self.assertEqual(0, result["wire_receipt"]["damage_ordinal"])
+                self.assertIsNone(result["wire_receipt"]["current_health"])
+                self.assertEqual(
+                    "MODEL_EXPLICIT_UNTARGETED_ZERO_DAMAGE",
+                    result["target_selection_basis"],
+                )
+                self.assertIsNone(
+                    result["local_runtime_transition"]["target_guid"]
+                )
+                self.assertTrue(
+                    result["local_runtime_transition"][
+                        "observed_in_model_prefix"
+                    ]
+                )
+                self.assertEqual([10.0, 20.0], bridge.health)
+                self.assertEqual(
+                    {TARGET_A: 10.0, TARGET_B: 20.0}, adapter.runtime.health
+                )
+                self.assertEqual(
+                    '["DMG",11722,"DIRECT_FRIENDLY_PLAYER"]',
+                    adapter.runtime._replay.actors[TEAMMATE].last_mark_token,
+                )
+                self.assertEqual(
+                    result["wire_receipt"], result["cursor_stream_receipt"]
+                )
+
+    def test_positive_non_hostile_damage_is_observed_without_hostile_hp_change(
+        self,
+    ) -> None:
+        for target_mode in ("NO_TARGET", "NON_HOSTILE_OR_UNKNOWN"):
+            with self.subTest(target_mode=target_mode):
+                provenance = _provenance()
+                bridge = _ContractBridge(generation=1, config_digest="b" * 64)
+                adapter = ResponsiveTeamBridgeAdapterV1(
+                    bridge=bridge,
+                    runtime=_runtime(),
+                    loaded_model=_loaded_model(
+                        _UntargetedDmgModel(
+                            target_mode=target_mode,
+                            sampled_damage=7,
+                        ),
+                        provenance,
+                    ),
+                    candidate_actor_guid=CANDIDATE,
+                    target_guid_by_index=(TARGET_A, TARGET_B),
+                    branch=_binding(
+                        provenance,
+                        branch_id=f"positive-no-target-{target_mode}",
+                        suffix_id="same-suffix",
+                    ),
+                )
+
+                adapter.arm_next(TEAMMATE)
+                result = adapter.emit_ready(TEAMMATE)
+
+                self.assertIsNone(result["wire_event"]["target_index"])
+                self.assertEqual(7.0, result["wire_event"]["observed_damage"])
+                self.assertEqual(0.0, result["wire_event"]["requested_damage"])
+                self.assertEqual(
+                    "OBSERVED_NON_HOSTILE_DAMAGE",
+                    result["wire_receipt"]["status"],
+                )
+                self.assertEqual(7.0, result["wire_receipt"]["observed_damage"])
+                self.assertEqual(0.0, result["wire_receipt"]["requested_damage"])
+                self.assertEqual(0.0, result["wire_receipt"]["applied_damage"])
+                self.assertEqual(0.0, result["wire_receipt"]["overkill_damage"])
+                self.assertEqual(0, result["wire_receipt"]["damage_ordinal"])
+                self.assertIsNone(result["wire_receipt"]["current_health"])
+                self.assertEqual(
+                    "MODEL_EXPLICIT_OBSERVED_NON_HOSTILE_DAMAGE",
+                    result["target_selection_basis"],
+                )
+                self.assertEqual([10.0, 20.0], bridge.health)
+                self.assertEqual(
+                    {TARGET_A: 10.0, TARGET_B: 20.0}, adapter.runtime.health
+                )
+                snapshot = adapter.runtime.snapshot_for_actor(TEAMMATE)
+                self.assertEqual(
+                    7,
+                    snapshot["marked_activity"]["actor"][
+                        "damage_amount_3000ms"
+                    ],
+                )
+                self.assertEqual(
+                    result["wire_receipt"], result["cursor_stream_receipt"]
+                )
+
+    def test_diagnostic_target_mode_fails_closed_before_live_target_selection(
+        self,
+    ) -> None:
+        for target_mode in (
+            "DEAD_TARGET_OBSERVED_DIAGNOSTIC",
+            "UNSEEN_HOSTILE_CURRENT_LABEL",
+        ):
+            with self.subTest(target_mode=target_mode):
+                provenance = _provenance()
+                bridge = _ContractBridge(generation=1, config_digest="b" * 64)
+                adapter = ResponsiveTeamBridgeAdapterV1(
+                    bridge=bridge,
+                    runtime=_runtime(),
+                    loaded_model=_loaded_model(
+                        _UntargetedDmgModel(
+                            target_mode=target_mode,
+                            sampled_damage=7,
+                        ),
+                        provenance,
+                    ),
+                    candidate_actor_guid=CANDIDATE,
+                    target_guid_by_index=(TARGET_A, TARGET_B),
+                    branch=_binding(
+                        provenance,
+                        branch_id=f"diagnostic-{target_mode}",
+                        suffix_id="same-suffix",
+                    ),
+                )
+
+                adapter.arm_next(TEAMMATE)
+                with self.assertRaisesRegex(
+                    ResponsiveTeamBridgeAdapterV1Error,
+                    "diagnostic sampled target mode is not actionable",
+                ):
+                    adapter.emit_ready(TEAMMATE)
+
+                self.assertEqual([], bridge.team_receipts)
+                self.assertEqual([10.0, 20.0], bridge.health)
+                self.assertEqual(
+                    {TARGET_A: 10.0, TARGET_B: 20.0}, adapter.runtime.health
+                )
+
+    def test_actionable_sampler_is_used_when_runtime_store_exposes_it(self) -> None:
+        class _ActionableModel(_FixedModel):
+            def sample_emission(self, *, actor, emission_state, rng):
+                raise AssertionError("raw diagnostic sampler must not drive the bridge")
+
+            def sample_actionable_emission(self, *, actor, emission_state, rng):
+                return _FixedModel.sample_emission(
+                    self, actor=actor, emission_state=emission_state, rng=rng
+                )
+
+        provenance = _provenance()
+        bridge = _ContractBridge(generation=1, config_digest="b" * 64)
+        adapter = ResponsiveTeamBridgeAdapterV1(
+            bridge=bridge,
+            runtime=_runtime(),
+            loaded_model=_loaded_model(_ActionableModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(
+                provenance, branch_id="actionable-projection", suffix_id="same-suffix"
+            ),
+        )
+
+        adapter.arm_next(TEAMMATE)
+        result = adapter.emit_ready(TEAMMATE)
+        self.assertEqual("STAY_ALIVE", result["sampled_emission"]["target_mode"])
+        self.assertEqual("APPLIED", result["wire_receipt"]["status"])
+
     def test_all_living_targets_unattackable_consumes_wake_without_prefix_damage(
         self,
     ) -> None:
@@ -886,6 +1371,115 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
             ],
         )
 
+    def test_scheduler_keeps_running_when_only_future_target_remains(self) -> None:
+        provenance = _provenance()
+        bridge = _ContractBridge(
+            generation=1,
+            config_digest="b" * 64,
+            target_health=(7.0, 9.0),
+            attackable=(True, False),
+        )
+        runtime = DynamicTeamRuntimeV1(
+            actors=(
+                {
+                    "player_guid": TEAMMATE,
+                    "class": "MAGE",
+                    "spec_key": "MAGE_SPEC_NOT_AVAILABLE",
+                },
+                {
+                    "player_guid": CANDIDATE,
+                    "class": "WARRIOR",
+                    "spec_key": "WARRIOR_FURY",
+                },
+            ),
+            target_health_by_guid={TARGET_A: 7, TARGET_B: 9},
+            target_introduced_at_ms_by_guid={TARGET_A: 0, TARGET_B: 200},
+        )
+        runtime.actors[TEAMMATE].current_target_guid = TARGET_A
+        adapter = ResponsiveTeamBridgeAdapterV1(
+            bridge=bridge,
+            runtime=runtime,
+            loaded_model=_loaded_model(_FixedModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(
+                provenance,
+                branch_id="future-target-gap",
+                suffix_id="first-target-dies-before-second-arrives",
+            ),
+        )
+
+        adapter.arm_global_next()
+        step = adapter.emit_global_ready_and_rearm()
+
+        self.assertEqual("EMITTED_AND_NEXT_GLOBAL_WAKE_ARMED", step["status"])
+        self.assertEqual(200, step["next_wake"]["time_ms"])
+        self.assertEqual([], adapter.runtime.alive_target_guids())
+        self.assertEqual([TARGET_B], adapter.runtime.remaining_target_guids())
+        self.assertIsNone(adapter.runtime.kill_clock_ms)
+
+    def test_exact_horizon_deadline_is_retained_as_discard_evidence_not_armed(self) -> None:
+        provenance = _provenance()
+        bridge = _ContractBridge(generation=1, config_digest="b" * 64)
+        adapter = ResponsiveTeamBridgeAdapterV1(
+            bridge=bridge,
+            runtime=_runtime(),
+            loaded_model=_loaded_model(_FixedModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(
+                provenance,
+                branch_id="exact-horizon",
+                suffix_id="no-go-arm-call",
+            ),
+            wake_horizon_exclusive_ms=100,
+        )
+
+        self.assertIsNone(adapter.arm_global_next())
+        self.assertIsNone(bridge.armed)
+        evidence = adapter.horizon_discard_evidence()
+        self.assertEqual(1, len(evidence))
+        self.assertEqual(100, evidence[0]["time_ms"])
+        self.assertEqual(100, evidence[0]["wake_horizon_exclusive_ms"])
+        self.assertEqual(
+            "wake_time_ms < wake_horizon_exclusive_ms",
+            evidence[0]["boundary_semantics"],
+        )
+        self.assertFalse(evidence[0]["go_arm_dynamic_team_wake_called"])
+        self.assertIsNone(adapter.arm_global_next())
+        self.assertEqual(1, len(adapter.horizon_discard_evidence()))
+
+    def test_rearm_at_exact_horizon_returns_explicit_terminal_evidence(self) -> None:
+        provenance = _provenance()
+        bridge = _ContractBridge(
+            generation=1,
+            config_digest="b" * 64,
+            target_health=(100.0, 100.0),
+        )
+        adapter = ResponsiveTeamBridgeAdapterV1(
+            bridge=bridge,
+            runtime=_runtime(target_health=(100, 100)),
+            loaded_model=_loaded_model(_FixedModel(), provenance),
+            candidate_actor_guid=CANDIDATE,
+            target_guid_by_index=(TARGET_A, TARGET_B),
+            branch=_binding(
+                provenance,
+                branch_id="rearm-horizon",
+                suffix_id="second-deadline-at-horizon",
+            ),
+            wake_horizon_exclusive_ms=200,
+        )
+
+        adapter.arm_global_next()
+        step = adapter.emit_global_ready_and_rearm()
+
+        self.assertEqual(
+            "EMITTED_NO_NEXT_WAKE_BEFORE_EXCLUSIVE_HORIZON", step["status"]
+        )
+        self.assertIsNone(step["next_wake"])
+        self.assertEqual(200, step["discarded_deadlines_at_or_after_horizon"][0]["time_ms"])
+        self.assertIsNone(bridge.armed)
+
     def test_actor_rng_substream_does_not_depend_on_other_actor_sampling(self) -> None:
         provenance = _provenance()
         binding = _binding(
@@ -946,7 +1540,59 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
         os.name == "nt" and RESPONSIVE_WINDOWS_BRIDGE.is_file(),
         "responsive Windows bridge is unavailable",
     )
-    def test_real_v14_bridge_retargets_after_candidate_kill_and_applies_event(self) -> None:
+    def test_real_v26_exact_horizon_deadline_is_not_sent_to_go(self) -> None:
+        request = _two_target_request()
+        request["encounter"]["duration"] = 0.1
+        config = DynamicTargetSemanticsConfigV4(
+            target_health=(
+                DynamicTargetHealthV4(0, 100.0, 100.0),
+                DynamicTargetHealthV4(1, 100.0, 100.0),
+            ),
+            idle_advance_horizon_ms=100,
+        )
+        bridge = SimulatorBridgeDynamicV4(
+            RESPONSIVE_WINDOWS_BRIDGE, cwd=SIMULATOR_ROOT
+        )
+        try:
+            loaded = bridge.load_dynamic_v4(request, seed=2026091301, config=config)
+            provenance = _provenance()
+            adapter = ResponsiveTeamBridgeAdapterV1(
+                bridge=bridge,
+                runtime=_runtime(target_health=(100, 100)),
+                loaded_model=_loaded_model(_FixedModel(), provenance),
+                candidate_actor_guid=CANDIDATE,
+                target_guid_by_index=(TARGET_A, TARGET_B),
+                branch=CausalBranchBindingV1(
+                    pair_id="real-horizon-filter",
+                    branch_id="exact-horizon",
+                    candidate_suffix_id="no-responsive-wake",
+                    prefix_content_sha256="4" * 64,
+                    simulator_seed=2026091301,
+                    teammate_seed=456,
+                    environment_generation=loaded.receipt.environment_generation,
+                    dynamic_config_sha256=config.content_sha256,
+                    model_provenance_sha256=provenance.content_sha256,
+                ),
+                wake_horizon_exclusive_ms=config.idle_advance_horizon_ms,
+            )
+
+            self.assertIsNone(adapter.arm_global_next())
+            state = bridge.state()
+            self.assertIsNone(state.get("wake_ready"))
+            self.assertIsNone(state.get("dynamic_team_response"))
+            self.assertEqual(100, adapter.horizon_discard_evidence()[0]["time_ms"])
+        finally:
+            bridge.close()
+            if bridge._process.stdout is not None:
+                bridge._process.stdout.close()
+            if bridge._process.stderr is not None:
+                bridge._process.stderr.close()
+
+    @unittest.skipUnless(
+        os.name == "nt" and RESPONSIVE_WINDOWS_BRIDGE.is_file(),
+        "responsive Windows bridge is unavailable",
+    )
+    def test_real_v26_bridge_retargets_after_candidate_kill_and_applies_event(self) -> None:
         config = DynamicTargetSemanticsConfigV4(
             target_health=(
                 DynamicTargetHealthV4(0, 100.0, 100.0),
@@ -1013,10 +1659,96 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
                 bridge._process.stderr.close()
 
     @unittest.skipUnless(
+        os.name == "nt" and ZERO_DMG_RESPONSIVE_WINDOWS_BRIDGE.is_file(),
+        "zero-DMG responsive Windows bridge is unavailable",
+    )
+    def test_real_v26_untargeted_zero_damage_enters_prefix_with_zero_ordinal(
+        self,
+    ) -> None:
+        self.assertEqual(
+            ZERO_DMG_RESPONSIVE_WINDOWS_BRIDGE_SHA256,
+            hashlib.sha256(ZERO_DMG_RESPONSIVE_WINDOWS_BRIDGE.read_bytes()).hexdigest(),
+        )
+        request = _two_target_request()
+        for target in request["encounter"]["targets"]:
+            target["stats"][34] = 1_000_000.0
+        config = DynamicTargetSemanticsConfigV4(
+            target_health=(
+                DynamicTargetHealthV4(0, 1_000_000.0, 1_000_000.0),
+                DynamicTargetHealthV4(1, 1_000_000.0, 1_000_000.0),
+            ),
+            idle_advance_horizon_ms=2000,
+        )
+        bridge = SimulatorBridgeDynamicV4(
+            ZERO_DMG_RESPONSIVE_WINDOWS_BRIDGE, cwd=SIMULATOR_ROOT
+        )
+        try:
+            loaded = bridge.load_dynamic_v4(request, 2026091306, config)
+            provenance = _provenance()
+            adapter = ResponsiveTeamBridgeAdapterV1(
+                bridge=bridge,
+                runtime=_runtime(target_health=(1_000_000, 1_000_000)),
+                loaded_model=_loaded_model(
+                    _UntargetedDmgModel(
+                        target_mode="NO_TARGET",
+                        sampled_damage=0,
+                    ),
+                    provenance,
+                ),
+                candidate_actor_guid=CANDIDATE,
+                target_guid_by_index=(TARGET_A, TARGET_B),
+                branch=CausalBranchBindingV1(
+                    pair_id="real-untargeted-zero",
+                    branch_id="untargeted-zero-branch",
+                    candidate_suffix_id="candidate-live-prefix",
+                    prefix_content_sha256="8" * 64,
+                    simulator_seed=2026091306,
+                    teammate_seed=456,
+                    environment_generation=loaded.receipt.environment_generation,
+                    dynamic_config_sha256=config.content_sha256,
+                    model_provenance_sha256=provenance.content_sha256,
+                ),
+            )
+            wake = adapter.arm_next(TEAMMATE)
+            bridge.wait(wake["time_ms"])
+            at_wake = bridge.advance()
+            self.assertEqual(wake["wake_id"], at_wake["wake_ready"]["wake_id"])
+
+            result = adapter.emit_ready(TEAMMATE)
+
+            self.assertIsNone(result["wire_event"]["target_index"])
+            self.assertEqual(0.0, result["wire_event"]["requested_damage"])
+            self.assertEqual(
+                "OBSERVED_NO_DAMAGE", result["wire_receipt"]["status"]
+            )
+            self.assertEqual(0, result["wire_receipt"]["damage_ordinal"])
+            self.assertIsNone(result["wire_receipt"]["current_health"])
+            self.assertEqual(
+                "MODEL_EXPLICIT_UNTARGETED_ZERO_DAMAGE",
+                result["target_selection_basis"],
+            )
+            self.assertTrue(
+                result["local_runtime_transition"]["observed_in_model_prefix"]
+            )
+            self.assertEqual(
+                result["wire_receipt"], result["cursor_stream_receipt"]
+            )
+            self.assertEqual(
+                '["DMG",11722,"DIRECT_FRIENDLY_PLAYER"]',
+                adapter.runtime._replay.actors[TEAMMATE].last_mark_token,
+            )
+        finally:
+            bridge.close()
+            if bridge._process.stdout is not None:
+                bridge._process.stdout.close()
+            if bridge._process.stderr is not None:
+                bridge._process.stderr.close()
+
+    @unittest.skipUnless(
         os.name == "nt" and RESPONSIVE_WINDOWS_BRIDGE.is_file(),
         "responsive Windows bridge is unavailable",
     )
-    def test_real_v14_multi_actor_same_ms_retargets_and_rearms_stably(self) -> None:
+    def test_real_v26_multi_actor_same_ms_retargets_and_rearms_stably(self) -> None:
         self.assertEqual(
             RESPONSIVE_WINDOWS_BRIDGE_SHA256,
             hashlib.sha256(RESPONSIVE_WINDOWS_BRIDGE.read_bytes()).hexdigest(),
@@ -1103,7 +1835,7 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
         os.name == "nt" and RESPONSIVE_WINDOWS_BRIDGE.is_file(),
         "responsive Windows bridge is unavailable",
     )
-    def test_real_v14_fixed_background_receipt_enters_model_prefix(self) -> None:
+    def test_real_v26_fixed_background_receipt_enters_model_prefix(self) -> None:
         request = _two_target_request()
         for target in request["encounter"]["targets"]:
             target["stats"][34] = 1_000_000.0
@@ -1173,7 +1905,7 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
         os.name == "nt" and RESPONSIVE_WINDOWS_BRIDGE.is_file(),
         "responsive Windows bridge is unavailable",
     )
-    def test_real_v14_terminal_fixed_background_cancel_is_not_prefix_damage(
+    def test_real_v26_terminal_fixed_background_cancel_is_not_prefix_damage(
         self,
     ) -> None:
         request = _two_target_request()
@@ -1243,7 +1975,7 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
         os.name == "nt" and RESPONSIVE_WINDOWS_BRIDGE.is_file(),
         "responsive Windows bridge is unavailable",
     )
-    def test_real_v14_excludes_alive_unattackable_target(self) -> None:
+    def test_real_v26_excludes_alive_unattackable_target(self) -> None:
         request = _two_target_request()
         for target in request["encounter"]["targets"]:
             target["stats"][34] = 1_000_000.0
@@ -1307,7 +2039,7 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
         os.name == "nt" and RESPONSIVE_WINDOWS_BRIDGE.is_file(),
         "responsive Windows bridge is unavailable",
     )
-    def test_real_v14_all_unattackable_consumes_wake_as_cancellation(self) -> None:
+    def test_real_v26_all_unattackable_consumes_wake_as_cancellation(self) -> None:
         request = _two_target_request()
         for target in request["encounter"]["targets"]:
             target["stats"][34] = 1_000_000.0
@@ -1378,7 +2110,7 @@ class ResponsiveTeamBridgeAdapterV1Tests(unittest.TestCase):
         os.name == "nt" and RESPONSIVE_WINDOWS_BRIDGE.is_file(),
         "responsive Windows bridge is unavailable",
     )
-    def test_real_v14_load_dynamic_v4_separates_maximum_and_current_health(self) -> None:
+    def test_real_v26_load_dynamic_v4_separates_maximum_and_current_health(self) -> None:
         request = _two_target_request()
         for target in request["encounter"]["targets"]:
             target["stats"][34] = 1_000_000.0

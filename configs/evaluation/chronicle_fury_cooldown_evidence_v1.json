@@ -1,0 +1,112 @@
+{
+  "schema": "chronicle_fury_cooldown_evidence_snapshot/v1",
+  "input_scope": {
+    "source": "manifest-selected historical_fury_expert_episodes/v1 partitions",
+    "episode_partition_count": 24,
+    "chronicle_external_state_event_partition_count": 0,
+    "target_observation_count": 4117,
+    "raw_chronicle_opened": false,
+    "team_timeline_opened": false
+  },
+  "measurement_semantics": {
+    "start": "server-observed action proxy",
+    "go": "server-observed action outcome",
+    "cooldown_lower_bound_from_repeat_spacing_ms": null,
+    "reason": "A player may delay a ready action, so adjacent successful-use spacing can only upper-bound the true cooldown when there is no reset or event alias."
+  },
+  "actions": {
+    "warrior.recklessness": {
+      "spell_id": 1719,
+      "observed_spell_names": ["Recklessness"],
+      "observed_item_ids": [],
+      "event_counts": {"START": 219, "GO": 218, "FAIL": 1},
+      "unique_player_count": 98,
+      "start_to_go_ms": {"count": 218, "min": 0, "p25": 0, "median": 1, "p75": 2, "max": 79},
+      "start_wave_elapsed_ms": {"count": 219, "min": 4606, "p25": 54803, "median": 128205, "p75": 215894, "max": 434026},
+      "same_instance_player_adjacent_successful_start_ms": {"count": 112, "min": 1806942, "p25": 2022406, "median": 2363226, "p75": 3363271, "max": 82946196},
+      "minimum_interval_witness": {
+        "interval_ms": 1806942,
+        "instance_id": "59d10ad1-dfa0-4002-b822-109a6223f20f",
+        "player_guid": "0X000000000060A16A",
+        "first": {"encounter_id": "e936ba2a-9318-4ef9-8657-cfa9ddf8182c", "timestamp_ms": 1788697817533, "wave_elapsed_ms": 222210},
+        "second": {"encounter_id": "f5a4e2ea-f126-4368-8bda-c4de2ab2f992", "timestamp_ms": 1788699624475, "wave_elapsed_ms": 54803}
+      },
+      "aura_begin_or_end_event_count": 0,
+      "aura_duration_ms": null,
+      "effect_magnitude": null
+    },
+    "warrior.death_wish": {
+      "spell_id": 12328,
+      "observed_spell_names": ["Death Wish"],
+      "observed_item_ids": [],
+      "event_counts": {"START": 891, "GO": 889, "FAIL": 4},
+      "unique_player_count": 108,
+      "start_to_go_ms": {"count": 889, "min": 0, "p25": 0, "median": 1, "p75": 2, "max": 63},
+      "start_wave_elapsed_ms": {"count": 891, "min": 209, "p25": 10668, "median": 43922, "p75": 155474, "max": 432427},
+      "same_instance_player_adjacent_successful_start_ms": {"count": 772, "min": 180077, "p25": 349403, "median": 613760, "p75": 888953, "max": 78053162},
+      "minimum_interval_witness": {
+        "interval_ms": 180077,
+        "instance_id": "b1d28a2e-4d9a-44bc-a82b-86da9cff9da1",
+        "player_guid": "0X00000000006825A4",
+        "first": {"encounter_id": "8c3e1bdc-ff0e-4cce-a6fe-0da891327317", "timestamp_ms": 1788933980027, "wave_elapsed_ms": 6438},
+        "second": {"encounter_id": "8c3e1bdc-ff0e-4cce-a6fe-0da891327317", "timestamp_ms": 1788934160104, "wave_elapsed_ms": 186515}
+      },
+      "aura_begin_or_end_event_count": 0,
+      "aura_duration_ms": null,
+      "effect_magnitude": null
+    },
+    "contra_rage_potion_effect_unresolved_item": {
+      "spell_id": 17528,
+      "observed_spell_names": ["Mighty Rage"],
+      "observed_item_ids": [],
+      "event_counts": {"START": 214, "GO": 213, "FAIL": 1},
+      "unique_player_count": 58,
+      "start_to_go_ms": {"count": 213, "min": 0, "p25": 0, "median": 0, "p75": 2, "max": 112},
+      "start_wave_elapsed_ms": {"count": 214, "min": 65, "p25": 34827, "median": 91816, "p75": 148085, "max": 319309},
+      "same_instance_player_adjacent_successful_start_ms": {"count": 151, "min": 120168, "p25": 383234, "median": 646028, "p75": 1089007, "max": 5310641},
+      "aura_begin_or_end_event_count": 0,
+      "aura_duration_ms": null,
+      "effect_magnitude": null,
+      "identity_note": "Spell-effect evidence does not resolve the localized Contra consumable to an item ID; no item ID was observed."
+    },
+    "trinket.slayers_crest_effect": {
+      "spell_id": 28777,
+      "observed_spell_names": ["Slayer's Crest"],
+      "observed_item_ids": [23041],
+      "event_counts": {"START": 603, "GO": 603, "FAIL": 1},
+      "unique_player_count": 78,
+      "start_to_go_ms": {"count": 603, "min": 0, "p25": 0, "median": 1, "p75": 2, "max": 118},
+      "start_wave_elapsed_ms": {"count": 603, "min": 788, "p25": 6609, "median": 39366, "p75": 135906, "max": 520200},
+      "same_instance_player_adjacent_successful_start_ms": {"count": 518, "min": 120116, "p25": 127313, "median": 426096, "p75": 766964, "max": 79814273},
+      "aura_begin_or_end_event_count": 0,
+      "aura_duration_ms": null,
+      "effect_magnitude": null
+    },
+    "trinket.kiss_of_the_spider_effect": {
+      "spell_id": 28866,
+      "observed_spell_names": ["Kiss of the Spider"],
+      "observed_item_ids": [],
+      "event_counts": {"START": 130, "GO": 130, "FAIL": 0},
+      "unique_player_count": 31,
+      "start_to_go_ms": {"count": 130, "min": 0, "p25": 0, "median": 0, "p75": 2, "max": 63},
+      "start_wave_elapsed_ms": {"count": 130, "min": 653, "p25": 8250, "median": 36396, "p75": 131815, "max": 339704},
+      "same_instance_player_adjacent_successful_start_ms": {"count": 97, "min": 120135, "p25": 125328, "median": 437311, "p75": 858061, "max": 5639306},
+      "aura_begin_or_end_event_count": 0,
+      "aura_duration_ms": null,
+      "effect_magnitude": null
+    }
+  },
+  "recklessness_simulator_conflict_adjudication": {
+    "five_minute_comment": "NOT_FALSIFIED_BUT_NO_NEAR_5_MINUTE_REPEAT_OBSERVED",
+    "thirty_minute_code": "CONSISTENT_WITH_NEAR_30_MINUTE_OBSERVATION_NOT_PROOF",
+    "evidence_leading_candidate": "thirty_minute_code",
+    "twelve_vs_fifteen_second_aura_duration": "UNKNOWN_NO_AURA_END_EVENTS",
+    "fifty_vs_one_hundred_percent_crit": "UNKNOWN_NO_CONTROLLED_STAT_OR_OUTCOME_COUNTERFACTUAL",
+    "mechanics_change_authorized": false
+  },
+  "limitations": [
+    "The selected compact streams contain only spell_start, spell_go, and spell_fail for these targets; the external state-event directory has zero partitions.",
+    "All observed wave-relative START offsets are non-negative, so these episodes do not establish pre-pull use timing.",
+    "Observed repeat spacing is evidence for candidate selection, not direct cooldown-ready telemetry."
+  ]
+}

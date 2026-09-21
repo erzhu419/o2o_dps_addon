@@ -1,0 +1,3520 @@
+{
+  "execution_evidence": false,
+  "status": "SMOKE_MANIFEST_ONLY_PREPARED_NOT_RUN",
+  "cells": [
+    {
+      "bound_stratum": "single_short",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "b10ef9e9e8006d42de162f0b17728f70ae0888e037cb73b5e19c32aed7830282",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "a3b9a902288e53ee81b760ebbdcf571144128b428b7f4c661ecb0339d4ef9eeb",
+        "source_instance_id": "wX8katcd85WLkEAf",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "7ebfce3d-2817-40c9-b216-19699af9a48b:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 7,
+        "stratum": "q05"
+      },
+      "cell_id": "upper-kara-rank-07-q05",
+      "first_seed": 2026091417,
+      "representative_rank": 7,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":1267,\"id\":55522},{\"enchant\":928,\"id\":23053},{\"enchant\":2606,\"id\":55523},{\"enchant\":1257,\"id\":55534},{\"id\":55524},{\"enchant\":1885,\"id\":22936},{\"enchant\":2564,\"id\":21581},{\"enchant\":362,\"id\":23219},{\"enchant\":1267,\"id\":55525},{\"enchant\":1887,\"id\":47268},{\"enchant\":1250,\"id\":60465},{\"enchant\":928,\"id\":47269},{\"id\":22954},{\"id\":61194},{\"enchant\":1900,\"id\":19019},{\"enchant\":1900,\"id\":23577},{\"id\":55096}],\"historical_catalog_line_number\":7960,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceNightElf\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"1dc1d6f3-8432-4293-b54b-d49d70281580\",\"player_guid\":\"0x00000000000943FC\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"30205020302-05030005525010251\",\"warrior_options\":{\"ravagerRank\":0,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[121665],\"target_level\":60,\"target_max_hp\":[121665],\"target_placement\":\"single_target_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721]",
+          "target_count": 1,
+          "target_current_hp_json": "[121665]",
+          "target_max_hp_json": "[121665]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"single_short\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 55522,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 23053,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 55523,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 55534,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 55524,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 22936,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 21581,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 23219,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 55525,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 60465,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 22954,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 61194,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 19019,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23577,
+            "slot": "slot_15"
+          },
+          {
+            "item_id": 55096,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":7960,\"representative_rank\":7,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"1dc1d6f3-8432-4293-b54b-d49d70281580\",\"player_guid\":\"0x00000000000943FC\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:wX8katcd85WLkEAf",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "7ebfce3d-2817-40c9-b216-19699af9a48b:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "q05"
+    },
+    {
+      "bound_stratum": "single_medium",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "1e9e743f594b3f565fbd8726818c0306203a2f7df11aa2da10b9b0e398882746",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "1492f31b8128c0f7c3788776a56c526453d5c3e598cd3f019f504f0064060f56",
+        "source_instance_id": "30bc4407-c968-4af5-89cc-d680e4cbdc3d",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "b10d350d-1972-4b8d-ae91-905a9efa8a3d:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 7,
+        "stratum": "q60"
+      },
+      "cell_id": "upper-kara-rank-07-q60",
+      "first_seed": 2026091417,
+      "representative_rank": 7,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":1267,\"id\":55522},{\"enchant\":928,\"id\":23053},{\"enchant\":2606,\"id\":55523},{\"enchant\":1257,\"id\":55534},{\"id\":55524},{\"enchant\":1885,\"id\":22936},{\"enchant\":2564,\"id\":21581},{\"enchant\":362,\"id\":23219},{\"enchant\":1267,\"id\":55525},{\"enchant\":1887,\"id\":47268},{\"enchant\":1250,\"id\":60465},{\"enchant\":928,\"id\":47269},{\"id\":22954},{\"id\":61194},{\"enchant\":1900,\"id\":19019},{\"enchant\":1900,\"id\":23577},{\"id\":55096}],\"historical_catalog_line_number\":7960,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceNightElf\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"1dc1d6f3-8432-4293-b54b-d49d70281580\",\"player_guid\":\"0x00000000000943FC\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"30205020302-05030005525010251\",\"warrior_options\":{\"ravagerRank\":0,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[124096],\"target_level\":60,\"target_max_hp\":[124096],\"target_placement\":\"single_target_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721]",
+          "target_count": 1,
+          "target_current_hp_json": "[124096]",
+          "target_max_hp_json": "[124096]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"single_medium\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 55522,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 23053,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 55523,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 55534,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 55524,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 22936,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 21581,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 23219,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 55525,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 60465,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 22954,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 61194,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 19019,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23577,
+            "slot": "slot_15"
+          },
+          {
+            "item_id": 55096,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":7960,\"representative_rank\":7,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"1dc1d6f3-8432-4293-b54b-d49d70281580\",\"player_guid\":\"0x00000000000943FC\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:30bc4407-c968-4af5-89cc-d680e4cbdc3d",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "b10d350d-1972-4b8d-ae91-905a9efa8a3d:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "q60"
+    },
+    {
+      "bound_stratum": "single_long",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "3bf9e6b1c77ff33e68c9d7ce01e09c0552cbacf103387b51c5e9daba4d68c431",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "53916734228f455daeda44aa8340541a580f9f38884d2c390bb5342452a1ca1e",
+        "source_instance_id": "dc175895-9524-421b-81a5-5d60ff698de6",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "f989e71f-42a6-420f-8c68-eb65e9be731f:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 7,
+        "stratum": "q95"
+      },
+      "cell_id": "upper-kara-rank-07-q95",
+      "first_seed": 2026091417,
+      "representative_rank": 7,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":1267,\"id\":55522},{\"enchant\":928,\"id\":23053},{\"enchant\":2606,\"id\":55523},{\"enchant\":1257,\"id\":55534},{\"id\":55524},{\"enchant\":1885,\"id\":22936},{\"enchant\":2564,\"id\":21581},{\"enchant\":362,\"id\":23219},{\"enchant\":1267,\"id\":55525},{\"enchant\":1887,\"id\":47268},{\"enchant\":1250,\"id\":60465},{\"enchant\":928,\"id\":47269},{\"id\":22954},{\"id\":61194},{\"enchant\":1900,\"id\":19019},{\"enchant\":1900,\"id\":23577},{\"id\":55096}],\"historical_catalog_line_number\":7960,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceNightElf\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"1dc1d6f3-8432-4293-b54b-d49d70281580\",\"player_guid\":\"0x00000000000943FC\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"30205020302-05030005525010251\",\"warrior_options\":{\"ravagerRank\":0,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[499465],\"target_level\":60,\"target_max_hp\":[499465],\"target_placement\":\"single_target_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721]",
+          "target_count": 1,
+          "target_current_hp_json": "[499465]",
+          "target_max_hp_json": "[499465]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"single_long\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 55522,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 23053,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 55523,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 55534,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 55524,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 22936,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 21581,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 23219,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 55525,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 60465,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 22954,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 61194,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 19019,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23577,
+            "slot": "slot_15"
+          },
+          {
+            "item_id": 55096,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":7960,\"representative_rank\":7,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"1dc1d6f3-8432-4293-b54b-d49d70281580\",\"player_guid\":\"0x00000000000943FC\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:dc175895-9524-421b-81a5-5d60ff698de6",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "f989e71f-42a6-420f-8c68-eb65e9be731f:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "q95"
+    },
+    {
+      "bound_stratum": "multi_two",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "861a4e1433e17377f0e41734aa1b0edb5cf853940b638f754a14aab35a679607",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "c74052f66b6822bf412b6bf490524084afb4cc3b28837cb7f40dfa7dd1ca6fa7",
+        "source_instance_id": "cc330b4f-b688-489f-b03f-b6841ddb029e",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "5586159a-be6e-41a0-a6bb-7ca288e69137:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 7,
+        "stratum": "multi_2"
+      },
+      "cell_id": "upper-kara-rank-07-multi_2",
+      "first_seed": 2026091417,
+      "representative_rank": 7,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":1267,\"id\":55522},{\"enchant\":928,\"id\":23053},{\"enchant\":2606,\"id\":55523},{\"enchant\":1257,\"id\":55534},{\"id\":55524},{\"enchant\":1885,\"id\":22936},{\"enchant\":2564,\"id\":21581},{\"enchant\":362,\"id\":23219},{\"enchant\":1267,\"id\":55525},{\"enchant\":1887,\"id\":47268},{\"enchant\":1250,\"id\":60465},{\"enchant\":928,\"id\":47269},{\"id\":22954},{\"id\":61194},{\"enchant\":1900,\"id\":19019},{\"enchant\":1900,\"id\":23577},{\"id\":55096}],\"historical_catalog_line_number\":7960,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceNightElf\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"1dc1d6f3-8432-4293-b54b-d49d70281580\",\"player_guid\":\"0x00000000000943FC\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"30205020302-05030005525010251\",\"warrior_options\":{\"ravagerRank\":0,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000,3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721,1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[114362,120222],\"target_level\":60,\"target_max_hp\":[114362,120222],\"target_placement\":\"cohit_stacked_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721,1721]",
+          "target_count": 2,
+          "target_current_hp_json": "[114362,120222]",
+          "target_max_hp_json": "[114362,120222]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"multi_two\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 55522,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 23053,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 55523,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 55534,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 55524,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 22936,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 21581,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 23219,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 55525,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 60465,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 22954,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 61194,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 19019,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23577,
+            "slot": "slot_15"
+          },
+          {
+            "item_id": 55096,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":7960,\"representative_rank\":7,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"1dc1d6f3-8432-4293-b54b-d49d70281580\",\"player_guid\":\"0x00000000000943FC\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:cc330b4f-b688-489f-b03f-b6841ddb029e",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "5586159a-be6e-41a0-a6bb-7ca288e69137:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "multi_2"
+    },
+    {
+      "bound_stratum": "single_short",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "50c8f31874a2c1673636821a287426d5a243c0fd1bdb8fb1d627ed2eab2e6898",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "a402f2f7c83f24d37b5fe2d6d1d79c082b5eaa4e1b80733548721ba7d6d9069d",
+        "source_instance_id": "wX8katcd85WLkEAf",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "7ebfce3d-2817-40c9-b216-19699af9a48b:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 11,
+        "stratum": "q05"
+      },
+      "cell_id": "upper-kara-rank-11-q05",
+      "first_seed": 2026091417,
+      "representative_rank": 11,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":3016,\"id\":47261},{\"enchant\":108,\"id\":23053},{\"enchant\":2717,\"id\":47262},{\"enchant\":849,\"id\":23045},{\"id\":23000},{\"enchant\":1885,\"id\":47264},{\"enchant\":2564,\"id\":55553},{\"enchant\":362,\"id\":47266},{\"enchant\":3016,\"id\":47267},{\"enchant\":1887,\"id\":47268},{\"enchant\":108,\"id\":23038},{\"enchant\":108,\"id\":47269},{\"id\":23041},{\"id\":19406},{\"enchant\":1900,\"id\":23054},{\"enchant\":1900,\"id\":23577},{\"id\":33156}],\"historical_catalog_line_number\":14614,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceTroll\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"44ef165f-37c6-4339-b5fe-34fcaac66c37\",\"player_guid\":\"0x0000000000736498\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"35202000302-05050002525010051\",\"warrior_options\":{\"ravagerRank\":3,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[121665],\"target_level\":60,\"target_max_hp\":[121665],\"target_placement\":\"single_target_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721]",
+          "target_count": 1,
+          "target_current_hp_json": "[121665]",
+          "target_max_hp_json": "[121665]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"single_short\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 47261,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 23053,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 47262,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 23045,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 23000,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 47264,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 55553,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 47266,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 47267,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 23038,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 23041,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 19406,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 23054,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23577,
+            "slot": "slot_15"
+          },
+          {
+            "item_id": 33156,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":14614,\"representative_rank\":11,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"44ef165f-37c6-4339-b5fe-34fcaac66c37\",\"player_guid\":\"0x0000000000736498\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:wX8katcd85WLkEAf",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "7ebfce3d-2817-40c9-b216-19699af9a48b:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "q05"
+    },
+    {
+      "bound_stratum": "single_medium",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "7e5973a1e57e5a70e1d91985bb951acf1b5cb216b60fc5c004ec9be147085a2d",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "b9065e53dfbf72389253318daa248885e2b5caff41b638c31979a5febdd91ce4",
+        "source_instance_id": "30bc4407-c968-4af5-89cc-d680e4cbdc3d",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "b10d350d-1972-4b8d-ae91-905a9efa8a3d:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 11,
+        "stratum": "q60"
+      },
+      "cell_id": "upper-kara-rank-11-q60",
+      "first_seed": 2026091417,
+      "representative_rank": 11,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":3016,\"id\":47261},{\"enchant\":108,\"id\":23053},{\"enchant\":2717,\"id\":47262},{\"enchant\":849,\"id\":23045},{\"id\":23000},{\"enchant\":1885,\"id\":47264},{\"enchant\":2564,\"id\":55553},{\"enchant\":362,\"id\":47266},{\"enchant\":3016,\"id\":47267},{\"enchant\":1887,\"id\":47268},{\"enchant\":108,\"id\":23038},{\"enchant\":108,\"id\":47269},{\"id\":23041},{\"id\":19406},{\"enchant\":1900,\"id\":23054},{\"enchant\":1900,\"id\":23577},{\"id\":33156}],\"historical_catalog_line_number\":14614,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceTroll\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"44ef165f-37c6-4339-b5fe-34fcaac66c37\",\"player_guid\":\"0x0000000000736498\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"35202000302-05050002525010051\",\"warrior_options\":{\"ravagerRank\":3,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[124096],\"target_level\":60,\"target_max_hp\":[124096],\"target_placement\":\"single_target_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721]",
+          "target_count": 1,
+          "target_current_hp_json": "[124096]",
+          "target_max_hp_json": "[124096]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"single_medium\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 47261,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 23053,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 47262,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 23045,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 23000,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 47264,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 55553,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 47266,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 47267,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 23038,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 23041,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 19406,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 23054,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23577,
+            "slot": "slot_15"
+          },
+          {
+            "item_id": 33156,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":14614,\"representative_rank\":11,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"44ef165f-37c6-4339-b5fe-34fcaac66c37\",\"player_guid\":\"0x0000000000736498\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:30bc4407-c968-4af5-89cc-d680e4cbdc3d",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "b10d350d-1972-4b8d-ae91-905a9efa8a3d:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "q60"
+    },
+    {
+      "bound_stratum": "single_long",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "71549d59c2be7a2b417a590ba7830883afdd869d790ccff67534dfd578e00541",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "6795ea7f9c9c42bfe1dd5dc07b7ad317aa358bb112c3d162fec9195ca5b8b38e",
+        "source_instance_id": "dc175895-9524-421b-81a5-5d60ff698de6",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "f989e71f-42a6-420f-8c68-eb65e9be731f:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 11,
+        "stratum": "q95"
+      },
+      "cell_id": "upper-kara-rank-11-q95",
+      "first_seed": 2026091417,
+      "representative_rank": 11,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":3016,\"id\":47261},{\"enchant\":108,\"id\":23053},{\"enchant\":2717,\"id\":47262},{\"enchant\":849,\"id\":23045},{\"id\":23000},{\"enchant\":1885,\"id\":47264},{\"enchant\":2564,\"id\":55553},{\"enchant\":362,\"id\":47266},{\"enchant\":3016,\"id\":47267},{\"enchant\":1887,\"id\":47268},{\"enchant\":108,\"id\":23038},{\"enchant\":108,\"id\":47269},{\"id\":23041},{\"id\":19406},{\"enchant\":1900,\"id\":23054},{\"enchant\":1900,\"id\":23577},{\"id\":33156}],\"historical_catalog_line_number\":14614,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceTroll\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"44ef165f-37c6-4339-b5fe-34fcaac66c37\",\"player_guid\":\"0x0000000000736498\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"35202000302-05050002525010051\",\"warrior_options\":{\"ravagerRank\":3,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[499465],\"target_level\":60,\"target_max_hp\":[499465],\"target_placement\":\"single_target_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721]",
+          "target_count": 1,
+          "target_current_hp_json": "[499465]",
+          "target_max_hp_json": "[499465]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"single_long\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 47261,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 23053,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 47262,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 23045,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 23000,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 47264,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 55553,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 47266,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 47267,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 23038,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 23041,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 19406,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 23054,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23577,
+            "slot": "slot_15"
+          },
+          {
+            "item_id": 33156,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":14614,\"representative_rank\":11,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"44ef165f-37c6-4339-b5fe-34fcaac66c37\",\"player_guid\":\"0x0000000000736498\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:dc175895-9524-421b-81a5-5d60ff698de6",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "f989e71f-42a6-420f-8c68-eb65e9be731f:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "q95"
+    },
+    {
+      "bound_stratum": "multi_two",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "37a1cf4df5d193a5de79c6409e7203068631970405fe42e05ca2cb256f11957e",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "af4855e2f88dd1d8bc2cd3d5c5ee121b41cddd6e01a6007dc8df0b8720dcde8a",
+        "source_instance_id": "cc330b4f-b688-489f-b03f-b6841ddb029e",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "5586159a-be6e-41a0-a6bb-7ca288e69137:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 11,
+        "stratum": "multi_2"
+      },
+      "cell_id": "upper-kara-rank-11-multi_2",
+      "first_seed": 2026091417,
+      "representative_rank": 11,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":3016,\"id\":47261},{\"enchant\":108,\"id\":23053},{\"enchant\":2717,\"id\":47262},{\"enchant\":849,\"id\":23045},{\"id\":23000},{\"enchant\":1885,\"id\":47264},{\"enchant\":2564,\"id\":55553},{\"enchant\":362,\"id\":47266},{\"enchant\":3016,\"id\":47267},{\"enchant\":1887,\"id\":47268},{\"enchant\":108,\"id\":23038},{\"enchant\":108,\"id\":47269},{\"id\":23041},{\"id\":19406},{\"enchant\":1900,\"id\":23054},{\"enchant\":1900,\"id\":23577},{\"id\":33156}],\"historical_catalog_line_number\":14614,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceTroll\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"44ef165f-37c6-4339-b5fe-34fcaac66c37\",\"player_guid\":\"0x0000000000736498\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"35202000302-05050002525010051\",\"warrior_options\":{\"ravagerRank\":3,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000,3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721,1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[114362,120222],\"target_level\":60,\"target_max_hp\":[114362,120222],\"target_placement\":\"cohit_stacked_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721,1721]",
+          "target_count": 2,
+          "target_current_hp_json": "[114362,120222]",
+          "target_max_hp_json": "[114362,120222]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"multi_two\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 47261,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 23053,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 47262,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 23045,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 23000,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 47264,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 55553,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 47266,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 47267,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 23038,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 23041,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 19406,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 23054,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23577,
+            "slot": "slot_15"
+          },
+          {
+            "item_id": 33156,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":14614,\"representative_rank\":11,\"source_build_ref\":{\"build_segment_id\":\"segment-0002\",\"instance_id\":\"44ef165f-37c6-4339-b5fe-34fcaac66c37\",\"player_guid\":\"0x0000000000736498\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:cc330b4f-b688-489f-b03f-b6841ddb029e",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "5586159a-be6e-41a0-a6bb-7ca288e69137:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "multi_2"
+    },
+    {
+      "bound_stratum": "single_short",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "c8c91681e51c8be0c204d7c03eca68200c27836345a60b188bdd5939f8600351",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "6e16052811bde89b7388576f38a1554fb01d4314115f06d47c858b4999b59907",
+        "source_instance_id": "wX8katcd85WLkEAf",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "7ebfce3d-2817-40c9-b216-19699af9a48b:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 9,
+        "stratum": "q05"
+      },
+      "cell_id": "upper-kara-rank-09-q05",
+      "first_seed": 2026091417,
+      "representative_rank": 9,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":3038,\"id\":47261},{\"enchant\":108,\"id\":21664},{\"enchant\":3038,\"id\":47262},{\"enchant\":849,\"id\":21710},{\"id\":23000},{\"id\":22936},{\"enchant\":2564,\"id\":19143},{\"enchant\":362,\"id\":23219},{\"enchant\":1506,\"id\":47273},{\"enchant\":911,\"id\":47268},{\"enchant\":104,\"id\":19432},{\"enchant\":928,\"id\":47269},{\"id\":61194},{\"id\":13965},{\"enchant\":1900,\"id\":22815},{},{\"id\":23557}],\"historical_catalog_line_number\":42136,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceNightElf\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0004\",\"instance_id\":\"8d1cf854-f9c8-4238-9730-442072cc6c0c\",\"player_guid\":\"0x000000000048389B\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"30205020332-05050005015010051\",\"warrior_options\":{\"ravagerRank\":3,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[121665],\"target_level\":60,\"target_max_hp\":[121665],\"target_placement\":\"single_target_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721]",
+          "target_count": 1,
+          "target_current_hp_json": "[121665]",
+          "target_max_hp_json": "[121665]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"single_short\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 47261,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 21664,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 47262,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 21710,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 23000,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 22936,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 19143,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 23219,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 47273,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 19432,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 61194,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 13965,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 22815,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23557,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":42136,\"representative_rank\":9,\"source_build_ref\":{\"build_segment_id\":\"segment-0004\",\"instance_id\":\"8d1cf854-f9c8-4238-9730-442072cc6c0c\",\"player_guid\":\"0x000000000048389B\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:wX8katcd85WLkEAf",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "7ebfce3d-2817-40c9-b216-19699af9a48b:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "q05"
+    },
+    {
+      "bound_stratum": "single_medium",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "66ba9d264d4284a6bfbd8c0f40d11702d95890424a88a4244db216709f95c070",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "b063b3a89680857d603d7df8bffedda6448ebfc16186fcece47485c0f2c1d9c8",
+        "source_instance_id": "30bc4407-c968-4af5-89cc-d680e4cbdc3d",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "b10d350d-1972-4b8d-ae91-905a9efa8a3d:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 9,
+        "stratum": "q60"
+      },
+      "cell_id": "upper-kara-rank-09-q60",
+      "first_seed": 2026091417,
+      "representative_rank": 9,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":3038,\"id\":47261},{\"enchant\":108,\"id\":21664},{\"enchant\":3038,\"id\":47262},{\"enchant\":849,\"id\":21710},{\"id\":23000},{\"id\":22936},{\"enchant\":2564,\"id\":19143},{\"enchant\":362,\"id\":23219},{\"enchant\":1506,\"id\":47273},{\"enchant\":911,\"id\":47268},{\"enchant\":104,\"id\":19432},{\"enchant\":928,\"id\":47269},{\"id\":61194},{\"id\":13965},{\"enchant\":1900,\"id\":22815},{},{\"id\":23557}],\"historical_catalog_line_number\":42136,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceNightElf\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0004\",\"instance_id\":\"8d1cf854-f9c8-4238-9730-442072cc6c0c\",\"player_guid\":\"0x000000000048389B\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"30205020332-05050005015010051\",\"warrior_options\":{\"ravagerRank\":3,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[124096],\"target_level\":60,\"target_max_hp\":[124096],\"target_placement\":\"single_target_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721]",
+          "target_count": 1,
+          "target_current_hp_json": "[124096]",
+          "target_max_hp_json": "[124096]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"single_medium\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 47261,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 21664,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 47262,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 21710,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 23000,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 22936,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 19143,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 23219,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 47273,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 19432,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 61194,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 13965,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 22815,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23557,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":42136,\"representative_rank\":9,\"source_build_ref\":{\"build_segment_id\":\"segment-0004\",\"instance_id\":\"8d1cf854-f9c8-4238-9730-442072cc6c0c\",\"player_guid\":\"0x000000000048389B\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:30bc4407-c968-4af5-89cc-d680e4cbdc3d",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "b10d350d-1972-4b8d-ae91-905a9efa8a3d:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "q60"
+    },
+    {
+      "bound_stratum": "single_long",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "2039666ae9a942383eec99409176742cc4e734a488a40d230df147aea324aa12",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "e9d53e9bd0d6e67e426e39a389e12ce44fa9032c79a9132391ba76d7daa3bf4f",
+        "source_instance_id": "dc175895-9524-421b-81a5-5d60ff698de6",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "f989e71f-42a6-420f-8c68-eb65e9be731f:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 9,
+        "stratum": "q95"
+      },
+      "cell_id": "upper-kara-rank-09-q95",
+      "first_seed": 2026091417,
+      "representative_rank": 9,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":3038,\"id\":47261},{\"enchant\":108,\"id\":21664},{\"enchant\":3038,\"id\":47262},{\"enchant\":849,\"id\":21710},{\"id\":23000},{\"id\":22936},{\"enchant\":2564,\"id\":19143},{\"enchant\":362,\"id\":23219},{\"enchant\":1506,\"id\":47273},{\"enchant\":911,\"id\":47268},{\"enchant\":104,\"id\":19432},{\"enchant\":928,\"id\":47269},{\"id\":61194},{\"id\":13965},{\"enchant\":1900,\"id\":22815},{},{\"id\":23557}],\"historical_catalog_line_number\":42136,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceNightElf\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0004\",\"instance_id\":\"8d1cf854-f9c8-4238-9730-442072cc6c0c\",\"player_guid\":\"0x000000000048389B\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"30205020332-05050005015010051\",\"warrior_options\":{\"ravagerRank\":3,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[499465],\"target_level\":60,\"target_max_hp\":[499465],\"target_placement\":\"single_target_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721]",
+          "target_count": 1,
+          "target_current_hp_json": "[499465]",
+          "target_max_hp_json": "[499465]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"single_long\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 47261,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 21664,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 47262,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 21710,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 23000,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 22936,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 19143,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 23219,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 47273,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 19432,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 61194,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 13965,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 22815,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23557,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":42136,\"representative_rank\":9,\"source_build_ref\":{\"build_segment_id\":\"segment-0004\",\"instance_id\":\"8d1cf854-f9c8-4238-9730-442072cc6c0c\",\"player_guid\":\"0x000000000048389B\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:dc175895-9524-421b-81a5-5d60ff698de6",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "f989e71f-42a6-420f-8c68-eb65e9be731f:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "q95"
+    },
+    {
+      "bound_stratum": "multi_two",
+      "case_binding": {
+        "case_schema": "development_precombat_wave_case/v1",
+        "dynamic_load_contract_sha256": "68eed8970a1761b488d04fcb23679972c8c45dd9e5c4bdd3695160e8392813bf",
+        "parent_case_schema": "factored_historical_build_wave_case/v1",
+        "request_sha256": "3be82b0d3e33945cc7682cb3917c59134186d98306834a3529e4e588519f83b2",
+        "source_instance_id": "cc330b4f-b688-489f-b03f-b6841ddb029e",
+        "source_instance_name": "Upper Tower of Karazhan",
+        "source_wave_ref": "5586159a-be6e-41a0-a6bb-7ca288e69137:wave:1"
+      },
+      "case_builder": "upper_kara_exact_cell_case_v1",
+      "case_params": {
+        "attackability_branch": "full_wave",
+        "player_consumes": null,
+        "precombat_self_actions": [
+          {
+            "item_id": 13442
+          }
+        ],
+        "pull_time_ms": 3000,
+        "representative_rank": 9,
+        "stratum": "multi_2"
+      },
+      "cell_id": "upper-kara-rank-09-multi_2",
+      "first_seed": 2026091417,
+      "representative_rank": 9,
+      "search_cell": {
+        "derived_mechanics": {
+          "exact_build_context_json": "{\"class\":\"ClassWarrior\",\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"distance_from_target\":5,\"equipment_items\":[{\"enchant\":3038,\"id\":47261},{\"enchant\":108,\"id\":21664},{\"enchant\":3038,\"id\":47262},{\"enchant\":849,\"id\":21710},{\"id\":23000},{\"id\":22936},{\"enchant\":2564,\"id\":19143},{\"enchant\":362,\"id\":23219},{\"enchant\":1506,\"id\":47273},{\"enchant\":911,\"id\":47268},{\"enchant\":104,\"id\":19432},{\"enchant\":928,\"id\":47269},{\"id\":61194},{\"id\":13965},{\"enchant\":1900,\"id\":22815},{},{\"id\":23557}],\"historical_catalog_line_number\":42136,\"individual_buffs\":{},\"party_buffs\":{},\"race\":\"RaceNightElf\",\"raid_buffs\":{},\"raid_debuffs\":{},\"reaction_time_ms\":150,\"source_build_ref\":{\"build_segment_id\":\"segment-0004\",\"instance_id\":\"8d1cf854-f9c8-4238-9730-442072cc6c0c\",\"player_guid\":\"0x000000000048389B\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"},\"talents_string\":\"30205020332-05050005015010051\",\"warrior_options\":{\"ravagerRank\":3,\"stance\":\"WarriorStanceBerserker\",\"startingRage\":50}}",
+          "initial_state_json": "{\"consumes\":{\"defaultPotion\":\"MightyRagePotion\"},\"cooldowns\":\"reset\",\"proc_auras\":\"reset\",\"queue\":\"empty\",\"rage\":50,\"raid_buffs\":\"none_configured\",\"stance\":\"WarriorStanceBerserker\",\"target_attackable_at_ms\":[3000,3000],\"target_autoattack_damage\":0,\"target_base_armor\":[1721,1721],\"target_classification\":\"elite_assumed\",\"target_current_hp\":[114362,120222],\"target_level\":60,\"target_max_hp\":[114362,120222],\"target_placement\":\"cohit_stacked_hypothesis\"}",
+          "starting_rage": 50,
+          "target_base_armor_json": "[1721,1721]",
+          "target_count": 2,
+          "target_current_hp_json": "[114362,120222]",
+          "target_max_hp_json": "[114362,120222]"
+        },
+        "environment_branch_id": "{\"attackability_branch\":\"full_wave\",\"precombat\":{\"pull_at_simulator_time_ms\":3000,\"pull_time_ms\":3000,\"self_actions\":[{\"item_id\":13442}],\"simulator_time_origin\":\"PRECOMBAT_WINDOW_START\",\"simulator_time_zero_relative_to_pull_ms\":-3000},\"stratum\":\"multi_two\",\"team_background_model\":\"EXOGENOUS_PER_TARGET_DIRECT_GUID_LEAVE_ONE_OUT_RATE_EXTRAPOLATED\"}",
+        "equipment": [
+          {
+            "item_id": 47261,
+            "slot": "slot_00"
+          },
+          {
+            "item_id": 21664,
+            "slot": "slot_01"
+          },
+          {
+            "item_id": 47262,
+            "slot": "slot_02"
+          },
+          {
+            "item_id": 21710,
+            "slot": "slot_03"
+          },
+          {
+            "item_id": 23000,
+            "slot": "slot_04"
+          },
+          {
+            "item_id": 22936,
+            "slot": "slot_05"
+          },
+          {
+            "item_id": 19143,
+            "slot": "slot_06"
+          },
+          {
+            "item_id": 23219,
+            "slot": "slot_07"
+          },
+          {
+            "item_id": 47273,
+            "slot": "slot_08"
+          },
+          {
+            "item_id": 47268,
+            "slot": "slot_09"
+          },
+          {
+            "item_id": 19432,
+            "slot": "slot_10"
+          },
+          {
+            "item_id": 47269,
+            "slot": "slot_11"
+          },
+          {
+            "item_id": 61194,
+            "slot": "slot_12"
+          },
+          {
+            "item_id": 13965,
+            "slot": "slot_13"
+          },
+          {
+            "item_id": 22815,
+            "slot": "slot_14"
+          },
+          {
+            "item_id": 23557,
+            "slot": "slot_16"
+          }
+        ],
+        "exact_build_id": "{\"catalog_line_number\":42136,\"representative_rank\":9,\"source_build_ref\":{\"build_segment_id\":\"segment-0004\",\"instance_id\":\"8d1cf854-f9c8-4238-9730-442072cc6c0c\",\"player_guid\":\"0x000000000048389B\",\"realm\":\"Basin of Stars\",\"realm_id\":\"dc98877a-1db8-436f-8623-93ac20b04e4a\",\"server\":\"Capybara\"}}",
+        "scenario_id": "Upper Tower of Karazhan:cc330b4f-b688-489f-b03f-b6841ddb029e",
+        "talents": [
+          {
+            "rank": 3,
+            "talent": "tree_1_position_01"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_02"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_03"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_04"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_1_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_06"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_07"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_1_position_08"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_09"
+          },
+          {
+            "rank": 3,
+            "talent": "tree_1_position_10"
+          },
+          {
+            "rank": 2,
+            "talent": "tree_1_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_01"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_02"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_03"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_04"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_05"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_06"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_07"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_08"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_09"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_10"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_11"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_12"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_13"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_14"
+          },
+          {
+            "rank": 0,
+            "talent": "tree_2_position_15"
+          },
+          {
+            "rank": 5,
+            "talent": "tree_2_position_16"
+          },
+          {
+            "rank": 1,
+            "talent": "tree_2_position_17"
+          }
+        ],
+        "wave_or_boss_id": "5586159a-be6e-41a0-a6bb-7ca288e69137:wave:1"
+      },
+      "seeds": [
+        2026091417,
+        2026091418,
+        2026091419,
+        2026091420,
+        2026091421,
+        2026091422,
+        2026091423,
+        2026091424,
+        2026091425,
+        2026091426,
+        2026091427,
+        2026091428,
+        2026091429,
+        2026091430,
+        2026091431,
+        2026091432,
+        2026091433,
+        2026091434,
+        2026091435,
+        2026091436,
+        2026091437,
+        2026091438,
+        2026091439,
+        2026091440,
+        2026091441,
+        2026091442,
+        2026091443,
+        2026091444,
+        2026091445,
+        2026091446,
+        2026091447,
+        2026091448,
+        2026091449,
+        2026091450,
+        2026091451,
+        2026091452,
+        2026091453,
+        2026091454,
+        2026091455,
+        2026091456,
+        2026091457,
+        2026091458,
+        2026091459,
+        2026091460,
+        2026091461,
+        2026091462,
+        2026091463,
+        2026091464,
+        2026091465,
+        2026091466,
+        2026091467,
+        2026091468,
+        2026091469,
+        2026091470,
+        2026091471,
+        2026091472,
+        2026091473,
+        2026091474,
+        2026091475,
+        2026091476,
+        2026091477,
+        2026091478,
+        2026091479,
+        2026091480
+      ],
+      "stratum": "multi_2"
+    }
+  ],
+  "schema": "wave_action_sequence_exact_cell_manifest/v1",
+  "source_schema": "upper_kara_exact_cell_manifest/v1"
+}

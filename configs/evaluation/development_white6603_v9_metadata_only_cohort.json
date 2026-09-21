@@ -1,0 +1,37 @@
+{
+  "schema": "development_white6603_v9_metadata_only_cohort/v1",
+  "scope": "Upper Tower of Karazhan raids started 2026-09-16 through 2026-09-20; metadata-only discovery, not admission or evaluation",
+  "sources": [
+    "GET https://capy.chronicleclassic.com/api/external/v1/raidlogs/recent?after_date=2026-09-16T00:00:00Z&instance_name=Upper%20Tower%20of%20Karazhan&page=1&page_size=50",
+    "GET https://capy.chronicleclassic.com/api/external/v1/raidlogs/instances/{id} for selected raid guild and player GUID roster only",
+    "local frozen v8 65 TRAIN and 3 external-validation raid metadata"
+  ],
+  "comparison": {
+    "train_raids": 65,
+    "train_unique_player_guids": 1246,
+    "prior_validation_raids": 3,
+    "prior_validation_unique_player_guids": 98,
+    "candidate_count": 10,
+    "candidate_pairwise_player_guid_overlap": 0,
+    "event_streams_or_rankings_read_in_this_pass": false
+  },
+  "candidates": [
+    {"instance_id":"4c9575fd-0f08-4af5-ac30-96fc77565a12","started_at":"2026-09-20T13:26:49.681Z","guild":null,"players":40,"train_player_overlap":1,"prior_validation_player_overlap":0,"role":"UNKNOWN_NONVOTING_DEVELOPMENT_CANDIDATE"},
+    {"instance_id":"34375229-21d3-4496-9e16-fa74b7cd5881","started_at":"2026-09-20T11:48:28.393Z","guild":null,"players":41,"train_player_overlap":2,"prior_validation_player_overlap":1,"role":"QUARANTINE_BRIDGES_TRAIN_AND_PRIOR_VALIDATION"},
+    {"instance_id":"05feb276-7c93-4d35-b18d-9ccbfa1d5a17","started_at":"2026-09-19T15:28:48.473Z","guild":null,"players":41,"train_player_overlap":2,"prior_validation_player_overlap":0,"role":"UNKNOWN_NONVOTING_DEVELOPMENT_CANDIDATE"},
+    {"instance_id":"96d926b7-bd37-4579-b731-d1ab55c40901","started_at":"2026-09-19T13:27:39.612Z","guild":null,"players":39,"train_player_overlap":2,"prior_validation_player_overlap":0,"role":"UNKNOWN_NONVOTING_DEVELOPMENT_CANDIDATE"},
+    {"instance_id":"968fdf59-37f0-4201-8018-4b31bd9d30f1","started_at":"2026-09-19T11:52:42.715Z","guild":null,"players":40,"train_player_overlap":1,"prior_validation_player_overlap":0,"role":"UNKNOWN_NONVOTING_DEVELOPMENT_CANDIDATE"},
+    {"instance_id":"79ff3d80-fd9a-428b-99a8-5bdfb66188e5","started_at":"2026-09-19T05:03:19.579Z","guild":null,"players":40,"train_player_overlap":2,"prior_validation_player_overlap":0,"role":"UNKNOWN_NONVOTING_DEVELOPMENT_CANDIDATE"},
+    {"instance_id":"9441f43b-ed8a-46f7-829e-4c0be4bc491e","started_at":"2026-09-18T13:30:47.75Z","guild":null,"players":40,"train_player_overlap":1,"prior_validation_player_overlap":0,"role":"UNKNOWN_NONVOTING_DEVELOPMENT_CANDIDATE"},
+    {"instance_id":"e6b53a15-f2df-4ab2-a0f7-0e45c3be7872","started_at":"2026-09-18T11:52:10.037Z","guild":null,"players":40,"train_player_overlap":2,"prior_validation_player_overlap":0,"role":"UNKNOWN_NONVOTING_DEVELOPMENT_CANDIDATE"},
+    {"instance_id":"1c80ca19-515b-4223-96c3-edd53ece8fc9","started_at":"2026-09-16T13:05:20.547Z","guild":"山海","players":40,"train_player_overlap":1,"prior_validation_player_overlap":0,"role":"KNOWN_GUILD_DEVELOPMENT_CANDIDATE_JOINED_TO_TRAIN_COMPONENT"},
+    {"instance_id":"607c7243-24f3-4397-9278-42b682f1596a","started_at":"2026-09-16T11:59:32.563Z","guild":null,"players":47,"train_player_overlap":0,"prior_validation_player_overlap":0,"role":"RESERVED_UNKNOWN_NONVOTING_ZERO_ROSTER_OVERLAP"}
+  ],
+  "spent_or_duplicate_context": [
+    {"instance_id":"418307df-0321-40cd-8065-d33dd47de197","guild":"诸神夜","role":"SPENT_V8_EXTERNAL_DIAGNOSTIC_FAIL"},
+    {"instance_id":"2215f81c-ee46-4fe0-8ec8-c0b70b115f1c","guild":"诸神夜","role":"DUPLICATE_ROSTER_OF_4183_40_OF_40_SAME_STARTED_AT"},
+    {"instance_id":"0c735957-ffc1-49ea-a57a-a049d7a9857b","guild":null,"role":"PREVIOUSLY_INSPECTED_EVENT_DIAGNOSTIC"}
+  ],
+  "proposed_component_split": "Keep the 65 TRAIN raids and all candidates with train overlap in one development component; quarantine 3437 because it also touches old validation; reserve 607c outside fitting but not as formal holdout while raid guild is unknown. The ten candidate rosters and the three spent/inspected context rosters are pairwise disjoint except the explicitly duplicated 4183/2215 pair.",
+  "limitations": "Only one of the ten candidates has a named raid guild (山海), and it overlaps TRAIN. No new untouched, known-guild, roster-disjoint formal validation component was established. Recent-list activities do not expose raid guild, so the 2026-09-04 through 2026-09-15 window was not expanded without a guild prefilter."
+}
